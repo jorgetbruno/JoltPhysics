@@ -13,6 +13,8 @@
 #include <AzFramework/Physics/Configuration/SceneConfiguration.h>
 
 #include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Body/BodyActivationListener.h>
 
 namespace JPH
 {
