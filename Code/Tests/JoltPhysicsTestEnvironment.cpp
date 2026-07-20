@@ -1,4 +1,4 @@
-#include <Tests/JoltPhysicsTestEnvironment.h>
+#include <JoltPhysicsTestEnvironment.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
 
