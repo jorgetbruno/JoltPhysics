@@ -108,10 +108,9 @@ namespace JoltPhysics
             return;
         }
 
-        AzPhysics::SceneList scenesBackup = m_sceneList;
         AZStd::vector<AzPhysics::SceneConfiguration> sceneConfigs;
 
-        for (auto* scene : scenesBackup)
+        for (const auto& scene : m_sceneList)
         {
             if (scene)
             {
@@ -161,7 +160,7 @@ namespace JoltPhysics
 
         while (m_accumulatedTime >= fixedDeltaTime)
         {
-            for (auto* scene : m_sceneList)
+            for (const auto& scene : m_sceneList)
             {
                 if (scene && scene->IsEnabled())
                 {
@@ -197,7 +196,7 @@ namespace JoltPhysics
 
         auto scene = AZStd::make_unique<JoltScene>(config, handle);
         scene->InitializeJoltSystem();
-        m_sceneList[sceneIndex] = scene.release();
+        m_sceneList[sceneIndex] = AZStd::move(scene);
 
         AZLOG_INFO("JoltPhysics: Added scene '%s'", config.m_sceneName.c_str());
 
@@ -242,7 +241,7 @@ namespace JoltPhysics
         const auto index = AZStd::get<AzPhysics::SceneIndex>(handle);
         if (index < m_sceneList.size())
         {
-            return m_sceneList[index];
+            return m_sceneList[index].get();
         }
 
         return nullptr;
@@ -255,7 +254,7 @@ namespace JoltPhysics
 
         for (const auto& handle : handles)
         {
-            scenes.push_back(GetScene(handle));
+            scenes.emplace_back(GetScene(handle));
         }
 
         return scenes;
@@ -276,8 +275,7 @@ namespace JoltPhysics
         const auto index = AZStd::get<AzPhysics::SceneIndex>(handle);
         if (index < m_sceneList.size() && m_sceneList[index])
         {
-            delete m_sceneList[index];
-            m_sceneList[index] = nullptr;
+            m_sceneList[index].reset();
             m_freeSceneSlots.push(index);
         }
     }
@@ -292,10 +290,6 @@ namespace JoltPhysics
 
     void JoltSystem::RemoveAllScenes()
     {
-        for (auto* scene : m_sceneList)
-        {
-            delete scene;
-        }
         m_sceneList.clear();
 
         while (!m_freeSceneSlots.empty())
