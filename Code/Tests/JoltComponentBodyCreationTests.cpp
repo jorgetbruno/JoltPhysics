@@ -2,6 +2,7 @@
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
+#include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
 #include <System/JoltSystem.h>
@@ -116,6 +117,44 @@ namespace JoltPhysics
 
         const float capsuleZ = m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetPosition().GetZ();
         EXPECT_NEAR(capsuleZ, 0.5f, 0.05f);
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, TwoCollidersFormOneCompoundBody)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("CompoundEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        [[maybe_unused]] auto* colliderA = entity->CreateComponent<JoltBoxColliderComponent>();
+        auto* colliderB = entity->CreateComponent<JoltBoxColliderComponent>();
+        colliderB->GetColliderConfiguration().m_position = AZ::Vector3(1.0f, 0.0f, 0.0f);
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        // The two collider components on one entity produce exactly one simulated body.
+        const auto& bodyList = static_cast<JoltScene*>(m_scene)->GetSimulatedBodyList();
+        AZStd::vector<AzPhysics::SimulatedBody*> bodies;
+        for (const auto& [crc, body] : bodyList)
+        {
+            if (body)
+            {
+                bodies.push_back(body);
+            }
+        }
+        EXPECT_EQ(bodies.size(), 1u);
+
+        // The compound body covers both colliders: a raycast down through the
+        // offset collider at x=1 hits; the gap outside both boxes (x=2) misses.
+        AzPhysics::RayCastRequest request;
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 10.0f;
+
+        request.m_start = AZ::Vector3(1.0f, 0.0f, 5.0f);
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.size() == 1u);
+
+        request.m_start = AZ::Vector3(2.0f, 0.0f, 5.0f);
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+
+        entity.reset();
     }
 
 } // namespace JoltPhysics

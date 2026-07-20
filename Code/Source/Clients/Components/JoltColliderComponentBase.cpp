@@ -44,10 +44,10 @@ namespace JoltPhysics
         provided.push_back(AZ_CRC_CE("JoltColliderService"));
     }
 
-    void JoltColliderComponentBase::GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
+    void JoltColliderComponentBase::GetIncompatibleServices([[maybe_unused]] AZ::ComponentDescriptor::DependencyArrayType& incompatible)
     {
-        // Only one Jolt collider per entity for now.
-        incompatible.push_back(AZ_CRC_CE("JoltColliderService"));
+        // Multiple colliders per entity are allowed; they are combined into a
+        // single compound simulated body (mirrors PhysX BaseColliderComponent).
     }
 
     void JoltColliderComponentBase::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
