@@ -10,7 +10,14 @@
 
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Scene/JoltScene.h>
+#include <Debug/JoltDebugRenderer.h>
+#include <Utils/Conversions.h>
 #include <Utils/ReflectionUtils.h>
+
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyManager.h>
+#include <Jolt/Physics/PhysicsSystem.h>
 
 namespace JoltPhysics
 {
@@ -84,12 +91,14 @@ namespace JoltPhysics
 
         Physics::SystemRequestBus::Handler::BusConnect();
         Physics::CollisionRequestBus::Handler::BusConnect();
+        Physics::SystemDebugRequestBus::Handler::BusConnect();
         AZ::TickBus::Handler::BusConnect();
     }
 
     void JoltPhysicsSystemComponent::Deactivate()
     {
         AZ::TickBus::Handler::BusDisconnect();
+        Physics::SystemDebugRequestBus::Handler::BusDisconnect();
         Physics::CollisionRequestBus::Handler::BusDisconnect();
         Physics::SystemRequestBus::Handler::BusDisconnect();
 
@@ -290,6 +299,62 @@ namespace JoltPhysics
         const AzPhysics::CollisionGroup groupA = GetCollisionGroupById(colliderConfigurationA.m_collisionGroupId);
         const AzPhysics::CollisionGroup groupB = GetCollisionGroupById(colliderConfigurationB.m_collisionGroupId);
         return groupA.IsSet(colliderConfigurationB.m_collisionLayer) && groupB.IsSet(colliderConfigurationA.m_collisionLayer);
+    }
+
+    namespace
+    {
+        class DistanceBodyDrawFilter final : public JPH::BodyDrawFilter
+        {
+        public:
+            DistanceBodyDrawFilter(const AZ::Vector3& cameraPosition, float drawDistance)
+                : m_cameraPositionSq(cameraPosition.GetLengthSq() > 0.0f ? Conversions::ToJolt(cameraPosition) : JPH::RVec3::sZero())
+                , m_drawDistanceSq(drawDistance * drawDistance)
+                , m_enabled(drawDistance > 0.0f)
+            {
+            }
+
+            bool ShouldDraw(const JPH::Body& inBody) const override
+            {
+                if (!m_enabled)
+                {
+                    return true;
+                }
+                return (inBody.GetPosition() - m_cameraPositionSq).LengthSq() <= m_drawDistanceSq;
+            }
+
+        private:
+            JPH::RVec3 m_cameraPositionSq;
+            float m_drawDistanceSq = 0.0f;
+            bool m_enabled = false;
+        };
+    }
+
+    void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)
+    {
+        if (!m_physicsSystem)
+        {
+            return;
+        }
+
+        JPH::BodyManager::DrawSettings drawSettings;
+        drawSettings.mDrawShape = true;
+        drawSettings.mDrawShapeWireframe = settings.m_isWireframe;
+        drawSettings.mDrawShapeColor = JPH::BodyManager::EShapeColor::SleepColor;
+        drawSettings.mDrawCenterOfMassTransform = settings.m_drawBodyTransforms;
+
+        JoltDebugRenderer debugRenderer(&settings);
+        DistanceBodyDrawFilter bodyDrawFilter(settings.m_cameraPos, settings.m_drawDistance);
+
+        for (const auto& scene : m_physicsSystem->GetAllScenes())
+        {
+            if (auto* joltScene = static_cast<JoltScene*>(scene.get()))
+            {
+                if (auto* physicsSystem = joltScene->GetJoltPhysicsSystem())
+                {
+                    physicsSystem->DrawBodies(drawSettings, &debugRenderer, &bodyDrawFilter);
+                }
+            }
+        }
     }
 
 } // namespace JoltPhysics

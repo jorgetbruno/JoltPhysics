@@ -25,6 +25,7 @@ namespace JoltPhysics
         : public AZ::Component
         , protected Physics::SystemRequestBus::Handler
         , protected Physics::CollisionRequestBus::Handler
+        , protected Physics::SystemDebugRequestBus::Handler
         , public AZ::TickBus::Handler
     {
     public:
@@ -94,6 +95,9 @@ namespace JoltPhysics
         bool ShouldCollide(
             const Physics::ColliderConfiguration& colliderConfigurationA,
             const Physics::ColliderConfiguration& colliderConfigurationB) override;
+
+        // Physics::SystemDebugRequestBus
+        void DebugDrawPhysics(const Physics::DebugDrawSettings& settings) override;
 
     private:
         void EnablePhysics();

@@ -312,9 +312,24 @@ namespace JoltPhysics
     }
 
     AZStd::pair<AzPhysics::SceneHandle, AzPhysics::SimulatedBodyHandle> JoltSystem::FindAttachedBodyHandleFromEntityId(
-        [[maybe_unused]] AZ::EntityId entityId)
+        AZ::EntityId entityId)
     {
-        // TODO: Implement body search by entity ID
+        for (const auto& scene : m_sceneList)
+        {
+            if (!scene)
+            {
+                continue;
+            }
+
+            for (const auto& [crc, body] : static_cast<JoltScene*>(scene.get())->GetSimulatedBodyList())
+            {
+                if (body && body->GetEntityId() == entityId)
+                {
+                    return { static_cast<JoltScene*>(scene.get())->GetSceneHandle(), body->m_bodyHandle };
+                }
+            }
+        }
+
         return { AzPhysics::InvalidSceneHandle, AzPhysics::InvalidSimulatedBodyHandle };
     }
 

@@ -17,6 +17,8 @@ set(FILES
     Source/Clients/Components/JoltRigidBodyComponent.h
     Source/Clients/Components/JoltStaticRigidBodyComponent.cpp
     Source/Clients/Components/JoltStaticRigidBodyComponent.h
+    Source/Debug/JoltDebugRenderer.cpp
+    Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp
     Source/Configuration/JoltSettingsRegistryManager.h
     Source/System/JoltSystem.cpp
