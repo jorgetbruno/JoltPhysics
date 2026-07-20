@@ -43,7 +43,7 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         JoltSceneConfiguration() = default;
-        ~JoltSceneConfiguration() = default;
+        virtual ~JoltSceneConfiguration() = default;
 
         int m_collisionSteps = 1;
     };
