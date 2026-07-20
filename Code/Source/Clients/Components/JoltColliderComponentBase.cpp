@@ -13,6 +13,8 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
+            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::ColliderConfiguration>>();
+
             serializeContext->Class<JoltColliderComponentBase, AZ::Component>()
                 ->Version(1)
                 ->Field("ColliderConfiguration", &JoltColliderComponentBase::m_colliderConfiguration)
