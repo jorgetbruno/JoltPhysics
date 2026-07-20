@@ -85,6 +85,11 @@ namespace JoltPhysics
         AzPhysics::SimulatedBody* GetSimulatedBody() override;
         AzPhysics::SimulatedBodyHandle GetSimulatedBodyHandle() const override;
 
+        AzPhysics::RigidBodyConfiguration& GetConfiguration()
+        {
+            return m_configuration;
+        }
+
     protected:
         // AZ::Component
         void Activate() override;
