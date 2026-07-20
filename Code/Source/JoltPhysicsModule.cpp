@@ -3,6 +3,7 @@
 #include <Clients/JoltPhysicsSystemComponent.h>
 #include <Clients/ComponentDescriptors.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+#include <System/JoltSystem.h>
 
 #if defined(JOLT_EDITOR)
 #include <Editor/JoltPhysicsEditorSystemComponent.h>
