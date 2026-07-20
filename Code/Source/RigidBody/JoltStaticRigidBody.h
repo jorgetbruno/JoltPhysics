@@ -30,6 +30,9 @@ namespace JoltPhysics
         AZ::Transform GetTransform() const override;
         void SetTransform(const AZ::Transform& transform) override;
 
+        void AddShape(AZStd::shared_ptr<Physics::Shape> shape) override;
+
+        AZ::Crc32 GetNativeType() const override;
         void* GetNativePointer() const override;
         AzPhysics::SceneQueryHit RayCast(const AzPhysics::RayCastRequest& request) override;
 
@@ -37,6 +40,7 @@ namespace JoltPhysics
         AzPhysics::StaticRigidBodyConfiguration m_configuration;
         JoltScene* m_scene = nullptr;
         JPH::BodyID m_bodyId;
+        AZ::EntityId m_entityId;
     };
 
 } // namespace JoltPhysics

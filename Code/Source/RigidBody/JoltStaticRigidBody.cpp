@@ -24,7 +24,7 @@ namespace JoltPhysics
 
     JoltStaticRigidBody::~JoltStaticRigidBody()
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -63,7 +63,7 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltStaticRigidBody::GetPosition() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -75,7 +75,7 @@ namespace JoltPhysics
 
     AZ::Quaternion JoltStaticRigidBody::GetOrientation() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -87,7 +87,7 @@ namespace JoltPhysics
 
     AZ::Aabb JoltStaticRigidBody::GetAabb() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -118,7 +118,7 @@ namespace JoltPhysics
 
     void JoltStaticRigidBody::SetTransform(const AZ::Transform& transform)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -130,6 +130,16 @@ namespace JoltPhysics
                 );
             }
         }
+    }
+
+    void JoltStaticRigidBody::AddShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    {
+        // TODO: Implement adding shapes to a created body
+    }
+
+    AZ::Crc32 JoltStaticRigidBody::GetNativeType() const
+    {
+        return AZ_CRC_CE("JoltStaticRigidBody");
     }
 
     void* JoltStaticRigidBody::GetNativePointer() const
