@@ -1,17 +1,13 @@
 #include <JoltPhysicsEditorTestEnvironment.h>
 
-#include <AzCore/Memory/SystemAllocator.h>
-
 namespace JoltPhysics
 {
     void JoltPhysicsEditorTestEnvironment::SetupEnvironment()
     {
-        AZ::AllocatorInstance<AZ::SystemAllocator>::Create();
     }
 
     void JoltPhysicsEditorTestEnvironment::TeardownEnvironment()
     {
-        AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
     }
 
 } // namespace JoltPhysics
