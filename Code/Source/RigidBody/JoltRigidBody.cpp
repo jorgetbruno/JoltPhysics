@@ -2,6 +2,7 @@
 #include <Scene/JoltScene.h>
 #include <Utils/Conversions.h>
 #include <Shape/JoltShapeUtils.h>
+#include <System/CollisionLayerFilters.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
 
@@ -25,7 +26,7 @@ namespace JoltPhysics
 
     JoltRigidBody::~JoltRigidBody()
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -93,7 +94,7 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltRigidBody::GetPosition() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -105,7 +106,7 @@ namespace JoltPhysics
 
     AZ::Quaternion JoltRigidBody::GetOrientation() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -117,7 +118,7 @@ namespace JoltPhysics
 
     AZ::Aabb JoltRigidBody::GetAabb() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -148,7 +149,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetTransform(const AZ::Transform& transform)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -165,7 +166,7 @@ namespace JoltPhysics
     void JoltRigidBody::SetKinematic(bool isKinematic)
     {
         m_isKinematic = isKinematic;
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -183,9 +184,26 @@ namespace JoltPhysics
         return m_isKinematic;
     }
 
+    void JoltRigidBody::SetKinematicTarget([[maybe_unused]] const AZ::Transform& targetPosition)
+    {
+        // TODO: Implement kinematic target
+    }
+
+    bool JoltRigidBody::IsGravityEnabled() const
+    {
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                return bodyInterface->GetGravityFactor(m_bodyId) > 0.0f;
+            }
+        }
+        return m_configuration.m_gravityEnabled;
+    }
+
     void JoltRigidBody::SetGravityEnabled(bool enabled)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -199,14 +217,14 @@ namespace JoltPhysics
         // TODO: Implement simulation enable/disable
     }
 
-    void JoltRigidBody::SetCcdEnabled([[maybe_unused]] bool enabled)
+    void JoltRigidBody::SetCCDEnabled([[maybe_unused]] bool enabled)
     {
         // TODO: Implement CCD toggle
     }
 
     AZ::Vector3 JoltRigidBody::GetLinearVelocity() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -218,7 +236,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetLinearVelocity(const AZ::Vector3& velocity)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -229,7 +247,7 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltRigidBody::GetAngularVelocity() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -241,7 +259,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetAngularVelocity(const AZ::Vector3& angularVelocity)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -252,7 +270,7 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltRigidBody::GetLinearVelocityAtWorldPoint(const AZ::Vector3& worldPoint) const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -269,7 +287,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::ApplyLinearImpulse(const AZ::Vector3& impulse)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -280,7 +298,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::ApplyLinearImpulseAtWorldPoint(const AZ::Vector3& impulse, const AZ::Vector3& worldPoint)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -291,7 +309,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::ApplyAngularImpulse(const AZ::Vector3& angularImpulse)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -300,42 +318,9 @@ namespace JoltPhysics
         }
     }
 
-    void JoltRigidBody::AddForce(const AZ::Vector3& force)
-    {
-        if (m_scene && m_bodyId.IsValid())
-        {
-            if (auto* bodyInterface = m_scene->GetBodyInterface())
-            {
-                bodyInterface->AddForce(m_bodyId, Conversions::ToJolt(force));
-            }
-        }
-    }
-
-    void JoltRigidBody::AddForceAtPoint(const AZ::Vector3& force, const AZ::Vector3& worldPoint)
-    {
-        if (m_scene && m_bodyId.IsValid())
-        {
-            if (auto* bodyInterface = m_scene->GetBodyInterface())
-            {
-                bodyInterface->AddForce(m_bodyId, Conversions::ToJolt(force), Conversions::ToJolt(worldPoint));
-            }
-        }
-    }
-
-    void JoltRigidBody::AddTorque(const AZ::Vector3& torque)
-    {
-        if (m_scene && m_bodyId.IsValid())
-        {
-            if (auto* bodyInterface = m_scene->GetBodyInterface())
-            {
-                bodyInterface->AddTorque(m_bodyId, Conversions::ToJolt(torque));
-            }
-        }
-    }
-
     float JoltRigidBody::GetMass() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -355,7 +340,7 @@ namespace JoltPhysics
 
     float JoltRigidBody::GetInverseMass() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -378,6 +363,23 @@ namespace JoltPhysics
         // TODO: Implement mass update
     }
 
+    void JoltRigidBody::SetCenterOfMassOffset([[maybe_unused]] const AZ::Vector3& comOffset)
+    {
+        // TODO: Implement center of mass offset
+    }
+
+    AZ::Matrix3x3 JoltRigidBody::GetInertiaLocal() const
+    {
+        // TODO: Return actual inertia tensor
+        return AZ::Matrix3x3::CreateIdentity();
+    }
+
+    AZ::Matrix3x3 JoltRigidBody::GetInertiaWorld() const
+    {
+        // TODO: Return actual world-space inertia tensor
+        return AZ::Matrix3x3::CreateIdentity();
+    }
+
     AZ::Matrix3x3 JoltRigidBody::GetInverseInertiaLocal() const
     {
         // TODO: Return actual inertia tensor
@@ -392,7 +394,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetLinearDamping(float damping)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -411,7 +413,7 @@ namespace JoltPhysics
 
     float JoltRigidBody::GetLinearDamping() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -431,7 +433,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetAngularDamping(float damping)
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -450,7 +452,7 @@ namespace JoltPhysics
 
     float JoltRigidBody::GetAngularDamping() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
             {
@@ -470,7 +472,7 @@ namespace JoltPhysics
 
     bool JoltRigidBody::IsAwake() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -482,7 +484,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::ForceAsleep()
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -493,7 +495,7 @@ namespace JoltPhysics
 
     void JoltRigidBody::ForceAwake()
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -514,7 +516,7 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltRigidBody::GetCenterOfMassWorld() const
     {
-        if (m_scene && m_bodyId.IsValid())
+        if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -527,6 +529,30 @@ namespace JoltPhysics
     AZ::Vector3 JoltRigidBody::GetCenterOfMassLocal() const
     {
         return m_configuration.m_centerOfMassOffset;
+    }
+
+    void JoltRigidBody::AddShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    {
+        // TODO: Implement adding shapes to a created body
+    }
+
+    void JoltRigidBody::RemoveShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    {
+        // TODO: Implement removing shapes from a created body
+    }
+
+    void JoltRigidBody::UpdateMassProperties(
+        [[maybe_unused]] AzPhysics::MassComputeFlags flags,
+        [[maybe_unused]] const AZ::Vector3& centerOfMassOffsetOverride,
+        [[maybe_unused]] const AZ::Matrix3x3& inertiaTensorOverride,
+        [[maybe_unused]] const float massOverride)
+    {
+        // TODO: Implement mass properties update
+    }
+
+    AZ::Crc32 JoltRigidBody::GetNativeType() const
+    {
+        return AZ_CRC_CE("JoltRigidBody");
     }
 
     void* JoltRigidBody::GetNativePointer() const

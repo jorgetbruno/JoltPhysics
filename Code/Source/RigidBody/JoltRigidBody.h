@@ -33,9 +33,11 @@ namespace JoltPhysics
         void SetTransform(const AZ::Transform& transform) override;
         void SetKinematic(bool isKinematic) override;
         bool IsKinematic() const override;
+        void SetKinematicTarget(const AZ::Transform& targetPosition) override;
+        bool IsGravityEnabled() const override;
         void SetGravityEnabled(bool enabled) override;
         void SetSimulationEnabled(bool enabled) override;
-        void SetCcdEnabled(bool enabled) override;
+        void SetCCDEnabled(bool enabled) override;
 
         AZ::Vector3 GetLinearVelocity() const override;
         void SetLinearVelocity(const AZ::Vector3& velocity) override;
@@ -48,13 +50,12 @@ namespace JoltPhysics
         void ApplyLinearImpulseAtWorldPoint(const AZ::Vector3& impulse, const AZ::Vector3& worldPoint) override;
         void ApplyAngularImpulse(const AZ::Vector3& angularImpulse) override;
 
-        void AddForce(const AZ::Vector3& force) override;
-        void AddForceAtPoint(const AZ::Vector3& force, const AZ::Vector3& worldPoint) override;
-        void AddTorque(const AZ::Vector3& torque) override;
-
         float GetMass() const override;
         float GetInverseMass() const override;
         void SetMass(float mass) override;
+        void SetCenterOfMassOffset(const AZ::Vector3& comOffset) override;
+        AZ::Matrix3x3 GetInertiaLocal() const override;
+        AZ::Matrix3x3 GetInertiaWorld() const override;
         AZ::Matrix3x3 GetInverseInertiaLocal() const override;
         AZ::Matrix3x3 GetInverseInertiaWorld() const override;
 
@@ -73,6 +74,15 @@ namespace JoltPhysics
         AZ::Vector3 GetCenterOfMassWorld() const override;
         AZ::Vector3 GetCenterOfMassLocal() const override;
 
+        void AddShape(AZStd::shared_ptr<Physics::Shape> shape) override;
+        void RemoveShape(AZStd::shared_ptr<Physics::Shape> shape) override;
+
+        void UpdateMassProperties(AzPhysics::MassComputeFlags flags = AzPhysics::MassComputeFlags::DEFAULT,
+            const AZ::Vector3& centerOfMassOffsetOverride = AZ::Vector3::CreateZero(),
+            const AZ::Matrix3x3& inertiaTensorOverride = AZ::Matrix3x3::CreateIdentity(),
+            const float massOverride = 1.0f) override;
+
+        AZ::Crc32 GetNativeType() const override;
         void* GetNativePointer() const override;
         AzPhysics::SceneQueryHit RayCast(const AzPhysics::RayCastRequest& request) override;
 
@@ -80,6 +90,7 @@ namespace JoltPhysics
         AzPhysics::RigidBodyConfiguration m_configuration;
         JoltScene* m_scene = nullptr;
         JPH::BodyID m_bodyId;
+        AZ::EntityId m_entityId;
         bool m_isKinematic = false;
     };
 
