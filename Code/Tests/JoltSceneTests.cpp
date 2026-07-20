@@ -1,11 +1,15 @@
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
+#include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
+#include <AzFramework/Physics/Shape.h>
+#include <AzFramework/Physics/ShapeConfiguration.h>
 
 namespace JoltPhysics
 {
@@ -77,6 +81,34 @@ namespace JoltPhysics
         EXPECT_NE(body, nullptr);
 
         m_scene->RemoveSimulatedBody(handle);
+    }
+
+    TEST_F(JoltSceneTests, StaticBodyColliderOffsetIsApplied)
+    {
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_debugName = "Ground";
+
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        colliderConfig->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto shapeConfig = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        shapeConfig->m_dimensions = AZ::Vector3(10.0f, 10.0f, 1.0f);
+
+        staticConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, shapeConfig);
+
+        AzPhysics::SimulatedBodyHandle bodyHandle = m_scene->AddSimulatedBody(&staticConfig);
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // The 10x10x1 slab is offset -0.5 along z, so its top surface is at z=0.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 100.0f;
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 0.0f, 0.01f);
+
+        m_scene->RemoveSimulatedBody(bodyHandle);
     }
 
 } // namespace JoltPhysics
