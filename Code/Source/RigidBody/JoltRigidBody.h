@@ -4,7 +4,13 @@
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 
 #include <Jolt/Jolt.h>
+#include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyID.h>
+
+namespace JPH
+{
+    class Shape;
+}
 
 namespace JoltPhysics
 {
@@ -93,9 +99,11 @@ namespace JoltPhysics
         AzPhysics::RigidBodyConfiguration m_configuration;
         JoltScene* m_scene = nullptr;
         JPH::BodyID m_bodyId;
+        JPH::RefConst<JPH::Shape> m_baseShape; //!< Unshifted shape from creation; re-wrapped on COM offset changes.
         AZ::EntityId m_entityId;
         bool m_isKinematic = false;
         bool m_isSensor = false;
+        bool m_simulationEnabled = true;
     };
 
 } // namespace JoltPhysics

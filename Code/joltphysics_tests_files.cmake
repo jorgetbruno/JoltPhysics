@@ -8,4 +8,5 @@ set(FILES
     Tests/JoltSceneQueryTests.cpp
     Tests/JoltMaterialTests.cpp
     Tests/JoltTriggerTests.cpp
+    Tests/JoltRigidBodyTests.cpp
 )

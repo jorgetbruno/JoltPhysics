@@ -122,6 +122,8 @@ namespace JoltPhysics
         JPH::PhysicsSystem* GetJoltPhysicsSystem() { return m_physicsSystem.get(); }
         JPH::BodyInterface* GetBodyInterface() { return m_bodyInterface; }
 
+        float GetCurrentDeltaTime() const { return m_currentDeltaTime; }
+
     private:
         class QueuedActiveBodyIndices
         {

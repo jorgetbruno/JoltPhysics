@@ -13,6 +13,9 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 
 namespace JoltPhysics
 {
@@ -50,6 +53,13 @@ namespace JoltPhysics
         if (!shape)
         {
             shape = new JPH::SphereShape(0.5f);
+        }
+        m_baseShape = shape;
+
+        if (!m_configuration.m_centerOfMassOffset.IsZero())
+        {
+            shape = new JPH::RotatedTranslatedShape(
+                Conversions::ToJolt(-m_configuration.m_centerOfMassOffset), JPH::Quat::sIdentity(), m_baseShape);
         }
 
         JPH::EMotionType motionType = m_isKinematic
@@ -198,9 +208,20 @@ namespace JoltPhysics
         return m_isKinematic;
     }
 
-    void JoltRigidBody::SetKinematicTarget([[maybe_unused]] const AZ::Transform& targetPosition)
+    void JoltRigidBody::SetKinematicTarget(const AZ::Transform& targetPosition)
     {
-        // TODO: Implement kinematic target
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                bodyInterface->MoveKinematic(
+                    m_bodyId,
+                    Conversions::ToJolt(targetPosition.GetTranslation()),
+                    Conversions::ToJolt(targetPosition.GetRotation()),
+                    m_scene->GetCurrentDeltaTime() > 0.0f ? m_scene->GetCurrentDeltaTime() : 1.0f / 60.0f
+                );
+            }
+        }
     }
 
     bool JoltRigidBody::IsGravityEnabled() const
@@ -226,14 +247,39 @@ namespace JoltPhysics
         }
     }
 
-    void JoltRigidBody::SetSimulationEnabled([[maybe_unused]] bool enabled)
+    void JoltRigidBody::SetSimulationEnabled(bool enabled)
     {
-        // TODO: Implement simulation enable/disable
+        if (!m_scene || m_bodyId.IsInvalid() || enabled == m_simulationEnabled)
+        {
+            return;
+        }
+
+        if (auto* bodyInterface = m_scene->GetBodyInterface())
+        {
+            if (enabled)
+            {
+                bodyInterface->AddBody(m_bodyId, JPH::EActivation::Activate);
+            }
+            else
+            {
+                bodyInterface->RemoveBody(m_bodyId);
+            }
+            m_simulationEnabled = enabled;
+        }
     }
 
-    void JoltRigidBody::SetCCDEnabled([[maybe_unused]] bool enabled)
+    void JoltRigidBody::SetCCDEnabled(bool enabled)
     {
-        // TODO: Implement CCD toggle
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                bodyInterface->SetMotionQuality(
+                    m_bodyId,
+                    enabled ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete
+                );
+            }
+        }
     }
 
     AZ::Vector3 JoltRigidBody::GetLinearVelocity() const
@@ -372,37 +418,124 @@ namespace JoltPhysics
         return m_configuration.m_mass > 0.0f ? 1.0f / m_configuration.m_mass : 0.0f;
     }
 
-    void JoltRigidBody::SetMass([[maybe_unused]] float mass)
+    void JoltRigidBody::SetMass(float mass)
     {
-        // TODO: Implement mass update
+        m_configuration.m_mass = mass;
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+            {
+                JPH::BodyLockWrite bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+                if (bodyLock.Succeeded())
+                {
+                    JPH::Body& body = bodyLock.GetBody();
+                    if (body.GetMotionProperties())
+                    {
+                        body.GetMotionProperties()->SetInverseMass(1.0f / AZStd::max(mass, 0.001f));
+                    }
+                }
+            }
+        }
     }
 
-    void JoltRigidBody::SetCenterOfMassOffset([[maybe_unused]] const AZ::Vector3& comOffset)
+    void JoltRigidBody::SetCenterOfMassOffset(const AZ::Vector3& comOffset)
     {
-        // TODO: Implement center of mass offset
+        m_configuration.m_centerOfMassOffset = comOffset;
+
+        if (!m_scene || m_bodyId.IsInvalid() || !m_baseShape)
+        {
+            return;
+        }
+
+        // Jolt-native semantics: the collision geometry is shifted by -offset around
+        // the body pivot (which is also the center of mass Jolt integrates around).
+        // NOTE: Jolt cannot express PhysX's "geometry fixed, mass frame moved" model;
+        // see DIVERGENCES.md.
+        JPH::RefConst<JPH::Shape> shiftedShape = m_baseShape;
+        if (!comOffset.IsZero())
+        {
+            shiftedShape = new JPH::RotatedTranslatedShape(
+                Conversions::ToJolt(-comOffset), JPH::Quat::sIdentity(), m_baseShape);
+        }
+
+        if (auto* bodyInterface = m_scene->GetBodyInterface())
+        {
+            bodyInterface->SetShape(m_bodyId, shiftedShape, true /* update mass properties */, JPH::EActivation::Activate);
+        }
     }
 
     AZ::Matrix3x3 JoltRigidBody::GetInertiaLocal() const
     {
-        // TODO: Return actual inertia tensor
-        return AZ::Matrix3x3::CreateIdentity();
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+            {
+                JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+                if (bodyLock.Succeeded())
+                {
+                    const JPH::Body& body = bodyLock.GetBody();
+                    if (body.GetMotionProperties())
+                    {
+                        const JPH::Vec3 inverseDiagonal = body.GetMotionProperties()->GetInverseInertiaDiagonal();
+                        return AZ::Matrix3x3::CreateDiagonal(AZ::Vector3(
+                            inverseDiagonal.GetX() > 0.0f ? 1.0f / inverseDiagonal.GetX() : 0.0f,
+                            inverseDiagonal.GetY() > 0.0f ? 1.0f / inverseDiagonal.GetY() : 0.0f,
+                            inverseDiagonal.GetZ() > 0.0f ? 1.0f / inverseDiagonal.GetZ() : 0.0f));
+                    }
+                }
+            }
+        }
+        return m_configuration.m_inertiaTensor;
     }
 
     AZ::Matrix3x3 JoltRigidBody::GetInertiaWorld() const
     {
-        // TODO: Return actual world-space inertia tensor
-        return AZ::Matrix3x3::CreateIdentity();
+        return GetInverseInertiaWorld().GetInverseFull();
     }
 
     AZ::Matrix3x3 JoltRigidBody::GetInverseInertiaLocal() const
     {
-        // TODO: Return actual inertia tensor
-        return AZ::Matrix3x3::CreateIdentity();
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+            {
+                JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+                if (bodyLock.Succeeded())
+                {
+                    const JPH::Body& body = bodyLock.GetBody();
+                    if (body.GetMotionProperties())
+                    {
+                        const JPH::Vec3 inverseDiagonal = body.GetMotionProperties()->GetInverseInertiaDiagonal();
+                        return AZ::Matrix3x3::CreateDiagonal(Conversions::FromJolt(inverseDiagonal));
+                    }
+                }
+            }
+        }
+        return m_configuration.m_inertiaTensor.GetInverseFull();
     }
 
     AZ::Matrix3x3 JoltRigidBody::GetInverseInertiaWorld() const
     {
-        // TODO: Return actual world-space inertia tensor
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+            {
+                JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+                if (bodyLock.Succeeded())
+                {
+                    const JPH::Body& body = bodyLock.GetBody();
+                    if (body.GetMotionProperties())
+                    {
+                        const JPH::Mat44 inverseInertia = body.GetMotionProperties()->GetInverseInertiaForRotation(
+                            JPH::Mat44::sRotation(body.GetRotation()));
+                        return AZ::Matrix3x3::CreateFromRows(
+                            AZ::Vector3(inverseInertia(0, 0), inverseInertia(0, 1), inverseInertia(0, 2)),
+                            AZ::Vector3(inverseInertia(1, 0), inverseInertia(1, 1), inverseInertia(1, 2)),
+                            AZ::Vector3(inverseInertia(2, 0), inverseInertia(2, 1), inverseInertia(2, 2)));
+                    }
+                }
+            }
+        }
         return AZ::Matrix3x3::CreateIdentity();
     }
 
@@ -556,12 +689,44 @@ namespace JoltPhysics
     }
 
     void JoltRigidBody::UpdateMassProperties(
-        [[maybe_unused]] AzPhysics::MassComputeFlags flags,
-        [[maybe_unused]] const AZ::Vector3& centerOfMassOffsetOverride,
-        [[maybe_unused]] const AZ::Matrix3x3& inertiaTensorOverride,
-        [[maybe_unused]] const float massOverride)
+        AzPhysics::MassComputeFlags flags,
+        const AZ::Vector3& centerOfMassOffsetOverride,
+        const AZ::Matrix3x3& inertiaTensorOverride,
+        const float massOverride)
     {
-        // TODO: Implement mass properties update
+        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_COM) == AzPhysics::MassComputeFlags::COMPUTE_COM)
+        {
+            SetCenterOfMassOffset(centerOfMassOffsetOverride);
+        }
+
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+            {
+                JPH::BodyLockWrite bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+                if (bodyLock.Succeeded())
+                {
+                    JPH::Body& body = bodyLock.GetBody();
+                    if (body.GetMotionProperties())
+                    {
+                        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_MASS) == AzPhysics::MassComputeFlags::COMPUTE_MASS)
+                        {
+                            m_configuration.m_mass = massOverride;
+                            body.GetMotionProperties()->SetInverseMass(1.0f / AZStd::max(massOverride, 0.001f));
+                        }
+                        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_INERTIA) == AzPhysics::MassComputeFlags::COMPUTE_INERTIA)
+                        {
+                            // Jolt stores a diagonal local inertia; off-diagonal elements are not supported.
+                            body.GetMotionProperties()->SetInverseInertia(JPH::Vec3(
+                                inertiaTensorOverride(0, 0) > 0.0f ? 1.0f / inertiaTensorOverride(0, 0) : 0.0f,
+                                inertiaTensorOverride(1, 1) > 0.0f ? 1.0f / inertiaTensorOverride(1, 1) : 0.0f,
+                                inertiaTensorOverride(2, 2) > 0.0f ? 1.0f / inertiaTensorOverride(2, 2) : 0.0f),
+                                body.GetMotionProperties()->GetInertiaRotation());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     AZ::Crc32 JoltRigidBody::GetNativeType() const
@@ -574,10 +739,47 @@ namespace JoltPhysics
         return const_cast<JPH::BodyID*>(&m_bodyId);
     }
 
-    AzPhysics::SceneQueryHit JoltRigidBody::RayCast([[maybe_unused]] const AzPhysics::RayCastRequest& request)
+    AzPhysics::SceneQueryHit JoltRigidBody::RayCast(const AzPhysics::RayCastRequest& request)
     {
-        // TODO: Implement per-body raycast
-        return AzPhysics::SceneQueryHit();
+        AzPhysics::SceneQueryHit queryHit;
+
+        if (!m_scene || m_bodyId.IsInvalid())
+        {
+            return queryHit;
+        }
+
+        if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+        {
+            JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (bodyLock.Succeeded())
+            {
+                const JPH::Body& body = bodyLock.GetBody();
+
+                // Cast in body-local space.
+                const JPH::Mat44 worldToLocal = body.GetInverseCenterOfMassTransform();
+                const JPH::Vec3 localStart = worldToLocal * Conversions::ToJolt(request.m_start);
+                const JPH::Vec3 localDirection = worldToLocal.Multiply3x3(Conversions::ToJolt(request.m_direction * request.m_distance));
+
+                JPH::RayCast ray(localStart, localDirection);
+                JPH::RayCastResult hit;
+                if (body.GetShape()->CastRay(ray, JPH::SubShapeIDCreator(), hit))
+                {
+                    queryHit.m_distance = hit.mFraction * request.m_distance;
+                    queryHit.m_position = request.m_start + request.m_direction * (hit.mFraction * request.m_distance);
+                    queryHit.m_normal = Conversions::FromJolt(
+                        body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, Conversions::ToJolt(queryHit.m_position)));
+                    queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
+                                            AzPhysics::SceneQuery::ResultFlags::Position |
+                                            AzPhysics::SceneQuery::ResultFlags::Normal |
+                                            AzPhysics::SceneQuery::ResultFlags::BodyHandle |
+                                            AzPhysics::SceneQuery::ResultFlags::EntityId;
+                    queryHit.m_bodyHandle = m_bodyHandle;
+                    queryHit.m_entityId = m_entityId;
+                }
+            }
+        }
+
+        return queryHit;
     }
 
 } // namespace JoltPhysics
