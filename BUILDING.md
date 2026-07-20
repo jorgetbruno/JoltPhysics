@@ -40,7 +40,7 @@ cmake -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=profile -S .
 cmake --build build/windows --target YourProject.GameLauncher Editor JoltPhysics JoltPhysics.Editor
 ```
 
-The first configure clones Jolt Physics (currently `v5.4.0`) via CMake FetchContent;
+The first configure clones Jolt Physics (currently `v5.5.0`) via CMake FetchContent;
 all other dependencies come from the O3DE SDK.
 
 The same commands run from Git Bash in this repo's dev environment via the helper
