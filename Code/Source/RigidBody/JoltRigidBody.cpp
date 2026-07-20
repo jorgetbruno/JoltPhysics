@@ -71,7 +71,6 @@ namespace JoltPhysics
         bodySettings.mAngularVelocity = Conversions::ToJolt(m_configuration.m_initialAngularVelocity);
         bodySettings.mLinearDamping = m_configuration.m_linearDamping;
         bodySettings.mAngularDamping = m_configuration.m_angularDamping;
-        bodySettings.mMaxLinearVelocity = m_configuration.m_maxAngularVelocity;
         bodySettings.mMaxAngularVelocity = m_configuration.m_maxAngularVelocity;
         bodySettings.mGravityFactor = m_configuration.m_gravityEnabled ? 1.0f : 0.0f;
 
