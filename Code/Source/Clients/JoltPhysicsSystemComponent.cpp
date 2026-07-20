@@ -128,24 +128,9 @@ namespace JoltPhysics
         // TODO: Implement mesh object release
     }
 
-    AZStd::shared_ptr<Physics::Material> JoltPhysicsSystemComponent::GetDefaultMaterial()
+    void JoltPhysicsSystemComponent::ReleaseNativeHeightfieldObject([[maybe_unused]] void* nativeHeightfieldObject)
     {
-        // TODO: Return default Jolt material
-        return nullptr;
-    }
-
-    AZStd::shared_ptr<Physics::Material> JoltPhysicsSystemComponent::CreateMaterial(
-        [[maybe_unused]] const Physics::MaterialConfiguration& materialConfiguration)
-    {
-        // TODO: Create Jolt material from configuration
-        return nullptr;
-    }
-
-    AZStd::shared_ptr<Physics::Material> JoltPhysicsSystemComponent::CreateMaterial(
-        [[maybe_unused]] const Physics::MaterialId& materialId)
-    {
-        // TODO: Create Jolt material from ID
-        return nullptr;
+        // TODO: Implement heightfield object release
     }
 
     bool JoltPhysicsSystemComponent::CookConvexMeshToFile(

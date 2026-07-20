@@ -50,10 +50,7 @@ namespace JoltPhysics
             const Physics::ShapeConfiguration& configuration) override;
 
         void ReleaseNativeMeshObject(void* nativeMeshObject) override;
-
-        AZStd::shared_ptr<Physics::Material> GetDefaultMaterial() override;
-        AZStd::shared_ptr<Physics::Material> CreateMaterial(const Physics::MaterialConfiguration& materialConfiguration) override;
-        AZStd::shared_ptr<Physics::Material> CreateMaterial(const Physics::MaterialId& materialId) override;
+        void ReleaseNativeHeightfieldObject(void* nativeHeightfieldObject) override;
 
         bool CookConvexMeshToFile(
             const AZStd::string& filePath,
@@ -102,7 +99,6 @@ namespace JoltPhysics
 
         bool m_enabled = false;
         JoltSystem* m_physicsSystem = nullptr;
-        AzPhysics::SystemEvents::OnMaterialLibraryChangedEvent::Handler m_onMaterialLibraryChangedHandler;
     };
 
 } // namespace JoltPhysics
