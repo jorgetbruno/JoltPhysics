@@ -6,33 +6,37 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 
 ### Implemented
 - Core physics system integration via `AzPhysics::SystemInterface`
-- Scene/World management with simulation stepping
-- Dynamic and static rigid bodies with primitive colliders (Box, Sphere, Capsule, Cylinder)
-- Basic raycast queries through O3DE's physics query API
-- Collision layers and groups
+- Scene/World management with simulation stepping, incl. the game default world
+- Dynamic and static rigid bodies with primitive colliders (Box, Sphere, Capsule)
+- Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
+- Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
+- Raycast queries through O3DE's physics query API
+- Collision layers and groups (system level)
 - Gravity control per scene
 - Body activation/deactivation
-- Linear and angular velocity control
-- Force and impulse application
+- Linear and angular velocity control, impulse application
+- Collider offset/rotation and multi-collider compound shapes in the backend
 
 ### Planned / TODO
 - Character controllers
 - Heightfield colliders
-- Convex hull and mesh colliders
-- Compound colliders
+- Convex hull and mesh colliders (cooking)
+- Compound collider components (multiple colliders per entity)
 - Joints (fixed, hinge, slider, etc.)
 - Shape cast and overlap queries
 - Async scene queries
+- Physics materials (friction/restitution) on colliders
+- Trigger colliders
 - Soft bodies
 - Vehicle simulation
 - Debug visualization
 
 ## Requirements
 
-- O3DE 2305.0 or later
-- CMake 3.22+
-- Windows 10/11 or Linux (Ubuntu 20.04+)
-- C++17 compatible compiler
+- **O3DE 26.05** (engine version `2.6.0`) — the gem is pinned to this engine release; see [BUILDING.md](BUILDING.md) for the exact setup.
+- CMake 3.23+, Ninja
+- Windows 11 + Visual Studio 2022 (primary dev target) or Linux (Ubuntu 20.04+, must not break)
+- C++20 compatible compiler
 
 ## Installation
 
@@ -109,21 +113,8 @@ When building, you can customize Jolt integration:
 
 ## Building
 
-### Windows
-
-```bash
-cd /path/to/your/project
-cmake -B build/windows -S . -G "Visual Studio 17 2022"
-cmake --build build/windows --config profile --target YourProject.GameLauncher
-```
-
-### Linux
-
-```bash
-cd /path/to/your/project
-cmake -B build/linux -S .
-cmake --build build/linux --config profile --target YourProject.GameLauncher
-```
+See [BUILDING.md](BUILDING.md) for the exact, tested build commands for Windows and Linux,
+including how the gem is registered and how the unit tests are run.
 
 ## Verifying Jolt is Active
 
