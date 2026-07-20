@@ -181,7 +181,6 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
         NAME ${gem_name}.Editor.Private.Object STATIC
         NAMESPACE Gem
         AUTOMOC
-        AUTOUIC
         FILES_CMAKE
             joltphysics_editor_private_files.cmake
         COMPILE_DEFINITIONS
