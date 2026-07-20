@@ -196,9 +196,9 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyHandleList handles;
         handles.reserve(simulatedBodyConfigs.size());
 
-        for (const auto& config : simulatedBodyConfigs)
+        for (const auto* config : simulatedBodyConfigs)
         {
-            handles.push_back(AddSimulatedBody(config.get()));
+            handles.push_back(AddSimulatedBody(config));
         }
 
         return handles;
