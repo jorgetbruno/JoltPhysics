@@ -1,6 +1,6 @@
 #pragma once
 
-#include <AzFramework/Physics/RigidBody.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 
 #include <Jolt/Jolt.h>
