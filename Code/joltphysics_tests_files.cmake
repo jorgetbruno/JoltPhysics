@@ -4,4 +4,6 @@ set(FILES
     Tests/JoltSystemTests.cpp
     Tests/JoltSceneTests.cpp
     Tests/JoltComponentSerializationTests.cpp
+    Tests/JoltCollisionFilteringTests.cpp
+    Tests/JoltSceneQueryTests.cpp
 )
