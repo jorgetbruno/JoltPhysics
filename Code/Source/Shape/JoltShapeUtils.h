@@ -27,6 +27,12 @@ namespace JoltPhysics
         static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfig(
             const Physics::ShapeConfiguration& shapeConfiguration);
 
+        //! Returns the collider configuration of the first collider/shape pair found in the
+        //! variant data, or nullptr if there is none. Per-body settings (collision filtering,
+        //! sensor flag) are currently taken from the first collider only.
+        static const Physics::ColliderConfiguration* GetFirstColliderConfiguration(
+            const AzPhysics::ShapeVariantData& colliderAndShapeData);
+
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);
 

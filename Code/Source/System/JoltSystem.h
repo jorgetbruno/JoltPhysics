@@ -60,6 +60,13 @@ namespace JoltPhysics
         void SetCollisionLayerName(int index, const AZStd::string& layerName);
         void CreateCollisionGroup(const AZStd::string& groupName, const AzPhysics::CollisionGroup& group);
 
+        //! Creates a collision group preset and returns its id (for use in collider configurations).
+        AzPhysics::CollisionGroups::Id CreateCollisionGroupPreset(
+            const AZStd::string& groupName, const AzPhysics::CollisionGroup& group)
+        {
+            return m_systemConfig.m_collisionConfig.m_collisionGroups.CreateGroup(groupName, group);
+        }
+
         AZ::u32 GetCollisionGroupIndex(const AzPhysics::CollisionGroup& group) const;
         AZ::u32 GetCollisionGroupIndex(const AzPhysics::CollisionGroups::Id& groupId) const;
 

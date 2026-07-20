@@ -23,6 +23,8 @@ namespace JoltPhysics
         void CreateInScene(JoltScene* scene);
         void SyncTransform();
 
+        const JPH::BodyID& GetBodyId() const { return m_bodyId; }
+
         AZ::Vector3 GetPosition() const override;
         AZ::Quaternion GetOrientation() const override;
         AZ::Aabb GetAabb() const override;

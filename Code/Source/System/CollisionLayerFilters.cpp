@@ -1,4 +1,7 @@
 #include <System/CollisionLayerFilters.h>
+#include <System/JoltSystem.h>
+
+#include <AzCore/std/limits.h>
 
 namespace JoltPhysics
 {
@@ -69,6 +72,24 @@ namespace JoltPhysics
             JPH_ASSERT(false);
             return false;
         }
+    }
+
+    JPH::CollisionGroup CreateCollisionGroupFromConfig(const Physics::ColliderConfiguration& colliderConfiguration)
+    {
+        AZ::u32 layerMask = AZStd::numeric_limits<AZ::u32>::max();
+
+        if (auto* joltSystem = GetJoltSystem())
+        {
+            const AzPhysics::CollisionGroup group =
+                joltSystem->GetJoltConfiguration().m_collisionConfig.m_collisionGroups.FindGroupById(
+                    colliderConfiguration.m_collisionGroupId);
+            layerMask = static_cast<AZ::u32>(group.GetMask());
+        }
+
+        return JPH::CollisionGroup(
+            new AzPhysicsGroupFilter(layerMask),
+            0 /* group id, unused */,
+            colliderConfiguration.m_collisionLayer.GetIndex());
     }
 
 } // namespace JoltPhysics

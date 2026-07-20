@@ -161,4 +161,21 @@ namespace JoltPhysics
         return new JPH::CapsuleShape(halfHeight, config.m_radius);
     }
 
+    const Physics::ColliderConfiguration* JoltShapeUtils::GetFirstColliderConfiguration(
+        const AzPhysics::ShapeVariantData& colliderAndShapeData)
+    {
+        if (const auto* singleCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData))
+        {
+            return singleCollider->first.get();
+        }
+
+        if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData);
+            colliderList && !colliderList->empty())
+        {
+            return colliderList->front().first.get();
+        }
+
+        return nullptr;
+    }
+
 } // namespace JoltPhysics

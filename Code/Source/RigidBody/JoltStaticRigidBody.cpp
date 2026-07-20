@@ -57,6 +57,15 @@ namespace JoltPhysics
             ObjectLayers::NonMoving
         );
 
+        if (const Physics::ColliderConfiguration* colliderConfiguration =
+                JoltShapeUtils::GetFirstColliderConfiguration(m_configuration.m_colliderAndShapeData))
+        {
+            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*colliderConfiguration);
+            bodySettings.mIsSensor = colliderConfiguration->m_isTrigger;
+        }
+
+        bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);
+
         auto* bodyInterface = scene->GetBodyInterface();
         m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::DontActivate);
     }
