@@ -1,5 +1,4 @@
 #include <JoltPhysicsModule.h>
-#include <AzCore/Module/DynamicModuleHandle.h>
 
 #include <Clients/JoltPhysicsSystemComponent.h>
 #include <Clients/ComponentDescriptors.h>

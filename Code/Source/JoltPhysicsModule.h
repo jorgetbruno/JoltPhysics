@@ -2,6 +2,7 @@
 
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/Module/Module.h>
+#include <AzCore/Module/DynamicModuleHandle.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
 
 namespace JoltPhysics
