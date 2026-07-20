@@ -93,16 +93,34 @@ namespace JoltPhysics
 
         bodySettings.mAllowSleeping = m_configuration.m_sleepMinEnergy > 0.0f;
 
-        if (const Physics::ColliderConfiguration* colliderConfiguration =
-                JoltShapeUtils::GetFirstColliderConfiguration(m_configuration.m_colliderAndShapeData))
-        {
-            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*colliderConfiguration);
-            bodySettings.mIsSensor = colliderConfiguration->m_isTrigger;
-            m_isSensor = colliderConfiguration->m_isTrigger;
+        const AzPhysics::ShapeColliderPairList colliderPairs =
+            JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
 
-            const auto [friction, restitution] = JoltMaterialManager::ResolveFrictionRestitution(*colliderConfiguration);
-            bodySettings.mFriction = friction;
-            bodySettings.mRestitution = restitution;
+        if (!colliderPairs.empty() && colliderPairs.front().first)
+        {
+            const Physics::ColliderConfiguration& firstCollider = *colliderPairs.front().first;
+            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(firstCollider);
+            bodySettings.mIsSensor = firstCollider.m_isTrigger;
+            m_isSensor = firstCollider.m_isTrigger;
+        }
+
+        m_colliderMaterials.reserve(colliderPairs.size());
+        for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
+        {
+            if (colliderConfig)
+            {
+                m_colliderMaterials.push_back(JoltMaterialManager::ResolveFrictionRestitution(*colliderConfig));
+            }
+            else
+            {
+                m_colliderMaterials.emplace_back(JoltMaterial::DefaultFriction, JoltMaterial::DefaultRestitution);
+            }
+        }
+
+        if (!m_colliderMaterials.empty())
+        {
+            bodySettings.mFriction = m_colliderMaterials.front().first;
+            bodySettings.mRestitution = m_colliderMaterials.front().second;
         }
 
         bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);

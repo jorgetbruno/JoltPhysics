@@ -33,6 +33,10 @@ namespace JoltPhysics
         static const Physics::ColliderConfiguration* GetFirstColliderConfiguration(
             const AzPhysics::ShapeVariantData& colliderAndShapeData);
 
+        //! Returns all collider/shape pairs from the variant data (empty when none).
+        static AzPhysics::ShapeColliderPairList GetColliderPairList(
+            const AzPhysics::ShapeVariantData& colliderAndShapeData);
+
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);
 

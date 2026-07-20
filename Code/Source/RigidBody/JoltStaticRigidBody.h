@@ -25,6 +25,9 @@ namespace JoltPhysics
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
         bool IsSensor() const { return m_isSensor; }
 
+        //! {friction, restitution} per collider, in collider order (compound sub-shape order).
+        const AZStd::vector<AZStd::pair<float, float>>& GetColliderMaterials() const { return m_colliderMaterials; }
+
         AZ::Vector3 GetPosition() const override;
         AZ::Quaternion GetOrientation() const override;
         AZ::Aabb GetAabb() const override;
@@ -45,6 +48,7 @@ namespace JoltPhysics
         JPH::BodyID m_bodyId;
         AZ::EntityId m_entityId;
         bool m_isSensor = false;
+        AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
     };
 
 } // namespace JoltPhysics

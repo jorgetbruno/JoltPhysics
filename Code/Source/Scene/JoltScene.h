@@ -106,6 +106,13 @@ namespace JoltPhysics
         //! Maps a Jolt body id back to the scene's simulated body handle (for queries and events).
         AzPhysics::SimulatedBodyHandle GetBodyHandleFromJoltId(JPH::BodyID bodyId) const;
 
+        //! Resolves the {friction, restitution} for a contact sub-shape: the per-collider
+        //! material when the body is a compound (sub-shape index maps to collider order),
+        //! otherwise the body's own material. Returns false when the body-level
+        //! contact settings should be used as-is.
+        bool GetMaterialForSubShape(
+            const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution);
+
         void FlushTransformSync();
         void InitializeJoltSystem();
 
@@ -217,6 +224,12 @@ namespace JoltPhysics
         void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
 
     private:
+        void ApplySubShapeMaterials(
+            const JPH::Body& inBody1,
+            const JPH::Body& inBody2,
+            const JPH::ContactManifold& inManifold,
+            JPH::ContactSettings& ioSettings);
+
         JoltScene* m_scene = nullptr;
     };
 

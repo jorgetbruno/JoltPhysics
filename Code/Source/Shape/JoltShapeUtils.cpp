@@ -185,4 +185,24 @@ namespace JoltPhysics
         return nullptr;
     }
 
+    AzPhysics::ShapeColliderPairList JoltShapeUtils::GetColliderPairList(
+        const AzPhysics::ShapeVariantData& colliderAndShapeData)
+    {
+        if (const auto* singleCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData))
+        {
+            if (singleCollider->first || singleCollider->second)
+            {
+                return { *singleCollider };
+            }
+            return {};
+        }
+
+        if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData))
+        {
+            return *colliderList;
+        }
+
+        return {};
+    }
+
 } // namespace JoltPhysics

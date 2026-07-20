@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/CompoundShape.h>
 
 namespace JoltPhysics
 {
@@ -217,6 +218,50 @@ namespace JoltPhysics
             return found->second;
         }
         return AzPhysics::InvalidSimulatedBodyHandle;
+    }
+
+    bool JoltScene::GetMaterialForSubShape(
+        const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution)
+    {
+        const AzPhysics::SimulatedBodyHandle bodyHandle = GetBodyHandleFromJoltId(body.GetID());
+        if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return false;
+        }
+
+        const AZStd::vector<AZStd::pair<float, float>>* colliderMaterials = nullptr;
+        if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
+        {
+            colliderMaterials = &rigidBody->GetColliderMaterials();
+        }
+        else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
+        {
+            colliderMaterials = &staticBody->GetColliderMaterials();
+        }
+
+        // Only compounds (more than one collider) need per-sub-shape overrides.
+        if (!colliderMaterials || colliderMaterials->size() <= 1)
+        {
+            return false;
+        }
+
+        const JPH::Shape* shape = body.GetShape();
+        if (!shape || shape->GetSubType() != JPH::EShapeSubType::StaticCompound)
+        {
+            return false;
+        }
+
+        JPH::SubShapeID remainder;
+        const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
+        const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
+        if (subShapeIndex >= colliderMaterials->size())
+        {
+            return false;
+        }
+
+        outFriction = (*colliderMaterials)[subShapeIndex].first;
+        outRestitution = (*colliderMaterials)[subShapeIndex].second;
+        return true;
     }
 
     AzPhysics::SimulatedBodyHandleList JoltScene::AddSimulatedBodies(
@@ -574,10 +619,12 @@ namespace JoltPhysics
     void JoltContactListener::OnContactAdded(
         const JPH::Body& inBody1,
         const JPH::Body& inBody2,
-        [[maybe_unused]] const JPH::ContactManifold& inManifold,
-        [[maybe_unused]] JPH::ContactSettings& ioSettings)
+        const JPH::ContactManifold& inManifold,
+        JPH::ContactSettings& ioSettings)
     {
         // TODO: Queue collision begin event
+
+        ApplySubShapeMaterials(inBody1, inBody2, inManifold, ioSettings);
 
         const bool sensor1 = inBody1.IsSensor();
         const bool sensor2 = inBody2.IsSensor();
@@ -593,12 +640,33 @@ namespace JoltPhysics
     }
 
     void JoltContactListener::OnContactPersisted(
-        [[maybe_unused]] const JPH::Body& inBody1,
-        [[maybe_unused]] const JPH::Body& inBody2,
-        [[maybe_unused]] const JPH::ContactManifold& inManifold,
-        [[maybe_unused]] JPH::ContactSettings& ioSettings)
+        const JPH::Body& inBody1,
+        const JPH::Body& inBody2,
+        const JPH::ContactManifold& inManifold,
+        JPH::ContactSettings& ioSettings)
     {
         // TODO: Queue collision persist event
+
+        ApplySubShapeMaterials(inBody1, inBody2, inManifold, ioSettings);
+    }
+
+    void JoltContactListener::ApplySubShapeMaterials(
+        const JPH::Body& inBody1,
+        const JPH::Body& inBody2,
+        const JPH::ContactManifold& inManifold,
+        JPH::ContactSettings& ioSettings)
+    {
+        float friction1 = inBody1.GetFriction();
+        float friction2 = inBody2.GetFriction();
+        float restitution1 = inBody1.GetRestitution();
+        float restitution2 = inBody2.GetRestitution();
+
+        m_scene->GetMaterialForSubShape(inBody1, inManifold.mSubShapeID1, friction1, restitution1);
+        m_scene->GetMaterialForSubShape(inBody2, inManifold.mSubShapeID2, friction2, restitution2);
+
+        // Same combine rules Jolt applies by default (geometric mean friction, max restitution).
+        ioSettings.mCombinedFriction = AZStd::sqrt(friction1 * friction2);
+        ioSettings.mCombinedRestitution = AZStd::max(restitution1, restitution2);
     }
 
     void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
