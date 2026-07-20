@@ -31,6 +31,10 @@ set(FILES
     Source/Scene/JoltSceneInterface.h
     Source/Scene/JoltSceneQueryHelpers.cpp
     Source/Scene/JoltSceneQueryHelpers.h
+    Source/Material/JoltMaterial.cpp
+    Source/Material/JoltMaterial.h
+    Source/Material/JoltMaterialManager.cpp
+    Source/Material/JoltMaterialManager.h
     Source/RigidBody/JoltRigidBody.cpp
     Source/RigidBody/JoltRigidBody.h
     Source/RigidBody/JoltStaticRigidBody.cpp

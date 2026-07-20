@@ -85,6 +85,9 @@ namespace JoltPhysics
 
         m_allocator = AZStd::make_unique<JPH::TempAllocatorImpl>(AllocationArenaSize);
 
+        m_materialManager = AZStd::make_unique<JoltMaterialManager>();
+        m_materialManager->Init();
+
         const int numThreads = m_systemConfig.m_maxJobThreads > 0
             ? static_cast<int>(m_systemConfig.m_maxJobThreads)
             : static_cast<int>(AZStd::thread::hardware_concurrency()) - 1;
@@ -143,6 +146,12 @@ namespace JoltPhysics
         RemoveAllScenes();
 
         m_sceneInterface.Shutdown();
+
+        if (m_materialManager)
+        {
+            m_materialManager->DeleteAllMaterials();
+            m_materialManager.reset();
+        }
 
         m_jobSystem.reset();
         m_allocator.reset();

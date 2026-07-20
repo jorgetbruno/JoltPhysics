@@ -8,6 +8,7 @@
 
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <JoltPhysics/Configuration/JoltConfiguration.h>
+#include <Material/JoltMaterialManager.h>
 #include <Scene/JoltSceneInterface.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltAllocator.h>
@@ -102,6 +103,8 @@ namespace JoltPhysics
 
         AZStd::unique_ptr<JPH::TempAllocatorImpl> m_allocator;
         AZStd::unique_ptr<JPH::JobSystemThreadPool> m_jobSystem;
+
+        AZStd::unique_ptr<JoltMaterialManager> m_materialManager;
 
         BroadPhaseLayerInterfaceImpl m_broadPhaseInterface;
         ObjectVsBroadPhaseLayerFilterImpl m_objectVsBroadPhaseLayerFilter;

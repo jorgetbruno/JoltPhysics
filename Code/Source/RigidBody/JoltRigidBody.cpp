@@ -2,6 +2,7 @@
 #include <Scene/JoltScene.h>
 #include <Utils/Conversions.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
@@ -87,6 +88,10 @@ namespace JoltPhysics
         {
             bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*colliderConfiguration);
             bodySettings.mIsSensor = colliderConfiguration->m_isTrigger;
+
+            const auto [friction, restitution] = JoltMaterialManager::ResolveFrictionRestitution(*colliderConfiguration);
+            bodySettings.mFriction = friction;
+            bodySettings.mRestitution = restitution;
         }
 
         bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);
