@@ -4,13 +4,28 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
 
+#include <AzFramework/Physics/Collision/CollisionLayers.h>
+#include <AzFramework/Physics/Collision/CollisionGroups.h>
+#include <AzFramework/Physics/Configuration/SceneConfiguration.h>
+
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void JoltPhysicsSystemComponent::Reflect(AZ::ReflectContext* context)
     {
+        // Reflect the AzPhysics/AzFramework configuration classes used by the Jolt
+        // components, unless another module already reflected them.
+        Internal::ReflectOnce<AzPhysics::CollisionLayer>(context);
+        Internal::ReflectOnce<AzPhysics::CollisionLayers>(context);
+        Internal::ReflectOnce<AzPhysics::CollisionGroup>(context);
+        Internal::ReflectOnce<AzPhysics::CollisionGroups>(context);
+        Internal::ReflectOnce<AzPhysics::CollisionConfiguration>(context);
+        Internal::ReflectOnce<AzPhysics::SystemConfiguration>(context);
+        Internal::ReflectOnce<AzPhysics::SceneConfiguration>(context);
+
         JoltSystemConfiguration::Reflect(context);
         JoltSceneConfiguration::Reflect(context);
 
@@ -59,6 +74,8 @@ namespace JoltPhysics
 
     void JoltPhysicsSystemComponent::Activate()
     {
+        m_defaultWorldComponent.Activate();
+
         m_physicsSystem = GetJoltSystem();
         if (m_physicsSystem)
         {
@@ -75,6 +92,8 @@ namespace JoltPhysics
         AZ::TickBus::Handler::BusDisconnect();
         Physics::CollisionRequestBus::Handler::BusDisconnect();
         Physics::SystemRequestBus::Handler::BusDisconnect();
+
+        m_defaultWorldComponent.Deactivate();
 
         DisablePhysics();
     }

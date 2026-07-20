@@ -15,6 +15,8 @@
 #include <JoltPhysics/JoltPhysicsBus.h>
 #include <JoltPhysics/Configuration/JoltConfiguration.h>
 
+#include <Clients/DefaultWorldComponent.h>
+
 namespace JoltPhysics
 {
     class JoltSystem;
@@ -100,6 +102,7 @@ namespace JoltPhysics
 
         bool m_enabled = false;
         JoltSystem* m_physicsSystem = nullptr;
+        JoltDefaultWorldComponent m_defaultWorldComponent;
     };
 
 } // namespace JoltPhysics
