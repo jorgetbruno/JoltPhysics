@@ -139,9 +139,12 @@ namespace JoltPhysics
         configuration.m_debugName = GetEntity()->GetName();
 
         AzPhysics::ShapeColliderPairList shapeColliderPairs;
-        for (JoltColliderComponentBase* collider : GetEntity()->FindComponents<JoltColliderComponentBase>())
+        for (AZ::Component* component : GetEntity()->GetComponents())
         {
-            shapeColliderPairs.push_back(collider->GetShapeColliderPair());
+            if (auto* collider = azrtti_cast<JoltColliderComponentBase*>(component))
+            {
+                shapeColliderPairs.push_back(collider->GetShapeColliderPair());
+            }
         }
         if (shapeColliderPairs.size() == 1)
         {
