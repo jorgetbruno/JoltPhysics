@@ -9,27 +9,98 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
 namespace JoltPhysics
 {
     namespace
     {
-        JPH::RefConst<JPH::Shape> CreateJoltShapeFromVariant(const AzPhysics::ShapeVariantData& colliderAndShapeData)
+        // Creates the shape for a single collider/shape pair, wrapping it in a
+        // RotatedTranslatedShape when the collider configuration has a non-identity
+        // offset or rotation. Note: trigger shapes (m_isTrigger) are not supported yet.
+        JPH::RefConst<JPH::Shape> CreateOffsetJoltShape(const AzPhysics::ShapeColliderPair& colliderAndShape)
         {
-            const AzPhysics::ShapeColliderPair* firstCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData);
-            if (!firstCollider)
+            if (!colliderAndShape.second)
             {
-                if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData);
-                    colliderList && !colliderList->empty())
-                {
-                    firstCollider = &colliderList->front();
-                }
+                return nullptr;
             }
 
-            if (firstCollider && firstCollider->second)
+            JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second);
+            if (!shape || !colliderAndShape.first)
             {
-                return JoltShapeUtils::CreateJoltShapeFromConfig(*firstCollider->second);
+                return shape;
             }
+
+            const Physics::ColliderConfiguration& colliderConfiguration = *colliderAndShape.first;
+            if (colliderConfiguration.m_position.IsZero() && colliderConfiguration.m_rotation.IsIdentity())
+            {
+                return shape;
+            }
+
+            return new JPH::RotatedTranslatedShape(
+                Conversions::ToJolt(colliderConfiguration.m_position),
+                Conversions::ToJolt(colliderConfiguration.m_rotation),
+                shape);
+        }
+
+        JPH::RefConst<JPH::Shape> CreateJoltShapeFromVariant(const AzPhysics::ShapeVariantData& colliderAndShapeData)
+        {
+            if (const AzPhysics::ShapeColliderPair* singleCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData))
+            {
+                return CreateOffsetJoltShape(*singleCollider);
+            }
+
+            if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData))
+            {
+                if (colliderList->empty())
+                {
+                    return nullptr;
+                }
+
+                if (colliderList->size() == 1)
+                {
+                    return CreateOffsetJoltShape(colliderList->front());
+                }
+
+                JPH::StaticCompoundShapeSettings compoundSettings;
+                for (const AzPhysics::ShapeColliderPair& colliderAndShape : *colliderList)
+                {
+                    if (!colliderAndShape.second)
+                    {
+                        continue;
+                    }
+
+                    JPH::RefConst<JPH::Shape> subShape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second);
+                    if (!subShape)
+                    {
+                        continue;
+                    }
+
+                    JPH::Vec3 position = JPH::Vec3::sZero();
+                    JPH::Quat rotation = JPH::Quat::sIdentity();
+                    if (colliderAndShape.first)
+                    {
+                        position = Conversions::ToJolt(colliderAndShape.first->m_position);
+                        rotation = Conversions::ToJolt(colliderAndShape.first->m_rotation);
+                    }
+                    compoundSettings.AddShape(position, rotation, subShape);
+                }
+
+                if (compoundSettings.mSubShapes.empty())
+                {
+                    return nullptr;
+                }
+
+                JPH::ShapeSettings::ShapeResult result = compoundSettings.Create();
+                if (result.HasError())
+                {
+                    AZ_Error("JoltPhysics", false, "Failed to create compound shape: %s", result.GetError().c_str());
+                    return nullptr;
+                }
+                return result.Get();
+            }
+
             return nullptr;
         }
     }
