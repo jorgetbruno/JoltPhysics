@@ -99,6 +99,9 @@ namespace JoltPhysics
 
         void* GetNativePointer() const override;
 
+        //! Maps a Jolt body id back to the scene's simulated body handle (for queries and events).
+        AzPhysics::SimulatedBodyHandle GetBodyHandleFromJoltId(JPH::BodyID bodyId) const;
+
         void FlushTransformSync();
         void InitializeJoltSystem();
 
@@ -142,6 +145,8 @@ namespace JoltPhysics
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::SimulatedBody*>> m_simulatedBodies;
         AZStd::vector<AzPhysics::SimulatedBody*> m_deferredDeletions;
         AZStd::queue<AzPhysics::SimulatedBodyIndex> m_freeSceneSlots;
+
+        AZStd::unordered_map<AZ::u32, AzPhysics::SimulatedBodyHandle> m_bodyHandleByJoltId;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

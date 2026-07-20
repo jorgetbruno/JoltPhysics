@@ -187,7 +187,26 @@ namespace JoltPhysics
         body->m_sceneOwner = m_sceneHandle;
         body->m_bodyHandle = handle;
 
+        if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
+        {
+            m_bodyHandleByJoltId[rigidBody->GetBodyId().GetIndexAndSequenceNumber()] = handle;
+        }
+        else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
+        {
+            m_bodyHandleByJoltId[staticBody->GetBodyId().GetIndexAndSequenceNumber()] = handle;
+        }
+
         return handle;
+    }
+
+    AzPhysics::SimulatedBodyHandle JoltScene::GetBodyHandleFromJoltId(JPH::BodyID bodyId) const
+    {
+        if (auto found = m_bodyHandleByJoltId.find(bodyId.GetIndexAndSequenceNumber());
+            found != m_bodyHandleByJoltId.end())
+        {
+            return found->second;
+        }
+        return AzPhysics::InvalidSimulatedBodyHandle;
     }
 
     AzPhysics::SimulatedBodyHandleList JoltScene::AddSimulatedBodies(
@@ -244,7 +263,16 @@ namespace JoltPhysics
         const auto index = AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandle);
         if (index < m_simulatedBodies.size() && m_simulatedBodies[index].second)
         {
-            m_deferredDeletions.push_back(m_simulatedBodies[index].second);
+            AzPhysics::SimulatedBody* body = m_simulatedBodies[index].second;
+            if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
+            {
+                m_bodyHandleByJoltId.erase(rigidBody->GetBodyId().GetIndexAndSequenceNumber());
+            }
+            else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
+            {
+                m_bodyHandleByJoltId.erase(staticBody->GetBodyId().GetIndexAndSequenceNumber());
+            }
+            m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };
             m_freeSceneSlots.push(index);
         }
@@ -341,7 +369,7 @@ namespace JoltPhysics
             return false;
         }
 
-        return JoltSceneQueryHelpers::QueryScene(m_physicsSystem.get(), request, result);
+        return JoltSceneQueryHelpers::QueryScene(this, request, result);
     }
 
     AzPhysics::SceneQueryHitsList JoltScene::QuerySceneBatch(const AzPhysics::SceneQueryRequests& requests)
