@@ -85,12 +85,13 @@ namespace JoltPhysics
         AZStd::string GetCollisionGroupName(const AzPhysics::CollisionGroup& group) override;
 
         AzPhysics::CollisionGroup GetCollisionGroupById(const AzPhysics::CollisionGroups::Id& groupId) override;
-        bool TryGetCollisionGroupById(const AzPhysics::CollisionGroups::Id& groupId, AzPhysics::CollisionGroup& group) override;
 
         void SetCollisionLayerName(int index, const AZStd::string& layerName) override;
         void CreateCollisionGroup(const AZStd::string& groupName, const AzPhysics::CollisionGroup& group) override;
 
-        AzPhysics::CollisionConfiguration GetCollisionConfiguration() override;
+        bool ShouldCollide(
+            const Physics::ColliderConfiguration& colliderConfigurationA,
+            const Physics::ColliderConfiguration& colliderConfigurationB) override;
 
     private:
         void EnablePhysics();

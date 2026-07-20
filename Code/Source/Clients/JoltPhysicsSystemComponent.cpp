@@ -215,38 +215,37 @@ namespace JoltPhysics
         if (m_physicsSystem)
         {
             const auto& config = m_physicsSystem->GetJoltConfiguration();
-            return config.m_collisionConfig.m_collisionGroups.TryFindGroup(groupName, group);
+            return config.m_collisionConfig.m_collisionGroups.TryFindGroupByName(groupName, group);
         }
         return false;
     }
 
     AZStd::string JoltPhysicsSystemComponent::GetCollisionGroupName(const AzPhysics::CollisionGroup& group)
     {
+        AZStd::string groupName;
         if (m_physicsSystem)
         {
             const auto& config = m_physicsSystem->GetJoltConfiguration();
-            return config.m_collisionConfig.m_collisionGroups.FindGroupNameById(group.GetGroupId());
+            for (const auto& preset : config.m_collisionConfig.m_collisionGroups.GetPresets())
+            {
+                if (preset.m_group.GetMask() == group.GetMask())
+                {
+                    groupName = preset.m_name;
+                    break;
+                }
+            }
         }
-        return {};
+        return groupName;
     }
 
     AzPhysics::CollisionGroup JoltPhysicsSystemComponent::GetCollisionGroupById(const AzPhysics::CollisionGroups::Id& groupId)
     {
-        AzPhysics::CollisionGroup group;
-        TryGetCollisionGroupById(groupId, group);
-        return group;
-    }
-
-    bool JoltPhysicsSystemComponent::TryGetCollisionGroupById(
-        const AzPhysics::CollisionGroups::Id& groupId,
-        AzPhysics::CollisionGroup& group)
-    {
         if (m_physicsSystem)
         {
             const auto& config = m_physicsSystem->GetJoltConfiguration();
-            return config.m_collisionConfig.m_collisionGroups.TryFindGroup(groupId, group);
+            return config.m_collisionConfig.m_collisionGroups.FindGroupById(groupId);
         }
-        return false;
+        return AzPhysics::CollisionGroup::All;
     }
 
     void JoltPhysicsSystemComponent::SetCollisionLayerName(int index, const AZStd::string& layerName)
@@ -265,13 +264,13 @@ namespace JoltPhysics
         }
     }
 
-    AzPhysics::CollisionConfiguration JoltPhysicsSystemComponent::GetCollisionConfiguration()
+    bool JoltPhysicsSystemComponent::ShouldCollide(
+        const Physics::ColliderConfiguration& colliderConfigurationA,
+        const Physics::ColliderConfiguration& colliderConfigurationB)
     {
-        if (m_physicsSystem)
-        {
-            return m_physicsSystem->GetJoltConfiguration().m_collisionConfig;
-        }
-        return {};
+        const AzPhysics::CollisionGroup groupA = GetCollisionGroupById(colliderConfigurationA.m_collisionGroupId);
+        const AzPhysics::CollisionGroup groupB = GetCollisionGroupById(colliderConfigurationB.m_collisionGroupId);
+        return groupA.IsSet(colliderConfigurationB.m_collisionLayer) && groupB.IsSet(colliderConfigurationA.m_collisionLayer);
     }
 
 } // namespace JoltPhysics
