@@ -8,11 +8,32 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
-#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 
 namespace JoltPhysics
 {
+    namespace
+    {
+        JPH::RefConst<JPH::Shape> CreateJoltShapeFromVariant(const AzPhysics::ShapeVariantData& colliderAndShapeData)
+        {
+            const AzPhysics::ShapeColliderPair* firstCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData);
+            if (!firstCollider)
+            {
+                if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData);
+                    colliderList && !colliderList->empty())
+                {
+                    firstCollider = &colliderList->front();
+                }
+            }
+
+            if (firstCollider && firstCollider->second)
+            {
+                return JoltShapeUtils::CreateJoltShapeFromConfig(*firstCollider->second);
+            }
+            return nullptr;
+        }
+    }
+
     AZStd::shared_ptr<Physics::Shape> JoltShapeUtils::CreateShape(
         [[maybe_unused]] const Physics::ColliderConfiguration& colliderConfiguration,
         [[maybe_unused]] const Physics::ShapeConfiguration& shapeConfiguration)
@@ -24,29 +45,13 @@ namespace JoltPhysics
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShape(
         const AzPhysics::RigidBodyConfiguration& configuration)
     {
-        if (!configuration.m_colliderAndShapeData.empty())
-        {
-            const auto& firstCollider = configuration.m_colliderAndShapeData.front();
-            if (firstCollider.second)
-            {
-                return CreateJoltShapeFromConfig(*firstCollider.second);
-            }
-        }
-        return nullptr;
+        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromStatic(
         const AzPhysics::StaticRigidBodyConfiguration& configuration)
     {
-        if (!configuration.m_colliderAndShapeData.empty())
-        {
-            const auto& firstCollider = configuration.m_colliderAndShapeData.front();
-            if (firstCollider.second)
-            {
-                return CreateJoltShapeFromConfig(*firstCollider.second);
-            }
-        }
-        return nullptr;
+        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
@@ -62,9 +67,6 @@ namespace JoltPhysics
 
         case Physics::ShapeType::Capsule:
             return CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
-
-        case Physics::ShapeType::Cylinder:
-            return CreateCylinderShape(static_cast<const Physics::CylinderShapeConfiguration&>(shapeConfiguration));
 
         default:
             return nullptr;
@@ -86,12 +88,6 @@ namespace JoltPhysics
     {
         const float halfHeight = config.m_height * 0.5f - config.m_radius;
         return new JPH::CapsuleShape(halfHeight, config.m_radius);
-    }
-
-    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCylinderShape(const Physics::CylinderShapeConfiguration& config)
-    {
-        const float halfHeight = config.m_height * 0.5f;
-        return new JPH::CylinderShape(halfHeight, config.m_radius);
     }
 
 } // namespace JoltPhysics

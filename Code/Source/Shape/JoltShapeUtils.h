@@ -35,9 +35,6 @@ namespace JoltPhysics
 
         static JPH::RefConst<JPH::Shape> CreateCapsuleShape(
             const Physics::CapsuleShapeConfiguration& config);
-
-        static JPH::RefConst<JPH::Shape> CreateCylinderShape(
-            const Physics::CylinderShapeConfiguration& config);
     };
 
 } // namespace JoltPhysics
