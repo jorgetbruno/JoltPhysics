@@ -8,6 +8,7 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace JoltPhysics
 {
@@ -56,8 +57,8 @@ namespace JoltPhysics
 
         if (request.m_reportMultipleHits)
         {
-            JPH::AllHitCollisionCollector<JPH::RayCastBodyCollector> collector;
-            query.CastRay(ray, collector);
+            JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+            query.CastRay(ray, JPH::RayCastSettings(), collector);
 
             if (collector.HadHit())
             {
@@ -90,23 +91,21 @@ namespace JoltPhysics
         }
         else
         {
-            JPH::ClosestHitCollisionCollector<JPH::RayCastBodyCollector> collector;
-            query.CastRay(ray, collector);
-
-            if (collector.HadHit())
+            JPH::RayCastResult hit;
+            if (query.CastRay(ray, hit))
             {
                 AzPhysics::SceneQueryHit queryHit;
-                queryHit.m_distance = collector.mHit.mFraction * request.m_distance;
-                queryHit.m_position = Conversions::FromJolt(ray.GetPointOnRay(collector.mHit.mFraction));
+                queryHit.m_distance = hit.mFraction * request.m_distance;
+                queryHit.m_position = Conversions::FromJolt(ray.GetPointOnRay(hit.mFraction));
                 queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                         AzPhysics::SceneQuery::ResultFlags::Position;
 
-                JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), collector.mHit.mBodyID);
+                JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), hit.mBodyID);
                 if (bodyLock.Succeeded())
                 {
                     const JPH::Body& body = bodyLock.GetBody();
                     queryHit.m_normal = Conversions::FromJolt(body.GetWorldSpaceSurfaceNormal(
-                        collector.mHit.mSubShapeID2, ray.GetPointOnRay(collector.mHit.mFraction)));
+                        hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction)));
                     queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::Normal;
                 }
 
