@@ -9,4 +9,5 @@ set(FILES
     Tests/JoltMaterialTests.cpp
     Tests/JoltTriggerTests.cpp
     Tests/JoltRigidBodyTests.cpp
+    Tests/JoltComponentBodyCreationTests.cpp
 )

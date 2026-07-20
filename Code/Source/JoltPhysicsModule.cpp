@@ -21,6 +21,9 @@ namespace JoltPhysics
         LoadModules();
 
 #if defined(JOLT_EDITOR)
+        // The O3DE editor loads the Tools variant of the gem (this module) and does
+        // not load the runtime module, so the editor module must host the full
+        // system and the runtime descriptors (mirroring the PhysX gem's editor module).
         auto registryManager = AZStd::make_unique<JoltEditorSettingsRegistryManager>();
 #else
         auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
