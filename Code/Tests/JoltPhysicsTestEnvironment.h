@@ -1,15 +1,11 @@
 #pragma once
 
-#include <AzTest/AzTest.h>
-#include <AzCore/UnitTest/TestTypes.h>
+#include <AzTest/GemTestEnvironment.h>
 
 namespace JoltPhysics
 {
-    class JoltPhysicsTestEnvironment : public AZ::Test::ITestEnvironment
+    class JoltPhysicsTestEnvironment : public AZ::Test::GemTestEnvironment
     {
-    public:
-        void SetupEnvironment() override;
-        void TeardownEnvironment() override;
     };
 
 } // namespace JoltPhysics
