@@ -1,0 +1,28 @@
+set(FILES
+    Source/Clients/JoltPhysicsSystemComponent.cpp
+    Source/Clients/JoltPhysicsSystemComponent.h
+    Source/Clients/ComponentDescriptors.cpp
+    Source/Clients/ComponentDescriptors.h
+    Source/Configuration/JoltSettingsRegistryManager.cpp
+    Source/Configuration/JoltSettingsRegistryManager.h
+    Source/System/JoltSystem.cpp
+    Source/System/JoltSystem.h
+    Source/System/JoltAllocator.cpp
+    Source/System/JoltAllocator.h
+    Source/System/CollisionLayerFilters.cpp
+    Source/System/CollisionLayerFilters.h
+    Source/Scene/JoltScene.cpp
+    Source/Scene/JoltScene.h
+    Source/Scene/JoltSceneInterface.cpp
+    Source/Scene/JoltSceneInterface.h
+    Source/Scene/JoltSceneQueryHelpers.cpp
+    Source/Scene/JoltSceneQueryHelpers.h
+    Source/RigidBody/JoltRigidBody.cpp
+    Source/RigidBody/JoltRigidBody.h
+    Source/RigidBody/JoltStaticRigidBody.cpp
+    Source/RigidBody/JoltStaticRigidBody.h
+    Source/Shape/JoltShapeUtils.cpp
+    Source/Shape/JoltShapeUtils.h
+    Source/Utils/Conversions.cpp
+    Source/Utils/Conversions.h
+)

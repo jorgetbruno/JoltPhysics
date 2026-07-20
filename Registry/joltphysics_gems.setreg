@@ -1,0 +1,16 @@
+{
+    "O3DE": {
+        "Gems": {
+            "JoltPhysics": {
+                "Module": "Gem.JoltPhysics.dll",
+                "Autoload": true,
+                "Dependencies": [
+                    "AzCore",
+                    "AzFramework",
+                    "LmbrCentral"
+                ],
+                "ProvidedUniqueService": "Physics"
+            }
+        }
+    }
+}

@@ -1,0 +1,40 @@
+{
+    "O3DE": {
+        "Physics": {
+            "DefaultBackend": "JoltPhysics",
+            "JoltPhysics": {
+                "Enabled": true,
+                "SystemConfiguration": {
+                    "MaxBodies": 65536,
+                    "NumBodyMutexes": 128,
+                    "MaxBodyPairs": 65536,
+                    "MaxContactConstraints": 16384,
+                    "TempAllocatorSize": 268435456,
+                    "MaxJobThreads": 0,
+                    "FixedTimestep": 0.0166667
+                },
+                "DefaultSceneConfiguration": {
+                    "SceneName": "DefaultPhysicsScene",
+                    "Gravity": [0.0, 0.0, -9.81],
+                    "EnableCcd": false,
+                    "MaxCcdPasses": 1,
+                    "EnableActiveActors": false,
+                    "EnablePcm": true,
+                    "BounceThresholdVelocity": 2.0
+                },
+                "CollisionConfiguration": {
+                    "Layers": {
+                        "Default": 0,
+                        "TouchBend": 1,
+                        "Terrain": 2
+                    },
+                    "Groups": {
+                        "All": "0xFFFFFFFF",
+                        "None": "0x00000000",
+                        "All_NoTouchBend": "0xFFFFFFFD"
+                    }
+                }
+            }
+        }
+    }
+}

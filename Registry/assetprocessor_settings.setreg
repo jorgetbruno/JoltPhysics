@@ -1,0 +1,13 @@
+{
+    "O3DE": {
+        "AssetProcessor": {
+            "Settings": {
+                "ScanFolder JoltPhysics/Assets": {
+                    "watch": "@GEMROOT:JoltPhysics@/Assets",
+                    "recursive": 1,
+                    "order": 102
+                }
+            }
+        }
+    }
+}
