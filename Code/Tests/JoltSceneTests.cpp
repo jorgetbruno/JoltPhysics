@@ -111,4 +111,35 @@ namespace JoltPhysics
         m_scene->RemoveSimulatedBody(bodyHandle);
     }
 
+    TEST_F(JoltSceneTests, CapsuleRestsUprightOnSlab)
+    {
+        // Static slab with top at z=0.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(20.0f, 20.0f, 1.0f);
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        // Dynamic capsule (default 1.0m tall, 0.25m radius) dropped from z=3.
+        auto capsuleCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto capsuleShape = AZStd::make_shared<Physics::CapsuleShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration capsuleConfig;
+        capsuleConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        capsuleConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(capsuleCollider, capsuleShape);
+        auto capsuleHandle = m_scene->AddSimulatedBody(&capsuleConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 120; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+
+        // A Z-up capsule resting upright on the slab has its center at z=0.5.
+        const float capsuleZ = m_scene->GetSimulatedBodyFromHandle(capsuleHandle)->GetPosition().GetZ();
+        EXPECT_NEAR(capsuleZ, 0.5f, 0.05f);
+    }
+
 } // namespace JoltPhysics

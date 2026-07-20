@@ -158,7 +158,14 @@ namespace JoltPhysics
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCapsuleShape(const Physics::CapsuleShapeConfiguration& config)
     {
         const float halfHeight = config.m_height * 0.5f - config.m_radius;
-        return new JPH::CapsuleShape(halfHeight, config.m_radius);
+
+        // Jolt capsules are Y-axis aligned, O3DE (like PhysX) capsules are Z-axis
+        // aligned: wrap the capsule rotated +90 degrees around X.
+        const JPH::Quat yToZRotation(0.70710678f, 0.0f, 0.0f, 0.70710678f);
+        return new JPH::RotatedTranslatedShape(
+            JPH::Vec3::sZero(),
+            yToZRotation,
+            new JPH::CapsuleShape(halfHeight, config.m_radius));
     }
 
     const Physics::ColliderConfiguration* JoltShapeUtils::GetFirstColliderConfiguration(

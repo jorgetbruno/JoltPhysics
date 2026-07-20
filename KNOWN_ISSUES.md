@@ -1,46 +1,29 @@
 # Known Issues
 
-Tracked here per milestone process: anything that is broken, stubbed, or knowingly
-incomplete, with the milestone expected to address it.
+Tracked per milestone process: anything broken, stubbed, or knowingly incomplete,
+with the milestone expected to address it. See DIVERGENCES.md for intentional
+deviations from PhysX behavior.
 
-## Backend
+## Remaining gaps (scheduled)
 
-- **Physics materials are not applied.** O3DE 26.05 moved material management to
-  AzFramework's `Physics::Material` system (`PhysicsMaterialManager`); the gem's old
-  `CreateMaterial`/`GetDefaultMaterial` overrides were removed in the 26.05 port and
-  collider `MaterialSlots` are currently ignored when shapes are created. All bodies
-  use Jolt's default friction/restitution. → M2
-- **Collision layer/group from `ColliderConfiguration` is ignored.** Body creation
-  hardcodes the Jolt object layer (`ObjectLayers::Moving`/`NonMoving`); per-collider
-  layers and groups do not reach the simulation yet (scene-query filtering honors
-  them only partially). → M2
-- **Triggers unsupported.** `ColliderConfiguration::m_isTrigger` is ignored when
-  building shapes; bodies always collide. → M2
-- **Mesh colliders unavailable.** `CookConvexMeshToFile/Memory`,
+- **`AzPhysics::SceneInterface` is not implemented.** The high-level scene-management
+  API and scene-level events (`OnSceneTriggersEvent`, `OnSceneCollisionsEvent`,
+  simulation start/finish notifications) are unavailable. Body-level events work.
+  → M3 or dedicated follow-up.
+- **Mesh colliders / convex hulls unavailable.** `CookConvexMeshToFile/Memory`,
   `CookTriangleMeshToFile/Memory` are stubs returning false; `SystemRequestBus::CreateShape`
-  returns `nullptr` (no `Physics::Shape` wrapper exists). → M2/M3
-- **`JoltRigidBody` stubbed methods** (added to satisfy the 26.05
-  `AzPhysics::RigidBody` interface): `AddShape`, `RemoveShape`,
-  `SetCenterOfMassOffset`, `GetInertiaLocal/World`, `UpdateMassProperties`.
-  `SetKinematicTarget` performs a plain `SetTransform` (no velocity-continuous
-  kinematic motion). → M2
-- **`FindAttachedBodyHandleFromEntityId` is unimplemented** (always returns invalid). → M2
-- **Debug draw not wired.** `Physics::SystemDebugRequestBus::DebugDrawPhysics` is not
-  implemented despite Jolt's `JPH_DEBUG_RENDERER` being compiled in. → M2
-- **No editor (edit-mode) world.** Only the game default world exists
-  (`JoltDefaultWorldComponent`); edit-mode simulation and edit-mode scene queries
-  are unavailable. → M2+
-
-## Components
-
-- **One collider per entity.** Collider components declare themselves mutually
-  incompatible (`JoltColliderService`); multi-collider entities (compound colliders)
-  arrive in M3. The backend already builds `StaticCompoundShape`s from
-  `ShapeColliderPairList`s.
-- **Cylinder collider removed.** AzFramework 26.05 no longer has
-  `CylinderShapeConfiguration`; `ShapeType::Cylinder` falls through to a null shape.
+  returns `nullptr`; `AddShape`/`RemoveShape` on rigid bodies are no-ops (needs the
+  `Physics::Shape` wrapper). → M3 (compound) / later.
+- **Multiple colliders per entity** are disallowed at the component level
+  (`JoltColliderService` self-incompatible). Compound collider components arrive in M3.
 - **No character controller, heightfield, joints, vehicles, soft bodies, water** —
   scheduled M4–M8.
+- **No editor (edit-mode) world.** Only the game default world exists
+  (`JoltDefaultWorldComponent`); edit-mode simulation and edit-mode scene queries
+  are unavailable. PhysX implements this via `EditorWorldBus` in its editor gem.
+- **`Physics::Shape`-based collider debug draw and edit-time collider visualization
+  are not implemented** (no component modes, no viewport collider rendering yet;
+  `DebugDrawPhysics` works for the simulation backend).
 
 ## Build / Tooling
 
@@ -48,3 +31,22 @@ incomplete, with the milestone expected to address it.
   legacy `gems` list — expected, not a bug.
 - Stale engine entries in `C:\Users\jorge\.o3de\o3de_manifest.json` (25.05, 24.09.2,
   25.10.x) print `Invalid engine json` warnings from `o3de.bat`; harmless noise.
+
+## Resolved in M2 (kept for reference)
+
+- Physics materials: `JoltMaterial`/`JoltMaterialManager` registered on
+  `AZ::Interface<Physics::MaterialManager>`; friction/restitution resolved from
+  collider material slots at body creation.
+- Collision filtering: per-collider layer/group honored via `AzPhysicsGroupFilter`
+  (group masks) + layer index in the Jolt collision subgroup id. Query-side
+  filtering by collision group and static/dynamic type works.
+- Triggers: `m_isTrigger` produces Jolt sensors; enter/exit events delivered via
+  `SimulatedBody::ProcessTriggerEvent`.
+- Scene queries: raycast (complete hits: handle, entity, normal), shapecast
+  (with MTD recovery), overlap (one hit per body).
+- Rigid body: kinematic targets, CCD toggle, mass/inertia getters and overrides,
+  center-of-mass offset (Jolt semantics — see DIVERGENCES.md), simulation
+  enable/disable.
+- `FindAttachedBodyHandleFromEntityId` implemented.
+- Debug draw via `Physics::SystemDebugRequestBus::DebugDrawPhysics`.
+- Cylinder collider removal (engine dropped `CylinderShapeConfiguration` in 26.05).
