@@ -24,6 +24,7 @@ namespace JoltPhysics
         void SyncTransform();
 
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
+        bool IsSensor() const { return m_isSensor; }
 
         AZ::Vector3 GetPosition() const override;
         AZ::Quaternion GetOrientation() const override;
@@ -94,6 +95,7 @@ namespace JoltPhysics
         JPH::BodyID m_bodyId;
         AZ::EntityId m_entityId;
         bool m_isKinematic = false;
+        bool m_isSensor = false;
     };
 
 } // namespace JoltPhysics

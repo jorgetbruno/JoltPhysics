@@ -7,4 +7,5 @@ set(FILES
     Tests/JoltCollisionFilteringTests.cpp
     Tests/JoltSceneQueryTests.cpp
     Tests/JoltMaterialTests.cpp
+    Tests/JoltTriggerTests.cpp
 )

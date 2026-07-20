@@ -189,11 +189,21 @@ namespace JoltPhysics
 
         if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
         {
-            m_bodyHandleByJoltId[rigidBody->GetBodyId().GetIndexAndSequenceNumber()] = handle;
+            const AZ::u32 joltIdKey = rigidBody->GetBodyId().GetIndexAndSequenceNumber();
+            m_bodyHandleByJoltId[joltIdKey] = handle;
+            if (rigidBody->IsSensor())
+            {
+                m_sensorBodyIds.insert(joltIdKey);
+            }
         }
         else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
         {
-            m_bodyHandleByJoltId[staticBody->GetBodyId().GetIndexAndSequenceNumber()] = handle;
+            const AZ::u32 joltIdKey = staticBody->GetBodyId().GetIndexAndSequenceNumber();
+            m_bodyHandleByJoltId[joltIdKey] = handle;
+            if (staticBody->IsSensor())
+            {
+                m_sensorBodyIds.insert(joltIdKey);
+            }
         }
 
         return handle;
@@ -266,11 +276,15 @@ namespace JoltPhysics
             AzPhysics::SimulatedBody* body = m_simulatedBodies[index].second;
             if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
             {
-                m_bodyHandleByJoltId.erase(rigidBody->GetBodyId().GetIndexAndSequenceNumber());
+                const AZ::u32 joltIdKey = rigidBody->GetBodyId().GetIndexAndSequenceNumber();
+                m_bodyHandleByJoltId.erase(joltIdKey);
+                m_sensorBodyIds.erase(joltIdKey);
             }
             else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
             {
-                m_bodyHandleByJoltId.erase(staticBody->GetBodyId().GetIndexAndSequenceNumber());
+                const AZ::u32 joltIdKey = staticBody->GetBodyId().GetIndexAndSequenceNumber();
+                m_bodyHandleByJoltId.erase(joltIdKey);
+                m_sensorBodyIds.erase(joltIdKey);
             }
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };
@@ -474,7 +488,39 @@ namespace JoltPhysics
 
     void JoltScene::ProcessTriggerEvents()
     {
-        // TODO: Process accumulated trigger events
+        AzPhysics::TriggerEventList triggerEvents;
+        {
+            AZStd::lock_guard lock(m_triggerEventMutex);
+            triggerEvents.swap(m_queuedTriggerEvents);
+        }
+
+        for (const AzPhysics::TriggerEvent& triggerEvent : triggerEvents)
+        {
+            if (triggerEvent.m_triggerBody)
+            {
+                triggerEvent.m_triggerBody->ProcessTriggerEvent(triggerEvent);
+            }
+        }
+    }
+
+    void JoltScene::QueueTriggerEvent(AzPhysics::TriggerEvent::Type type, JPH::BodyID triggerBodyId, JPH::BodyID otherBodyId)
+    {
+        AzPhysics::SimulatedBodyHandle triggerHandle = GetBodyHandleFromJoltId(triggerBodyId);
+        AzPhysics::SimulatedBodyHandle otherHandle = GetBodyHandleFromJoltId(otherBodyId);
+        if (triggerHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        AzPhysics::TriggerEvent triggerEvent;
+        triggerEvent.m_type = type;
+        triggerEvent.m_triggerBodyHandle = triggerHandle;
+        triggerEvent.m_triggerBody = GetSimulatedBodyFromHandle(triggerHandle);
+        triggerEvent.m_otherBodyHandle = otherHandle;
+        triggerEvent.m_otherBody = GetSimulatedBodyFromHandle(otherHandle);
+
+        AZStd::lock_guard lock(m_triggerEventMutex);
+        m_queuedTriggerEvents.push_back(triggerEvent);
     }
 
     void JoltScene::ProcessCollisionEvents()
@@ -526,12 +572,24 @@ namespace JoltPhysics
     }
 
     void JoltContactListener::OnContactAdded(
-        [[maybe_unused]] const JPH::Body& inBody1,
-        [[maybe_unused]] const JPH::Body& inBody2,
+        const JPH::Body& inBody1,
+        const JPH::Body& inBody2,
         [[maybe_unused]] const JPH::ContactManifold& inManifold,
         [[maybe_unused]] JPH::ContactSettings& ioSettings)
     {
         // TODO: Queue collision begin event
+
+        const bool sensor1 = inBody1.IsSensor();
+        const bool sensor2 = inBody2.IsSensor();
+
+        if (sensor1)
+        {
+            m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Enter, inBody1.GetID(), inBody2.GetID());
+        }
+        if (sensor2)
+        {
+            m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Enter, inBody2.GetID(), inBody1.GetID());
+        }
     }
 
     void JoltContactListener::OnContactPersisted(
@@ -543,9 +601,21 @@ namespace JoltPhysics
         // TODO: Queue collision persist event
     }
 
-    void JoltContactListener::OnContactRemoved([[maybe_unused]] const JPH::SubShapeIDPair& inSubShapePair)
+    void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
     {
         // TODO: Queue collision end event
+
+        const JPH::BodyID bodyId1 = inSubShapePair.GetBody1ID();
+        const JPH::BodyID bodyId2 = inSubShapePair.GetBody2ID();
+
+        if (m_scene->IsSensorBody(bodyId1))
+        {
+            m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId1, bodyId2);
+        }
+        if (m_scene->IsSensorBody(bodyId2))
+        {
+            m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId2, bodyId1);
+        }
     }
 
     void JoltBodyActivationListener::OnBodyActivated(

@@ -7,12 +7,16 @@
 #include <AzCore/std/smart_ptr/unique_ptr.h>
 
 #include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/Collision/CollisionEvents.h>
 #include <AzFramework/Physics/Common/PhysicsJoint.h>
 #include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 #include <AzFramework/Physics/Configuration/SceneConfiguration.h>
 
+#include <AzCore/std/parallel/mutex.h>
+
 #include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
@@ -105,6 +109,16 @@ namespace JoltPhysics
         void FlushTransformSync();
         void InitializeJoltSystem();
 
+        //! Queues a trigger enter/exit event from the Jolt contact listener (job threads).
+        void QueueTriggerEvent(AzPhysics::TriggerEvent::Type type, JPH::BodyID triggerBodyId, JPH::BodyID otherBodyId);
+
+        //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
+        //! safe to call from the contact listener.
+        bool IsSensorBody(JPH::BodyID bodyId) const
+        {
+            return m_sensorBodyIds.contains(bodyId.GetIndexAndSequenceNumber());
+        }
+
         JPH::PhysicsSystem* GetJoltPhysicsSystem() { return m_physicsSystem.get(); }
         JPH::BodyInterface* GetBodyInterface() { return m_bodyInterface; }
 
@@ -147,6 +161,10 @@ namespace JoltPhysics
         AZStd::queue<AzPhysics::SimulatedBodyIndex> m_freeSceneSlots;
 
         AZStd::unordered_map<AZ::u32, AzPhysics::SimulatedBodyHandle> m_bodyHandleByJoltId;
+        AZStd::unordered_set<AZ::u32> m_sensorBodyIds;
+
+        AZStd::mutex m_triggerEventMutex;
+        AzPhysics::TriggerEventList m_queuedTriggerEvents;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

@@ -88,6 +88,7 @@ namespace JoltPhysics
         {
             bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*colliderConfiguration);
             bodySettings.mIsSensor = colliderConfiguration->m_isTrigger;
+            m_isSensor = colliderConfiguration->m_isTrigger;
 
             const auto [friction, restitution] = JoltMaterialManager::ResolveFrictionRestitution(*colliderConfiguration);
             bodySettings.mFriction = friction;
