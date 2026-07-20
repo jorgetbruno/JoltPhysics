@@ -25,7 +25,8 @@ namespace JoltPhysics
 
     JoltScene::JoltScene(const AzPhysics::SceneConfiguration& config,
                         const AzPhysics::SceneHandle& sceneHandle)
-        : m_config(config)
+        : AzPhysics::Scene(config)
+        , m_config(config)
         , m_sceneHandle(sceneHandle)
         , m_gravity(config.m_gravity)
     {
