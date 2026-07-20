@@ -9,6 +9,15 @@ namespace JoltPhysics
         return AZ::AllocatorInstance<AZ::SystemAllocator>::Get().allocate(size, 16);
     }
 
+    void* JoltAllocator::Reallocate(void* block, [[maybe_unused]] size_t oldSize, size_t newSize)
+    {
+        if (block)
+        {
+            return AZ::AllocatorInstance<AZ::SystemAllocator>::Get().reallocate(block, newSize, 16);
+        }
+        return Allocate(newSize);
+    }
+
     void JoltAllocator::Free(void* block)
     {
         if (block)
@@ -33,6 +42,7 @@ namespace JoltPhysics
     void JoltAllocator::Install()
     {
         JPH::Allocate = &JoltAllocator::Allocate;
+        JPH::Reallocate = &JoltAllocator::Reallocate;
         JPH::Free = &JoltAllocator::Free;
         JPH::AlignedAllocate = &JoltAllocator::AlignedAllocate;
         JPH::AlignedFree = &JoltAllocator::AlignedFree;
@@ -41,6 +51,7 @@ namespace JoltPhysics
     void JoltAllocator::Uninstall()
     {
         JPH::Allocate = nullptr;
+        JPH::Reallocate = nullptr;
         JPH::Free = nullptr;
         JPH::AlignedAllocate = nullptr;
         JPH::AlignedFree = nullptr;

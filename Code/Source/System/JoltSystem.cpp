@@ -42,6 +42,8 @@ namespace JoltPhysics
     JoltSystem::JoltSystem(AZStd::unique_ptr<JoltSettingsRegistryManager> registryManager)
         : m_registryManager(AZStd::move(registryManager))
     {
+        JoltAllocator::Install();
+
         JPH::Trace = Internal::JoltTraceCallback;
 #ifdef JPH_ENABLE_ASSERTS
         JPH::AssertFailed = Internal::JoltAssertCallback;
@@ -58,6 +60,8 @@ namespace JoltPhysics
         JPH::UnregisterTypes();
         delete JPH::Factory::sInstance;
         JPH::Factory::sInstance = nullptr;
+
+        JoltAllocator::Uninstall();
     }
 
     void JoltSystem::Initialize(const AzPhysics::SystemConfiguration* config)
@@ -307,7 +311,7 @@ namespace JoltPhysics
 
     const AzPhysics::SystemConfiguration* JoltSystem::GetConfiguration() const
     {
-        return &m_systemConfig;
+        return m_state == State::Initialized ? &m_systemConfig : nullptr;
     }
 
     void JoltSystem::UpdateConfiguration(const AzPhysics::SystemConfiguration* newConfig, bool forceReinitialization)

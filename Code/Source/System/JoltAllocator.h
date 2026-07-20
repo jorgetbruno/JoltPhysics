@@ -11,6 +11,7 @@ namespace JoltPhysics
     {
     public:
         static void* Allocate(size_t size);
+        static void* Reallocate(void* block, size_t oldSize, size_t newSize);
         static void Free(void* block);
         static void* AlignedAllocate(size_t size, size_t alignment);
         static void AlignedFree(void* block);
