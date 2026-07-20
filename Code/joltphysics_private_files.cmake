@@ -3,6 +3,20 @@ set(FILES
     Source/Clients/JoltPhysicsSystemComponent.h
     Source/Clients/ComponentDescriptors.cpp
     Source/Clients/ComponentDescriptors.h
+    Source/Clients/DefaultWorldComponent.cpp
+    Source/Clients/DefaultWorldComponent.h
+    Source/Clients/Components/JoltColliderComponentBase.cpp
+    Source/Clients/Components/JoltColliderComponentBase.h
+    Source/Clients/Components/JoltBoxColliderComponent.cpp
+    Source/Clients/Components/JoltBoxColliderComponent.h
+    Source/Clients/Components/JoltSphereColliderComponent.cpp
+    Source/Clients/Components/JoltSphereColliderComponent.h
+    Source/Clients/Components/JoltCapsuleColliderComponent.cpp
+    Source/Clients/Components/JoltCapsuleColliderComponent.h
+    Source/Clients/Components/JoltRigidBodyComponent.cpp
+    Source/Clients/Components/JoltRigidBodyComponent.h
+    Source/Clients/Components/JoltStaticRigidBodyComponent.cpp
+    Source/Clients/Components/JoltStaticRigidBodyComponent.h
     Source/Configuration/JoltSettingsRegistryManager.cpp
     Source/Configuration/JoltSettingsRegistryManager.h
     Source/System/JoltSystem.cpp
@@ -25,4 +39,5 @@ set(FILES
     Source/Shape/JoltShapeUtils.h
     Source/Utils/Conversions.cpp
     Source/Utils/Conversions.h
+    Source/Utils/ReflectionUtils.h
 )
