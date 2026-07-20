@@ -206,7 +206,7 @@ JoltPhysics/
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Baseline, O3DE 26.05 port, build health, smoke level | ✅ Done |
-| M1 | Jolt 5.5.0 upgrade | ⬜ Planned |
+| M1 | Jolt 5.5.0 upgrade | ✅ Done |
 | M2 | Stabilize existing features (materials, filtering, queries, debug draw) | ⬜ Planned |
 | M3 | Compound colliders | ⬜ Planned |
 | M4 | Heightfield collider | ⬜ Planned |
