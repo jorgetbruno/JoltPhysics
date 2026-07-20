@@ -34,6 +34,7 @@ namespace JoltPhysics
             return AZ::Vector3(v.GetX(), v.GetY(), v.GetZ());
         }
 
+#ifdef JPH_DOUBLE_PRECISION
         inline AZ::Vector3 FromJolt(const JPH::RVec3& v)
         {
             return AZ::Vector3(
@@ -42,6 +43,7 @@ namespace JoltPhysics
                 static_cast<float>(v.GetZ())
             );
         }
+#endif // JPH_DOUBLE_PRECISION
 
         inline AZ::Quaternion FromJolt(const JPH::Quat& q)
         {
