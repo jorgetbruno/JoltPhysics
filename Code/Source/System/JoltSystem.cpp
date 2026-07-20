@@ -377,12 +377,8 @@ namespace JoltPhysics
 
     AZ::u32 JoltSystem::GetCollisionGroupIndex(const AzPhysics::CollisionGroups::Id& groupId) const
     {
-        AzPhysics::CollisionGroup group;
-        if (m_systemConfig.m_collisionConfig.m_collisionGroups.TryFindGroup(groupId, group))
-        {
-            return GetCollisionGroupIndex(group);
-        }
-        return 0;
+        const AzPhysics::CollisionGroup group = m_systemConfig.m_collisionConfig.m_collisionGroups.FindGroupById(groupId);
+        return GetCollisionGroupIndex(group);
     }
 
     AZ::u64 JoltSystem::GetCollisionMask(AZ::u32 index) const
