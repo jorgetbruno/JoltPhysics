@@ -59,4 +59,17 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   therefore unavailable; body-level events work.
 - **Mesh colliders and `Physics::Shape` objects remain unimplemented** (cooking
   stubs, `CreateShape` returns nullptr, `AddShape`/`RemoveShape` on bodies are
-  no-ops). Scheduled with compound collider work in M3.
+  no-ops). Scheduled after compound collider work.
+
+## M3 (compound colliders)
+
+- **Per-collider trigger flag inside compound bodies is ignored** (Jolt sensors
+  are per-body); the first collider's trigger flag decides for the whole body.
+- **Per-collider collision layer/group inside compound bodies uses the first
+  collider's values** (Jolt's GroupFilter is per-body). Per-sub-shape
+  friction/restitution ARE honored (via contact-listener override).
+- **Friction/restitution combine** uses Jolt's defaults (geometric mean / max),
+  including for compound sub-shapes.
+- **Body rebuilds on collider-set changes are deferred to the next tick** (PhysX
+  rebuilds synchronously); removal of a simulated body takes effect immediately
+  in the simulation while the object deletion is deferred to the next step.

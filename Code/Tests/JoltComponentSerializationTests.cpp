@@ -9,6 +9,7 @@
 
 #include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltStaticCompoundColliderComponent.h>
 
 namespace JoltPhysics
 {
@@ -102,6 +103,30 @@ namespace JoltPhysics
 
         EXPECT_EQ(loaded.GetConfiguration().m_mass, 42.0f);
         EXPECT_TRUE(loaded.GetConfiguration().m_kinematic);
+    }
+
+    TEST_F(JoltComponentSerializationTests, CompoundColliderClassIsReflectedAndResolvable)
+    {
+        const AZ::SerializeContext::ClassData* classData =
+            m_serializeContext->FindClassData(azrtti_typeid<JoltMutableCompoundColliderComponent>());
+        ASSERT_NE(classData, nullptr);
+        EXPECT_STREQ(classData->m_name, "JoltMutableCompoundColliderComponent");
+
+        // Resolve the class name the way the prefab loader does: a JSON payload
+        // carrying only the type name must instantiate the component.
+        rapidjson::Document doc;
+        doc.Parse(R"({
+            "$type": "JoltMutableCompoundColliderComponent",
+            "Id": 42
+        })");
+        ASSERT_FALSE(doc.HasParseError());
+
+        AZ::JsonDeserializerSettings settings;
+        settings.m_serializeContext = m_serializeContext;
+        JoltMutableCompoundColliderComponent loaded;
+        auto result = AZ::JsonSerialization::Load(loaded, doc, settings);
+        EXPECT_TRUE(result.GetProcessing() != AZ::JsonSerializationResult::Processing::Halted)
+            << result.ToString("root").c_str();
     }
 
 } // namespace JoltPhysics
