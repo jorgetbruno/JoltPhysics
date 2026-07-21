@@ -8,28 +8,28 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 - Core physics system integration via `AzPhysics::SystemInterface`
 - Scene/World management with simulation stepping, incl. the game default world
 - Dynamic and static rigid bodies with primitive colliders (Box, Sphere, Capsule)
+- Compound colliders: multiple colliders per entity + static/mutable compound collider
+  components that gather child-entity colliders, with per-sub-shape materials
+- Heightfield collider fed by `Physics::HeightfieldProviderRequestsBus` (terrain gems),
+  incl. runtime height updates and per-triangle materials
 - Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
 - Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
-- Raycast queries through O3DE's physics query API
-- Collision layers and groups (system level)
+- Scene queries: raycast, shapecast and overlap through O3DE's physics query API
+- Physics materials (friction/restitution) on colliders
+- Trigger (sensor) colliders with enter/exit events
+- Collision layers and groups (system level + per-collider filtering)
 - Gravity control per scene
 - Body activation/deactivation
 - Linear and angular velocity control, impulse application
-- Collider offset/rotation and multi-collider compound shapes in the backend
+- Debug visualization via `Physics::SystemDebugRequestBus::DebugDrawPhysics`
 
 ### Planned / TODO
 - Character controllers
-- Heightfield colliders
 - Convex hull and mesh colliders (cooking)
-- Compound collider components (multiple colliders per entity)
 - Joints (fixed, hinge, slider, etc.)
-- Shape cast and overlap queries
 - Async scene queries
-- Physics materials (friction/restitution) on colliders
-- Trigger colliders
 - Soft bodies
 - Vehicle simulation
-- Debug visualization
 
 ## Requirements
 
@@ -209,7 +209,7 @@ JoltPhysics/
 | M1 | Jolt 5.5.0 upgrade | ✅ Done |
 | M2 | Stabilize existing features (materials, filtering, queries, debug draw) | ✅ Done |
 | M3 | Compound colliders | ✅ Done |
-| M4 | Heightfield collider | ⬜ Planned |
+| M4 | Heightfield collider | ✅ Done |
 | M5 | Character controllers | ⬜ Planned |
 | M6 | Joints | ⬜ Planned |
 | M7 | Vehicles | ⬜ Planned |
@@ -223,11 +223,25 @@ The reference test project `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest` contai
 - **Ground** entity (from the template's default level): `Jolt Static Rigid Body` +
   `Jolt Box Collider` (512×512×1 m, collider offset z=-0.5 so its top surface is z=0).
 - **FallingBox** entity at (0, 0, 3): `Jolt Rigid Body` + `Jolt Box Collider` (1 m) + visible box mesh.
+- **FallingSphere / FallingCapsule** at (±3, 0, 4): primitive collider coverage.
+- **KinematicPlatform** at (6, 0, 2): kinematic rigid body (must hover forever).
+- **TriggerVolume** at (0, 0, 1): static trigger box (4×4×2 m) — enter/exit events only.
+- **CompoundBody** at (8, 0, 4): `Jolt Mutable Compound Collider` + `Jolt Rigid Body`
+  gathering two child-entity box colliders (±1 m on x) into one rigid body.
+- **Terrain** at (0, 0, 0): `Jolt Heightfield Collider` + `Jolt Static Rigid Body` +
+  `HeightfieldProviderTestComponent` (from the test project's gem): a 16×16 grid,
+  1 m spacing, slope descending from z=3 at x=0 to z=0 at x≥6, flat afterwards.
+  After 2.5 simulated seconds it raises the region x∈[6,10), y∈[-12,-4] by +2 m
+  over ~1 s, firing heightfield-change notifications (runtime update coverage).
+- **SlopeBall** at (4, -4, 5): sphere that must land on the slope and roll downhill (+x).
+- **StepBall** at (8, -8, 6): sphere resting in the step region; it must ride the
+  raising terrain up and come to rest at z≈2.48.
 
 To reproduce: open the level in the O3DE Editor, press **Ctrl+G** (game mode).
 The box falls and comes to rest with its center at z≈0.48 m (0.5 m half-extent minus
-the 2 cm contact offset) and stays there. The automated variant
-(`smoke_test.py` in the project root) runs 10 simulated seconds and asserts exactly this:
+the 2 cm contact offset) and stays there; the slope ball rolls downhill; the step ball
+is lifted ~2 m by the runtime heightfield update. The automated variant
+(`smoke_test.py` in the project root) runs 10 simulated seconds and asserts all of this:
 
 ```bat
 cd C:\O3DE\26.05\bin\Windows\profile\Default

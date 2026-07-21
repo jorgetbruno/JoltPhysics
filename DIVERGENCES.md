@@ -73,3 +73,24 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
 - **Body rebuilds on collider-set changes are deferred to the next tick** (PhysX
   rebuilds synchronously); removal of a simulated body takes effect immediately
   in the simulation while the object deletion is deferred to the next step.
+
+## M4 (heightfield collider)
+
+- **The heightfield collider is provider-driven only**: it builds its shape from a
+  `Physics::HeightfieldProviderRequestsBus` implementation on the same entity (e.g. a
+  terrain gem), like PhysX's heightfield component. There is no hand-authored height
+  grid in the component itself.
+- **Grid axes map to world (x, -y)**: Jolt heightfields are Y-up, so the shape is
+  wrapped in a `RotatedTranslatedShape` that maps grid column → +X, grid row → -Y,
+  height → +Z (the rotation necessarily mirrors one horizontal axis). The grid's
+  corner sits at the entity origin.
+- **The Jolt grid is square-padded with no-collision samples** up to the next power
+  of two (Jolt requirement); provider grids of any rectangular shape are accepted.
+- **Runtime height updates** apply via `HeightFieldShape::SetHeights` + a broadphase
+  refresh, and overlapping dynamic bodies are force-woken. Updates are driven by
+  `HeightfieldProviderNotificationBus` plus a per-tick poll as a safety net.
+  Large raises must be sent in small increments: Jolt's heightfield narrowphase only
+  visits blocks overlapping a body's AABB, so a surface raised *past* a resting body
+  in one step leaves it stranded underneath (no contact is generated).
+- **Per-triangle friction/restitution** are resolved at contact time from the
+  provider's material list (contact-listener override), not baked into the shape.

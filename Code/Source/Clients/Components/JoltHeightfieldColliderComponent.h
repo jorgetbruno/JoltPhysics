@@ -15,6 +15,7 @@ namespace JoltPhysics
     class JoltHeightfieldColliderComponent
         : public JoltColliderComponentBase
         , private Physics::HeightfieldProviderNotificationBus::Handler
+        , private AZ::TickBus::Handler
     {
     public:
         AZ_COMPONENT(JoltHeightfieldColliderComponent, "{E5F6A7B8-C9D0-41E2-A3B4-C5D6E7F8A9B0}", JoltColliderComponentBase);
@@ -34,12 +35,17 @@ namespace JoltPhysics
             const AZ::Aabb& dirtyRegion,
             Physics::HeightfieldProviderNotifications::HeightfieldChangeMask changeMask) override;
 
+        // AZ::TickBus
+        void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
+
     private:
         bool BuildHeightfieldShape();
+        void UpdateHeightsFromProvider();
 
         AZStd::shared_ptr<Physics::HeightfieldShapeConfiguration> m_shapeConfiguration =
             AZStd::make_shared<Physics::HeightfieldShapeConfiguration>();
         JPH::RefConst<JPH::Shape> m_nativeShape;
+        AZStd::vector<float> m_lastHeights;
     };
 
 } // namespace JoltPhysics

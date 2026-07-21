@@ -7,6 +7,7 @@
 #include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
 #include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 
 #include <RigidBody/JoltStaticRigidBody.h>
 #include <Scene/JoltScene.h>
@@ -48,10 +49,12 @@ namespace JoltPhysics
         BuildHeightfieldShape();
         JoltColliderComponentBase::Activate();
         Physics::HeightfieldProviderNotificationBus::Handler::BusConnect(GetEntityId());
+        AZ::TickBus::Handler::BusConnect();
     }
 
     void JoltHeightfieldColliderComponent::Deactivate()
     {
+        AZ::TickBus::Handler::BusDisconnect();
         Physics::HeightfieldProviderNotificationBus::Handler::BusDisconnect();
         m_shapeConfiguration->SetCachedNativeHeightfield(nullptr);
         m_nativeShape = nullptr;
@@ -124,9 +127,24 @@ namespace JoltPhysics
         [[maybe_unused]] const AZ::Aabb& dirtyRegion,
         Physics::HeightfieldProviderNotifications::HeightfieldChangeMask changeMask)
     {
-        if (!m_nativeShape ||
-            (changeMask & Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::HeightData) ==
-                Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::None)
+        if ((changeMask & Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::HeightData) !=
+            Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::None)
+        {
+            UpdateHeightsFromProvider();
+        }
+    }
+
+    void JoltHeightfieldColliderComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    {
+        // Poll as a safety net for providers that change data without firing
+        // HeightfieldProviderNotificationBus (UpdateHeightsFromProvider early-outs
+        // when nothing changed).
+        UpdateHeightsFromProvider();
+    }
+
+    void JoltHeightfieldColliderComponent::UpdateHeightsFromProvider()
+    {
+        if (!m_nativeShape)
         {
             return;
         }
@@ -148,6 +166,13 @@ namespace JoltPhysics
         {
             return;
         }
+
+        if (heights == m_lastHeights)
+        {
+            // Nothing changed since the last update.
+            return;
+        }
+        m_lastHeights = heights;
 
         auto* heightFieldShape = static_cast<JPH::HeightFieldShape*>(const_cast<JPH::Shape*>(m_nativeShape.GetPtr()));
         const AZ::u32 sampleCount = heightFieldShape->GetSampleCount();
@@ -194,6 +219,24 @@ namespace JoltPhysics
                         JPH::Vec3(comPosition.GetX(), comPosition.GetY(), comPosition.GetZ()),
                         false /* update mass properties */,
                         JPH::EActivation::DontActivate);
+
+                    // Wake dynamic bodies overlapping the heightfield: moving the surface
+                    // under a sleeping body generates no contacts on its own in Jolt.
+                    // Note: Jolt's heightfield narrowphase only visits blocks whose height
+                    // range overlaps the body's AABB, so raising the surface *past* a body
+                    // in one step strands it underneath. Providers should animate large
+                    // raises in small increments so bodies can ride the surface up.
+                    const AZ::Aabb heightfieldAabb = staticBody->GetAabb();
+                    for (const auto& [crc, body] : scene->GetSimulatedBodyList())
+                    {
+                        if (body && body != staticBody && body->GetAabb().Overlaps(heightfieldAabb))
+                        {
+                            if (auto* rigidBody = azdynamic_cast<AzPhysics::RigidBody*>(body))
+                            {
+                                rigidBody->ForceAwake();
+                            }
+                        }
+                    }
                 }
             }
         }

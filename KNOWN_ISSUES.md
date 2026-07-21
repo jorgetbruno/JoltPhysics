@@ -16,8 +16,8 @@ deviations from PhysX behavior.
   `Physics::Shape` wrapper). → M3 (compound) / later.
 - **Multiple colliders per entity** are disallowed at the component level
   (`JoltColliderService` self-incompatible). Compound collider components arrive in M3.
-- **No character controller, heightfield, joints, vehicles, soft bodies, water** —
-  scheduled M4–M8.
+- **No character controller, joints, vehicles, soft bodies, water** —
+  scheduled M5–M8.
 - **No editor (edit-mode) world.** Only the game default world exists
   (`JoltDefaultWorldComponent`); edit-mode simulation and edit-mode scene queries
   are unavailable. PhysX implements this via `EditorWorldBus` in its editor gem.
