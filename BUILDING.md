@@ -59,6 +59,23 @@ ctest --test-dir build/windows -R JoltPhysics --output-on-failure
 
 Expected: 2 CTest entries (`Gem::JoltPhysics.Tests`, `Gem::JoltPhysics.Editor.Tests`), all passing.
 
+## Building from the O3DE Project Manager
+
+The Project Manager's **Build Project** button spawns CMake **without** a Visual Studio
+developer environment. With the Ninja generator (the default cache created by the
+commands above) the compiler test then fails with
+`LNK1104: cannot open file 'kernel32.lib'` because the Windows SDK `LIB`/`INCLUDE`
+paths only exist after `vcvars64.bat` runs. Two ways to make GUI builds work:
+
+1. **Launch the Project Manager inside the VS environment** (recommended — keeps the
+   Ninja cache): from a `x64 Native Tools Command Prompt` run
+   `C:\O3DE\26.05\bin\Windows\profile\Default\o3de.exe` (or via the test project's
+   `build-env.cmd`). All CMake/Ninja processes it spawns then inherit the environment.
+2. **Use the Visual Studio generator** for GUI builds (`cmake -B build/windows-vs -G
+   "Visual Studio 17 2022"`), which resolves the toolchain through MSBuild and needs no
+   environment. Note this produces binaries in a different directory layout
+   (`build/windows-vs/profile/...` instead of `build/windows/bin/profile/...`).
+
 ## Linux
 
 The same flow works with the Linux engine and generator (`-G "Ninja Multi-Config"` or
