@@ -34,8 +34,23 @@ namespace JoltPhysics
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
-                bodyInterface->RemoveBody(m_bodyId);
+                if (!m_removedFromWorld)
+                {
+                    bodyInterface->RemoveBody(m_bodyId);
+                }
                 bodyInterface->DestroyBody(m_bodyId);
+            }
+        }
+    }
+
+    void JoltRigidBody::RemoveFromJoltWorld()
+    {
+        if (m_scene && !m_bodyId.IsInvalid() && !m_removedFromWorld)
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                bodyInterface->RemoveBody(m_bodyId);
+                m_removedFromWorld = true;
             }
         }
     }

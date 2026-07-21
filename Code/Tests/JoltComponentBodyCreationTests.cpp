@@ -5,6 +5,7 @@
 #include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltStaticCompoundColliderComponent.h>
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
@@ -78,6 +79,9 @@ namespace JoltPhysics
             {
                 m_scene->StartSimulation(fixedDeltaTime);
                 m_scene->FinishSimulation();
+                // Pump the tick bus like a frame does; deferred component work
+                // (body creation, rebuilds) runs on ticks.
+                AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, fixedDeltaTime, AZ::ScriptTimePoint());
             }
         }
 
@@ -155,6 +159,94 @@ namespace JoltPhysics
         EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
 
         entity.reset();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, AddingAndRemovingChildColliderAtRuntimeRebuildsBody)
+    {
+        auto makeColliderChild = [](const char* name, float x)
+        {
+            auto child = AZStd::make_unique<AZ::Entity>(name);
+            child->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = child->CreateComponent<JoltBoxColliderComponent>();
+            collider->GetColliderConfiguration().m_position = AZ::Vector3(x, 0.0f, 0.0f);
+            child->Init();
+            return child;
+        };
+
+        auto parent = AZStd::make_unique<AZ::Entity>("MutableCompoundParent");
+        parent->CreateComponent<AzFramework::TransformComponent>();
+        parent->CreateComponent<JoltMutableCompoundColliderComponent>();
+        parent->CreateComponent<JoltRigidBodyComponent>();
+        parent->Init();
+
+        auto childA = makeColliderChild("ChildA", -1.0f);
+        parent->Activate();
+        childA->Activate();
+        AZ::TransformBus::Event(childA->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+
+        // Rebuilds after collider-set changes are deferred to the next tick; simulate one frame.
+        SimulateSeconds(1.0f / 60.0f);
+
+        AzPhysics::RayCastRequest request;
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 10.0f;
+
+        // Only child A's collider (at x=-1) exists: x=-1 hits, x=+1 misses.
+        request.m_start = AZ::Vector3(-1.0f, 0.0f, 5.0f);
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+        request.m_start = AZ::Vector3(1.0f, 0.0f, 5.0f);
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+
+        // Add a second child collider entity at runtime (at x=+1).
+        auto childB = makeColliderChild("ChildB", 1.0f);
+        childB->Activate();
+        AZ::TransformBus::Event(childB->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+
+        SimulateSeconds(1.0f / 60.0f);
+
+        request.m_start = AZ::Vector3(1.0f, 0.0f, 5.0f);
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+
+        // Remove it again: x=+1 misses, x=-1 still hits.
+        AZ::TransformBus::Event(childB->GetId(), &AZ::TransformBus::Events::SetParent, AZ::EntityId());
+        childB->Deactivate();
+        childB.reset();
+
+        SimulateSeconds(1.0f / 60.0f);
+
+        request.m_start = AZ::Vector3(1.0f, 0.0f, 5.0f);
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+        request.m_start = AZ::Vector3(-1.0f, 0.0f, 5.0f);
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+
+        parent->Deactivate();
+        parent.reset();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, MutableCompoundReparentOnly)
+    {
+        auto parent = AZStd::make_unique<AZ::Entity>("MutableParent");
+        parent->CreateComponent<AzFramework::TransformComponent>();
+        parent->CreateComponent<JoltMutableCompoundColliderComponent>();
+        parent->Init();
+        parent->Activate();
+
+        auto childA = AZStd::make_unique<AZ::Entity>("ChildA");
+        childA->CreateComponent<AzFramework::TransformComponent>();
+        childA->CreateComponent<JoltBoxColliderComponent>();
+        childA->Init();
+        childA->Activate();
+        AZ::TransformBus::Event(childA->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+
+        auto* compound = parent->FindComponent<JoltMutableCompoundColliderComponent>();
+        ASSERT_NE(compound, nullptr);
+        EXPECT_EQ(compound->GetShapeColliderPairs().size(), 1u);
+
+        AZ::TransformBus::Event(childA->GetId(), &AZ::TransformBus::Events::SetParent, AZ::EntityId());
+        EXPECT_TRUE(compound->GetShapeColliderPairs().empty());
+
+        childA->Deactivate();
+        parent->Deactivate();
     }
 
 } // namespace JoltPhysics

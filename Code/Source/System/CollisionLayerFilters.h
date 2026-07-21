@@ -2,6 +2,8 @@
 
 #include <AzFramework/Physics/Configuration/CollisionConfiguration.h>
 
+#include <AzCore/std/limits.h>
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/CollisionGroup.h>
@@ -76,11 +78,13 @@ namespace JoltPhysics
         {
             const auto* filter1 = static_cast<const AzPhysicsGroupFilter*>(inGroup1.GetGroupFilter());
             const auto* filter2 = static_cast<const AzPhysicsGroupFilter*>(inGroup2.GetGroupFilter());
+            const AZ::u32 layerMask1 = filter1 ? filter1->m_layerMask : AZStd::numeric_limits<AZ::u32>::max();
+            const AZ::u32 layerMask2 = filter2 ? filter2->m_layerMask : AZStd::numeric_limits<AZ::u32>::max();
             const AZ::u32 layer1 = inGroup1.GetSubGroupID();
             const AZ::u32 layer2 = inGroup2.GetSubGroupID();
             // AzPhysics semantics: two bodies collide only if each one's group mask
-            // contains the other one's layer.
-            return (filter1->m_layerMask & (1u << layer2)) != 0 && (filter2->m_layerMask & (1u << layer1)) != 0;
+            // contains the other one's layer. A body without a filter collides with everything.
+            return (layerMask1 & (1u << layer2)) != 0 && (layerMask2 & (1u << layer1)) != 0;
         }
 
         AZ::u32 GetLayerMask() const

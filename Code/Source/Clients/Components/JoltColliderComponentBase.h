@@ -26,6 +26,13 @@ namespace JoltPhysics
         //! Returns the collider/shape configuration pair used when creating simulated bodies.
         virtual AzPhysics::ShapeColliderPair GetShapeColliderPair() const = 0;
 
+        //! Returns all collider/shape configuration pairs (a compound collider returns
+        //! the pairs of all its child entities' colliders).
+        virtual AzPhysics::ShapeColliderPairList GetShapeColliderPairs() const
+        {
+            return { GetShapeColliderPair() };
+        }
+
         //! Mutable access to the collider configuration (offset, rotation, trigger, layer...).
         Physics::ColliderConfiguration& GetColliderConfiguration()
         {

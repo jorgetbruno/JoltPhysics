@@ -8,6 +8,7 @@
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 #include <AzFramework/Physics/SystemBus.h>
+#include <AzFramework/Physics/ColliderComponentBus.h>
 
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Utils/ReflectionUtils.h>
@@ -90,7 +91,16 @@ namespace JoltPhysics
 
     void JoltStaticRigidBodyComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
-        TryCreateRigidBody();
+        if (m_rebuildPending)
+        {
+            m_rebuildPending = false;
+            DestroyRigidBody();
+            CreateRigidBody();
+        }
+        else
+        {
+            TryCreateRigidBody();
+        }
 
         if (m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
         {
@@ -143,7 +153,10 @@ namespace JoltPhysics
         {
             if (auto* collider = azrtti_cast<JoltColliderComponentBase*>(component))
             {
-                shapeColliderPairs.push_back(collider->GetShapeColliderPair());
+                for (const AzPhysics::ShapeColliderPair& pair : collider->GetShapeColliderPairs())
+                {
+                    shapeColliderPairs.push_back(pair);
+                }
             }
         }
         if (shapeColliderPairs.size() == 1)
@@ -167,12 +180,14 @@ namespace JoltPhysics
         {
             AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusConnect(GetEntityId());
             AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
+            Physics::ColliderComponentEventBus::Handler::BusConnect(GetEntityId());
         }
     }
 
     void JoltStaticRigidBodyComponent::DestroyRigidBody()
     {
         AZ::TransformNotificationBus::Handler::BusDisconnect();
+        Physics::ColliderComponentEventBus::Handler::BusDisconnect();
         AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusDisconnect();
 
         if (m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
@@ -186,6 +201,13 @@ namespace JoltPhysics
             }
             m_bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
         }
+    }
+
+    void JoltStaticRigidBodyComponent::OnColliderChanged()
+    {
+        // Never rebuild inside the bus dispatch; defer to the next tick.
+        m_rebuildPending = true;
+        AZ::TickBus::Handler::BusConnect();
     }
 
     void JoltStaticRigidBodyComponent::EnablePhysics()

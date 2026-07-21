@@ -324,12 +324,14 @@ namespace JoltPhysics
                 const AZ::u32 joltIdKey = rigidBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
+                rigidBody->RemoveFromJoltWorld();
             }
             else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
             {
                 const AZ::u32 joltIdKey = staticBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
+                staticBody->RemoveFromJoltWorld();
             }
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };

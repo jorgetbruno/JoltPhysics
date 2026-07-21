@@ -5,6 +5,7 @@
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/Component/TransformBus.h>
 
+#include <AzFramework/Physics/ColliderComponentBus.h>
 #include <AzFramework/Physics/RigidBodyBus.h>
 #include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
@@ -19,6 +20,7 @@ namespace JoltPhysics
         , public AzPhysics::SimulatedBodyComponentRequestsBus::Handler
         , public AZ::TickBus::Handler
         , private AZ::TransformNotificationBus::Handler
+        , private Physics::ColliderComponentEventBus::Handler
     {
     public:
         AZ_COMPONENT(JoltRigidBodyComponent, "{F5A4EE05-BC8E-4F6A-DB7C-9D0E1F2A3B4C}");
@@ -105,10 +107,14 @@ namespace JoltPhysics
         // AZ::TransformNotificationBus
         void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
 
+        // Physics::ColliderComponentEventBus
+        void OnColliderChanged() override;
+
     private:
         void TryCreateRigidBody();
         void CreateRigidBody();
         void DestroyRigidBody();
+        void RebuildRigidBody();
 
         const AzPhysics::RigidBody* GetRigidBodyConst() const;
 
@@ -117,5 +123,6 @@ namespace JoltPhysics
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
 
         bool m_syncingTransformFromBody = false; //!< True while the entity transform is being updated from the physics body.
+        bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.
     };
 } // namespace JoltPhysics

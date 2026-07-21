@@ -3,6 +3,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzFramework/Physics/ColliderComponentBus.h>
+
 #include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
@@ -33,10 +35,14 @@ namespace JoltPhysics
 
     void JoltColliderComponentBase::Activate()
     {
+        Physics::ColliderComponentEventBus::Event(
+            GetEntityId(), &Physics::ColliderComponentEvents::OnColliderChanged);
     }
 
     void JoltColliderComponentBase::Deactivate()
     {
+        Physics::ColliderComponentEventBus::Event(
+            GetEntityId(), &Physics::ColliderComponentEvents::OnColliderChanged);
     }
 
     void JoltColliderComponentBase::GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)

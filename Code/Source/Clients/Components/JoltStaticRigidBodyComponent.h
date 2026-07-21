@@ -6,6 +6,7 @@
 #include <AzCore/Component/TransformBus.h>
 
 #include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
+#include <AzFramework/Physics/ColliderComponentBus.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 
 namespace JoltPhysics
@@ -17,6 +18,7 @@ namespace JoltPhysics
         , public AzPhysics::SimulatedBodyComponentRequestsBus::Handler
         , public AZ::TickBus::Handler
         , private AZ::TransformNotificationBus::Handler
+        , private Physics::ColliderComponentEventBus::Handler
     {
     public:
         AZ_COMPONENT(JoltStaticRigidBodyComponent, "{A6B5FF06-CD9F-4A7B-EC8D-AE1F2A3B4C5D}");
@@ -53,6 +55,9 @@ namespace JoltPhysics
         // AZ::TransformNotificationBus
         void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
 
+        // Physics::ColliderComponentEventBus
+        void OnColliderChanged() override;
+
     private:
         void TryCreateRigidBody();
         void CreateRigidBody();
@@ -60,5 +65,6 @@ namespace JoltPhysics
 
         AzPhysics::SimulatedBodyHandle m_bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
+        bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.
     };
 } // namespace JoltPhysics

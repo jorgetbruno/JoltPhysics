@@ -8,6 +8,7 @@
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/SystemBus.h>
+#include <AzFramework/Physics/ColliderComponentBus.h>
 
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Utils/ReflectionUtils.h>
@@ -95,16 +96,17 @@ namespace JoltPhysics
     {
         Physics::DefaultWorldBus::BroadcastResult(m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
 
+        Physics::RigidBodyRequestBus::Handler::BusConnect(GetEntityId());
+        AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusConnect(GetEntityId());
+        AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
+        Physics::ColliderComponentEventBus::Handler::BusConnect(GetEntityId());
+        AZ::TickBus::Handler::BusConnect();
+
         if (m_attachedSceneHandle != AzPhysics::InvalidSceneHandle)
         {
             // During activation all the collider components on the entity become ready.
             // Delaying the creation of the rigid body to OnEntityActivated so all the shapes are available.
             AZ::EntityBus::Handler::BusConnect(GetEntityId());
-        }
-        else
-        {
-            // No default scene yet (e.g. entity activated outside of game mode); retry on tick.
-            AZ::TickBus::Handler::BusConnect();
         }
     }
 
@@ -119,6 +121,10 @@ namespace JoltPhysics
     {
         AZ::TickBus::Handler::BusDisconnect();
         AZ::EntityBus::Handler::BusDisconnect();
+        Physics::ColliderComponentEventBus::Handler::BusDisconnect();
+        AZ::TransformNotificationBus::Handler::BusDisconnect();
+        AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusDisconnect();
+        Physics::RigidBodyRequestBus::Handler::BusDisconnect();
 
         DestroyRigidBody();
 
@@ -130,6 +136,13 @@ namespace JoltPhysics
         if (m_bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
         {
             TryCreateRigidBody();
+            return;
+        }
+
+        if (m_rebuildPending)
+        {
+            m_rebuildPending = false;
+            RebuildRigidBody();
             return;
         }
 
@@ -198,7 +211,10 @@ namespace JoltPhysics
         {
             if (auto* collider = azrtti_cast<JoltColliderComponentBase*>(component))
             {
-                shapeColliderPairs.push_back(collider->GetShapeColliderPair());
+                for (const AzPhysics::ShapeColliderPair& pair : collider->GetShapeColliderPairs())
+                {
+                    shapeColliderPairs.push_back(pair);
+                }
             }
         }
         if (shapeColliderPairs.size() == 1)
@@ -217,22 +233,10 @@ namespace JoltPhysics
                 m_bodyHandle = scene->AddSimulatedBody(&m_configuration);
             }
         }
-
-        if (m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
-        {
-            Physics::RigidBodyRequestBus::Handler::BusConnect(GetEntityId());
-            AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusConnect(GetEntityId());
-            AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
-            AZ::TickBus::Handler::BusConnect();
-        }
     }
 
     void JoltRigidBodyComponent::DestroyRigidBody()
     {
-        AZ::TransformNotificationBus::Handler::BusDisconnect();
-        AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusDisconnect();
-        Physics::RigidBodyRequestBus::Handler::BusDisconnect();
-
         if (m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
         {
             if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
@@ -246,6 +250,47 @@ namespace JoltPhysics
         }
 
         m_syncingTransformFromBody = false;
+    }
+
+    void JoltRigidBodyComponent::OnColliderChanged()
+    {
+        // Never rebuild inside the bus dispatch; defer to the next tick.
+        m_rebuildPending = true;
+    }
+
+    void JoltRigidBodyComponent::RebuildRigidBody()
+    {
+        if (m_bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        AZ::Vector3 linearVelocity = AZ::Vector3::CreateZero();
+        AZ::Vector3 angularVelocity = AZ::Vector3::CreateZero();
+        bool isAwake = true;
+        if (AzPhysics::RigidBody* body = GetRigidBody())
+        {
+            linearVelocity = body->GetLinearVelocity();
+            angularVelocity = body->GetAngularVelocity();
+            isAwake = body->IsAwake();
+        }
+
+        DestroyRigidBody();
+
+        // Stale collider data must not survive into the new body.
+        m_configuration.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{};
+
+        CreateRigidBody();
+
+        if (AzPhysics::RigidBody* newBody = GetRigidBody())
+        {
+            newBody->SetLinearVelocity(linearVelocity);
+            newBody->SetAngularVelocity(angularVelocity);
+            if (!isAwake)
+            {
+                newBody->ForceAsleep();
+            }
+        }
     }
 
     void JoltRigidBodyComponent::EnablePhysics()

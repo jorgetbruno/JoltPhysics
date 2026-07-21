@@ -22,6 +22,10 @@ namespace JoltPhysics
 
         void CreateInScene(JoltScene* scene);
 
+        //! Removes the Jolt body from the physics world immediately (the object
+        //! itself is deleted later by the scene's deferred deletion).
+        void RemoveFromJoltWorld();
+
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
         bool IsSensor() const { return m_isSensor; }
 
@@ -48,6 +52,7 @@ namespace JoltPhysics
         JPH::BodyID m_bodyId;
         AZ::EntityId m_entityId;
         bool m_isSensor = false;
+        bool m_removedFromWorld = false;
         AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
     };
 
