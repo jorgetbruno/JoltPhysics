@@ -28,53 +28,60 @@ C:\O3DE\26.05\scripts\o3de.bat enable-gem  --project-path C:\path\to\YourProject
 (The reference test project used by the maintainers is `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest`,
 created from the `DefaultProject` template with `PhysX5` disabled and `JoltPhysics` enabled.)
 
-## Configure and build (Windows, Ninja, profile)
+## Configure and build (Windows, Visual Studio generator, profile)
 
-CMake must run inside a Visual Studio developer environment. From a
-`x64 Native Tools Command Prompt` (or via a wrapper that calls
-`vcvars64.bat` and adds the VS-bundled CMake/Ninja to `PATH` first):
+The default generator on Windows is `Visual Studio 17 2022`, which resolves the MSVC
+toolchain itself — no developer environment needed, and builds from the **O3DE Project
+Manager work out of the box**:
 
 ```bat
 cd C:\path\to\YourProject
-cmake -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=profile -S .
-cmake --build build/windows --target YourProject.GameLauncher Editor JoltPhysics JoltPhysics.Editor
+cmake -B build/windows -S .
+cmake --build build/windows --config profile --target YourProject.GameLauncher Editor JoltPhysics JoltPhysics.Editor
 ```
+
+(If `cmake` is not on `PATH`, use the full path to the VS-bundled one:
+`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.)
 
 The first configure clones Jolt Physics (currently `v5.5.0`) via CMake FetchContent;
 all other dependencies come from the O3DE SDK.
 
-The same commands run from Git Bash in this repo's dev environment via the helper
-`build-env.cmd` checked into the test project root, e.g.:
+Build outputs land in `build/windows\profile\...` (multi-config layout).
 
-```bash
-cmd //c "build-env.cmd cmake --build build/windows --target JoltPhysics JoltPhysics.Editor"
+### Optional: Ninja (faster CLI builds)
+
+Ninja needs a Visual Studio developer environment (`vcvars64.bat`); use a separate
+build dir so the Project Manager keeps working on the VS one:
+
+```bat
+cmake -B build/windows-ninja -G Ninja -DCMAKE_BUILD_TYPE=profile -S .
+cmake --build build/windows-ninja --target YourProject.GameLauncher Editor JoltPhysics JoltPhysics.Editor
 ```
+
+(The test project's `build-env.cmd` wrapper sets up that environment.)
 
 ## Run the unit tests
 
 ```bat
-cmake --build build/windows --target JoltPhysics.Tests JoltPhysics.Editor.Tests
-ctest --test-dir build/windows -R JoltPhysics --output-on-failure
+cmake --build build/windows --config profile --target JoltPhysics.Tests JoltPhysics.Editor.Tests
+ctest --test-dir build/windows -C profile -R JoltPhysics --output-on-failure
 ```
 
 Expected: 2 CTest entries (`Gem::JoltPhysics.Tests`, `Gem::JoltPhysics.Editor.Tests`), all passing.
 
 ## Building from the O3DE Project Manager
 
-The Project Manager's **Build Project** button spawns CMake **without** a Visual Studio
-developer environment. With the Ninja generator (the default cache created by the
-commands above) the compiler test then fails with
-`LNK1104: cannot open file 'kernel32.lib'` because the Windows SDK `LIB`/`INCLUDE`
-paths only exist after `vcvars64.bat` runs. Two ways to make GUI builds work:
+With the Visual Studio generator (the default flow above), the Project Manager's
+**Build Project** works out of the box: it spawns CMake without `-G`, which reuses
+the cached VS generator, and MSBuild resolves the toolchain without a developer
+environment.
 
-1. **Launch the Project Manager inside the VS environment** (recommended — keeps the
-   Ninja cache): from a `x64 Native Tools Command Prompt` run
-   `C:\O3DE\26.05\bin\Windows\profile\Default\o3de.exe` (or via the test project's
-   `build-env.cmd`). All CMake/Ninja processes it spawns then inherit the environment.
-2. **Use the Visual Studio generator** for GUI builds (`cmake -B build/windows-vs -G
-   "Visual Studio 17 2022"`), which resolves the toolchain through MSBuild and needs no
-   environment. Note this produces binaries in a different directory layout
-   (`build/windows-vs/profile/...` instead of `build/windows/bin/profile/...`).
+If the build cache was created with Ninja instead, GUI builds fail at the compiler
+check with `LNK1104: cannot open file 'kernel32.lib'` (Ninja needs the Windows SDK
+`LIB`/`INCLUDE` paths that only exist after `vcvars64.bat`). Fix by either deleting
+`build/windows` and reconfiguring without `-G` (back to the VS default), or by
+launching the Project Manager from a `x64 Native Tools Command Prompt` so spawned
+processes inherit the environment.
 
 ## Linux
 

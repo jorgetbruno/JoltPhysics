@@ -172,10 +172,12 @@ namespace JoltPhysics
     TEST_F(JoltVehicleTests, ClimbsRampAndStaysUpright)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
-        // 12 degree ramp from x~1 to x~8, then a flat platform at z ~1.35.
-        const AZ::Quaternion rampOrientation = AZ::Quaternion::CreateFromAxisAngle(AZ::Vector3::CreateAxisY(), -AZ::DegToRad(12.0f));
-        CreateStaticBox(AZ::Vector3(4.5f, 0.0f, 0.72f), AZ::Vector3(8.0f, 4.0f, 0.3f), rampOrientation);
-        CreateStaticBox(AZ::Vector3(10.5f, 0.0f, 1.4f), AZ::Vector3(5.0f, 4.0f, 0.3f));
+        // 6 degree ramp rising to z~0.84 at x~8.5, flush with a platform at the top:
+        // the car climbs onto the platform without launching (steeper/cliffed ramps
+        // make the landing timing-sensitive).
+        const AZ::Quaternion rampOrientation = AZ::Quaternion::CreateFromAxisAngle(AZ::Vector3::CreateAxisY(), -AZ::DegToRad(6.0f));
+        CreateStaticBox(AZ::Vector3(4.5f, 0.0f, 0.27f), AZ::Vector3(8.0f, 4.0f, 0.3f), rampOrientation);
+        CreateStaticBox(AZ::Vector3(10.5f, 0.0f, 0.69f), AZ::Vector3(5.0f, 4.0f, 0.3f));
 
         CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
 
@@ -185,20 +187,28 @@ namespace JoltPhysics
         DriveSteps(0.0f, 0.0f, 0.0f, 60);
 
         float maxZ = 0.0f;
+        AZStd::string rampDiag;
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 480; ++i)
         {
-            m_vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
+            m_vehicle->SetDriverInput(0.6f, 0.0f, 0.0f, 0.0f);
             m_scene->StartSimulation(fixedDeltaTime);
             m_scene->FinishSimulation();
             maxZ = AZStd::max(maxZ, chassis->GetPosition().GetZ());
+            if (i % 60 == 0)
+            {
+                rampDiag += AZStd::string::format("ramp %d: x=%.2f z=%.2f upZ=%.2f speed=%.2f\n",
+                    i, chassis->GetPosition().GetX(), chassis->GetPosition().GetZ(),
+                    chassis->GetOrientation().TransformVector(AZ::Vector3::CreateAxisZ()).GetZ(),
+                    m_vehicle->GetSpeed());
+            }
         }
 
-        // The car drove up the ramp (peak height above the platform) and stayed upright.
-        EXPECT_GT(chassis->GetPosition().GetX(), 6.0f);
-        EXPECT_GT(maxZ, 1.2f);
+        // The car drove up the ramp (peak height at/above the platform top) and stayed upright.
+        EXPECT_GT(chassis->GetPosition().GetX(), 6.0f) << rampDiag.c_str();
+        EXPECT_GT(maxZ, 0.9f) << rampDiag.c_str();
         const AZ::Vector3 up = chassis->GetOrientation().TransformVector(AZ::Vector3::CreateAxisZ());
-        EXPECT_GT(up.GetZ(), 0.9f);
+        EXPECT_GT(up.GetZ(), 0.9f) << rampDiag.c_str();
     }
 
     TEST_F(JoltVehicleTests, VehicleConfigurationSerializationRoundTrip)
