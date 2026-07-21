@@ -94,3 +94,22 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   in one step leaves it stranded underneath (no contact is generated).
 - **Per-triangle friction/restitution** are resolved at contact time from the
   provider's material list (contact-listener override), not baked into the shape.
+
+## M5 (character controllers)
+
+- **Requested velocities are applied by the scene at simulation start**, not via an
+  `OnSceneSimulationStart` event handler like the PhysX gem; per-tick and per-physics-
+  step velocity requests coincide in this backend (both are applied and flushed on the
+  next simulation step).
+- **The character is visible to the simulation through a kinematic inner body**
+  (`CharacterVirtualSettings::mInnerBodyShape`): dynamic bodies collide with and are
+  pushed by the character, and sensors fire trigger events for it. PhysX instead uses
+  its CCT obstacle/shadow-body machinery.
+- **The character's own collision layer/group is stored but not enforced** on its
+  movement queries yet (default Jolt filters collide with everything); sensors never
+  block movement either way.
+- **Body-level `RayCast` on a character returns an empty hit** (use scene queries).
+- **`AttachShape` is unsupported** (no `Physics::Shape` wrapper in the backend yet).
+- **No `CharacterGameplayComponent` equivalent**: gameplay drives the character via
+  `CharacterRequestBus::AddVelocityForTick` (gravity, jumps), as the smoke test's
+  `CharacterDriverTestComponent` demonstrates.

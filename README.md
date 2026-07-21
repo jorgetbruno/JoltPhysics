@@ -12,6 +12,9 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
   components that gather child-entity colliders, with per-sub-shape materials
 - Heightfield collider fed by `Physics::HeightfieldProviderRequestsBus` (terrain gems),
   incl. runtime height updates and per-triangle materials
+- Character controller (`JoltCharacterControllerComponent` over `JPH::CharacterVirtual`):
+  ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
+  trigger/sensor interaction
 - Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
 - Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
 - Scene queries: raycast, shapecast and overlap through O3DE's physics query API
@@ -24,7 +27,6 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 - Debug visualization via `Physics::SystemDebugRequestBus::DebugDrawPhysics`
 
 ### Planned / TODO
-- Character controllers
 - Convex hull and mesh colliders (cooking)
 - Joints (fixed, hinge, slider, etc.)
 - Async scene queries
@@ -210,7 +212,7 @@ JoltPhysics/
 | M2 | Stabilize existing features (materials, filtering, queries, debug draw) | ✅ Done |
 | M3 | Compound colliders | ✅ Done |
 | M4 | Heightfield collider | ✅ Done |
-| M5 | Character controllers | ⬜ Planned |
+| M5 | Character controllers | ✅ Done |
 | M6 | Joints | ⬜ Planned |
 | M7 | Vehicles | ⬜ Planned |
 | M8 | Soft bodies, water | ⬜ Planned |
@@ -236,6 +238,12 @@ The reference test project `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest` contai
 - **SlopeBall** at (4, -4, 5): sphere that must land on the slope and roll downhill (+x).
 - **StepBall** at (8, -8, 6): sphere resting in the step region; it must ride the
   raising terrain up and come to rest at z≈2.48.
+- **Step1–Step3 / Platform** (y=6 lane): static stair steps (0.3 m increments) up to a
+  0.9 m platform, exercising the character's step offset.
+- **PushBox** at (5, 6, 1.4): dynamic box on the platform the character pushes aside.
+- **Player** at (0, 6, 1): `Jolt Character Controller` + `CharacterDriverTestComponent`
+  (from the test project's gem): walks +x at 1.5 m/s, climbs the stairs, jumps at t=3 s,
+  shoves the box aside, and comes to a stand mid-platform.
 
 To reproduce: open the level in the O3DE Editor, press **Ctrl+G** (game mode).
 The box falls and comes to rest with its center at z≈0.48 m (0.5 m half-extent minus
