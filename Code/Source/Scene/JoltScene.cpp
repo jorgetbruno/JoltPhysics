@@ -1,5 +1,6 @@
 #include <Scene/JoltScene.h>
 #include <Scene/JoltSceneQueryHelpers.h>
+#include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <RigidBody/JoltStaticRigidBody.h>
@@ -13,12 +14,14 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 
 #include <Jolt/Jolt.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 
 namespace JoltPhysics
 {
@@ -239,13 +242,49 @@ namespace JoltPhysics
             colliderMaterials = &staticBody->GetColliderMaterials();
         }
 
-        // Only compounds (more than one collider) need per-sub-shape overrides.
+        // Only compounds (more than one collider) and heightfields need per-sub-shape overrides.
         if (!colliderMaterials || colliderMaterials->size() <= 1)
         {
             return false;
         }
 
         const JPH::Shape* shape = body.GetShape();
+
+        // Heightfield bodies: per-triangle material from the provider data.
+        if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(shape))
+        {
+            auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle));
+            if (!staticBody)
+            {
+                return false;
+            }
+
+            const auto& materialIndices = staticBody->GetHeightfieldMaterialIndices();
+            const auto& materials = staticBody->GetColliderMaterials();
+            if (materials.empty())
+            {
+                return false;
+            }
+
+            JPH::SubShapeID remainder;
+            const AZ::u32 triangleId = subShapeId.PopID(heightFieldShape->GetSubShapeIDBitsRecursive(), remainder);
+            const AZ::u32 square = triangleId >> 1;
+            const AZ::u32 sampleCount = heightFieldShape->GetSampleCount();
+            const AZ::u32 squareX = square % sampleCount;
+            const AZ::u32 squareY = square / sampleCount;
+
+            const size_t indexPosition = squareY * (sampleCount - 1) + squareX;
+            const AZ::u8 materialIndex =
+                indexPosition < materialIndices.size() ? materialIndices[indexPosition] : 0;
+            const AZ::u8 clampedIndex = materialIndex < materials.size() ? materialIndex : 0;
+
+            outFriction = materials[clampedIndex].first;
+            outRestitution = materials[clampedIndex].second;
+            return true;
+            outRestitution = materials[clampedIndex].second;
+            return true;
+        }
+
         if (!shape || shape->GetSubType() != JPH::EShapeSubType::StaticCompound)
         {
             return false;

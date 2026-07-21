@@ -6,6 +6,7 @@
 #include <Clients/Components/JoltRigidBodyComponent.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
 #include <Clients/Components/JoltStaticCompoundColliderComponent.h>
+#include <Clients/Components/JoltHeightfieldColliderComponent.h>
 
 namespace JoltPhysics
 {
@@ -21,6 +22,7 @@ namespace JoltPhysics
         descriptors.push_back(JoltStaticRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(JoltStaticCompoundColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltMutableCompoundColliderComponent::CreateDescriptor());
+        descriptors.push_back(JoltHeightfieldColliderComponent::CreateDescriptor());
 
         return descriptors;
     }

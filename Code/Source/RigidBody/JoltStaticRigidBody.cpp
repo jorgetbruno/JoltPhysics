@@ -1,17 +1,23 @@
 #include <RigidBody/JoltStaticRigidBody.h>
 #include <Scene/JoltScene.h>
 #include <Utils/Conversions.h>
+#include <Shape/JoltHeightfieldUtils.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
 
+#include <AzCore/Interface/Interface.h>
 #include <AzCore/Memory/SystemAllocator.h>
+
+#include <AzFramework/Physics/HeightfieldProviderBus.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 
 namespace JoltPhysics
 {
@@ -107,6 +113,58 @@ namespace JoltPhysics
 
         auto* bodyInterface = scene->GetBodyInterface();
         m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::DontActivate);
+
+        // Heightfield bodies get per-triangle materials from the provider.
+        if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(shape))
+        {
+            ResolveHeightfieldMaterialData(heightFieldShape);
+        }
+    }
+
+    void JoltStaticRigidBody::ResolveHeightfieldMaterialData(const JPH::HeightFieldShape* heightFieldShape)
+    {
+        AZStd::vector<AZ::Data::Asset<Physics::MaterialAsset>> providerMaterials;
+        Physics::HeightfieldProviderRequestsBus::EventResult(
+            providerMaterials, m_entityId, &Physics::HeightfieldProviderRequests::GetMaterialList);
+
+        m_colliderMaterials.clear();
+        for (const auto& materialAsset : providerMaterials)
+        {
+            auto material = AZ::Interface<Physics::MaterialManager>::Get()->FindOrCreateMaterial(
+                Physics::MaterialId::CreateFromAssetId(materialAsset.GetId()), materialAsset);
+            if (const auto* joltMaterial = azrtti_cast<const JoltMaterial*>(material.get()))
+            {
+                m_colliderMaterials.emplace_back(joltMaterial->GetDynamicFriction(), joltMaterial->GetRestitution());
+            }
+            else
+            {
+                m_colliderMaterials.emplace_back(JoltMaterial::DefaultFriction, JoltMaterial::DefaultRestitution);
+            }
+        }
+
+        size_t numColumns = 0;
+        size_t numRows = 0;
+        Physics::HeightfieldProviderRequestsBus::EventResult(
+            numColumns, m_entityId, &Physics::HeightfieldProviderRequests::GetHeightfieldGridColumns);
+        Physics::HeightfieldProviderRequestsBus::EventResult(
+            numRows, m_entityId, &Physics::HeightfieldProviderRequests::GetHeightfieldGridRows);
+
+        AZStd::vector<Physics::HeightMaterialPoint> heightsAndMaterials;
+        Physics::HeightfieldProviderRequestsBus::EventResult(
+            heightsAndMaterials, m_entityId, &Physics::HeightfieldProviderRequests::GetHeightsAndMaterials);
+
+        AZStd::vector<AZ::u8> perSampleIndices;
+        if (!heightsAndMaterials.empty())
+        {
+            perSampleIndices.reserve(heightsAndMaterials.size());
+            for (const auto& point : heightsAndMaterials)
+            {
+                perSampleIndices.push_back(point.m_materialIndex);
+            }
+        }
+
+        m_heightfieldMaterialIndices = JoltHeightfieldUtils::PadMaterialIndices(
+            static_cast<AZ::u32>(numColumns), static_cast<AZ::u32>(numRows), perSampleIndices, heightFieldShape->GetSampleCount());
     }
 
     AZ::Vector3 JoltStaticRigidBody::GetPosition() const

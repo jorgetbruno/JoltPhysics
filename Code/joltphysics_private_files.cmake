@@ -19,6 +19,8 @@ set(FILES
     Source/Clients/Components/JoltStaticRigidBodyComponent.h
     Source/Clients/Components/JoltStaticCompoundColliderComponent.cpp
     Source/Clients/Components/JoltStaticCompoundColliderComponent.h
+    Source/Clients/Components/JoltHeightfieldColliderComponent.cpp
+    Source/Clients/Components/JoltHeightfieldColliderComponent.h
     Source/Debug/JoltDebugRenderer.cpp
     Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp
@@ -43,6 +45,8 @@ set(FILES
     Source/RigidBody/JoltRigidBody.h
     Source/RigidBody/JoltStaticRigidBody.cpp
     Source/RigidBody/JoltStaticRigidBody.h
+    Source/Shape/JoltHeightfieldUtils.cpp
+    Source/Shape/JoltHeightfieldUtils.h
     Source/Shape/JoltShapeUtils.cpp
     Source/Shape/JoltShapeUtils.h
     Source/Utils/Conversions.cpp

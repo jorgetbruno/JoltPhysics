@@ -1,3 +1,4 @@
+#include <Shape/JoltHeightfieldUtils.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Utils/Conversions.h>
 
@@ -138,6 +139,20 @@ namespace JoltPhysics
 
         case Physics::ShapeType::Capsule:
             return CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
+
+        case Physics::ShapeType::Heightfield:
+        {
+            // The native heightfield is produced by the heightfield collider component
+            // (from a HeightfieldProviderBus implementation) and cached on the configuration.
+            const auto& heightfieldConfiguration =
+                static_cast<const Physics::HeightfieldShapeConfiguration&>(shapeConfiguration);
+            if (auto* nativeHeightfield =
+                    static_cast<JPH::Shape*>(const_cast<void*>(heightfieldConfiguration.GetCachedNativeHeightfield())))
+            {
+                return JoltHeightfieldUtils::WrapZUp(nativeHeightfield);
+            }
+            return nullptr;
+        }
 
         default:
             return nullptr;

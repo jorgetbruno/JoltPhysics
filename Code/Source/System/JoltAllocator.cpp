@@ -50,11 +50,11 @@ namespace JoltPhysics
 
     void JoltAllocator::Uninstall()
     {
-        JPH::Allocate = nullptr;
-        JPH::Reallocate = nullptr;
-        JPH::Free = nullptr;
-        JPH::AlignedAllocate = nullptr;
-        JPH::AlignedFree = nullptr;
+        // Intentionally not clearing the JPH allocation hooks: Jolt allocations
+        // (shapes, RefConst<T> users) may outlive JoltSystem (e.g. held by callers
+        // past Shutdown) and freeing through a null pointer would crash. The hooks
+        // only forward to AZ::SystemAllocator, which is available for the process
+        // lifetime, so leaving them installed is safe.
     }
 
 } // namespace JoltPhysics

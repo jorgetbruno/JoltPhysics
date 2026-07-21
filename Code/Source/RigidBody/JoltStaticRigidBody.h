@@ -6,6 +6,12 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 
+namespace JPH
+{
+    class Shape;
+    class HeightFieldShape;
+}
+
 namespace JoltPhysics
 {
     class JoltScene;
@@ -29,9 +35,6 @@ namespace JoltPhysics
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
         bool IsSensor() const { return m_isSensor; }
 
-        //! {friction, restitution} per collider, in collider order (compound sub-shape order).
-        const AZStd::vector<AZStd::pair<float, float>>& GetColliderMaterials() const { return m_colliderMaterials; }
-
         AZ::Vector3 GetPosition() const override;
         AZ::Quaternion GetOrientation() const override;
         AZ::Aabb GetAabb() const override;
@@ -41,6 +44,11 @@ namespace JoltPhysics
         void SetTransform(const AZ::Transform& transform) override;
 
         void AddShape(AZStd::shared_ptr<Physics::Shape> shape) override;
+
+        //! {friction, restitution} per collider, or per provider material slot for heightfields.
+        const AZStd::vector<AZStd::pair<float, float>>& GetColliderMaterials() const { return m_colliderMaterials; }
+        //! Per-square material indices for heightfield bodies (empty otherwise).
+        const AZStd::vector<AZ::u8>& GetHeightfieldMaterialIndices() const { return m_heightfieldMaterialIndices; }
 
         AZ::Crc32 GetNativeType() const override;
         void* GetNativePointer() const override;
@@ -54,6 +62,9 @@ namespace JoltPhysics
         bool m_isSensor = false;
         bool m_removedFromWorld = false;
         AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
+        AZStd::vector<AZ::u8> m_heightfieldMaterialIndices;
+
+        void ResolveHeightfieldMaterialData(const JPH::HeightFieldShape* heightFieldShape);
     };
 
 } // namespace JoltPhysics
