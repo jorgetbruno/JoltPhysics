@@ -1,6 +1,7 @@
 #include <Scene/JoltScene.h>
 #include <Scene/JoltSceneQueryHelpers.h>
 #include <Character/JoltCharacter.h>
+#include <Joint/JoltJoint.h>
 #include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
@@ -253,6 +254,30 @@ namespace JoltPhysics
         return AzPhysics::InvalidSimulatedBodyHandle;
     }
 
+    JPH::Body* JoltScene::GetJoltBody(AzPhysics::SimulatedBodyHandle bodyHandle)
+    {
+        if (!m_physicsSystem)
+        {
+            return nullptr;
+        }
+
+        JPH::BodyID bodyId;
+        if (auto* rigidBody = azdynamic_cast<JoltRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
+        {
+            bodyId = rigidBody->GetBodyId();
+        }
+        else if (auto* staticBody = azdynamic_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
+        {
+            bodyId = staticBody->GetBodyId();
+        }
+        else
+        {
+            return nullptr;
+        }
+
+        return m_physicsSystem->GetBodyLockInterfaceNoLock().TryGetBody(bodyId);
+    }
+
     bool JoltScene::GetMaterialForSubShape(
         const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution)
     {
@@ -453,12 +478,51 @@ namespace JoltPhysics
     }
 
     AzPhysics::JointHandle JoltScene::AddJoint(
-        [[maybe_unused]] const AzPhysics::JointConfiguration* jointConfig,
-        [[maybe_unused]] AzPhysics::SimulatedBodyHandle parentBody,
-        [[maybe_unused]] AzPhysics::SimulatedBodyHandle childBody)
+        const AzPhysics::JointConfiguration* jointConfig,
+        AzPhysics::SimulatedBodyHandle parentBody,
+        AzPhysics::SimulatedBodyHandle childBody)
     {
-        // TODO: Implement joint creation
-        return AzPhysics::InvalidJointHandle;
+        if (!jointConfig || !m_physicsSystem)
+        {
+            return AzPhysics::InvalidJointHandle;
+        }
+
+        JPH::Body* parentJoltBody = GetJoltBody(parentBody);
+        JPH::Body* childJoltBody = GetJoltBody(childBody);
+        if (!parentJoltBody || !childJoltBody)
+        {
+            return AzPhysics::InvalidJointHandle;
+        }
+
+        JPH::Constraint* constraint = CreateJoltConstraint(*jointConfig, *parentJoltBody, *childJoltBody);
+        if (!constraint)
+        {
+            return AzPhysics::InvalidJointHandle;
+        }
+        m_physicsSystem->AddConstraint(constraint);
+
+        AzPhysics::JointIndex jointIndex;
+        if (!m_freeJointSlots.empty())
+        {
+            jointIndex = m_freeJointSlots.front();
+            m_freeJointSlots.pop();
+        }
+        else
+        {
+            jointIndex = static_cast<AzPhysics::JointIndex>(m_joints.size());
+            m_joints.emplace_back(AZ::Crc32(), nullptr);
+        }
+
+        auto* joint = aznew JoltJoint(this, parentBody, childBody, constraint);
+
+        AZ::Crc32 jointCrc(jointConfig->m_debugName.c_str());
+        AzPhysics::JointHandle handle(jointCrc, jointIndex);
+
+        m_joints[jointIndex] = { jointCrc, joint };
+        joint->m_sceneOwner = m_sceneHandle;
+        joint->m_jointHandle = handle;
+
+        return handle;
     }
 
     AzPhysics::Joint* JoltScene::GetJointFromHandle(AzPhysics::JointHandle jointHandle)
@@ -487,6 +551,10 @@ namespace JoltPhysics
         const auto index = AZStd::get<AzPhysics::JointIndex>(jointHandle);
         if (index < m_joints.size() && m_joints[index].second)
         {
+            if (auto* joint = azrtti_cast<JoltJoint*>(m_joints[index].second))
+            {
+                joint->RemoveFromJoltWorld();
+            }
             m_deferredDeletionsJoints.push_back(m_joints[index].second);
             m_joints[index] = { AZ::Crc32(), nullptr };
             m_freeJointSlots.push(index);

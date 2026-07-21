@@ -24,6 +24,7 @@ namespace JPH
 {
     class PhysicsSystem;
     class BodyInterface;
+    class Body;
     class TempAllocatorImpl;
     class JobSystemThreadPool;
 }
@@ -128,6 +129,10 @@ namespace JoltPhysics
 
         JPH::PhysicsSystem* GetJoltPhysicsSystem() { return m_physicsSystem.get(); }
         JPH::BodyInterface* GetBodyInterface() { return m_bodyInterface; }
+
+        //! Resolves a simulated body handle to its Jolt body (nullptr for characters
+        //! and invalid handles).
+        JPH::Body* GetJoltBody(AzPhysics::SimulatedBodyHandle bodyHandle);
 
         float GetCurrentDeltaTime() const { return m_currentDeltaTime; }
 

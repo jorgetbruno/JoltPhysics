@@ -23,8 +23,16 @@ set(FILES
     Source/Clients/Components/JoltHeightfieldColliderComponent.h
     Source/Clients/Components/JoltCharacterControllerComponent.cpp
     Source/Clients/Components/JoltCharacterControllerComponent.h
+    Source/Clients/Components/JoltJointComponentBase.cpp
+    Source/Clients/Components/JoltJointComponentBase.h
+    Source/Clients/Components/JoltJointComponents.cpp
+    Source/Clients/Components/JoltJointComponents.h
     Source/Character/JoltCharacter.cpp
     Source/Character/JoltCharacter.h
+    Source/Joint/JoltJoint.cpp
+    Source/Joint/JoltJoint.h
+    Source/Joint/JoltJointConfiguration.cpp
+    Source/Joint/JoltJointConfiguration.h
     Source/Debug/JoltDebugRenderer.cpp
     Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp
