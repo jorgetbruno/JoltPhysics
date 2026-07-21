@@ -16,7 +16,11 @@ deviations from PhysX behavior.
   `Physics::Shape` wrapper). → M3 (compound) / later.
 - **Multiple colliders per entity** are disallowed at the component level
   (`JoltColliderService` self-incompatible). Compound collider components arrive in M3.
-- **No joints, vehicles, soft bodies, water** — scheduled M6–M8.
+- **No vehicles, soft bodies, water** — scheduled M7–M8.
+- **Joints do not disable collision between the connected bodies** (PhysX disables it
+  by default): jointed bodies whose shapes overlap will fight the constraint — use
+  collision layers/groups or keep the shapes apart. `AzPhysics::JointHelpersInterface`
+  (editor joint-limit visualization/auto-configuration) is not implemented.
 - **Character controller gaps**: no collision layer/group filtering on the character's
   own movement (defaults are used), `AttachShape` is a no-op, body-level `RayCast`
   returns empty, and there is no `CharacterGameplayComponent` equivalent (gameplay

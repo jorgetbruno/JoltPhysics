@@ -15,6 +15,8 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 - Character controller (`JoltCharacterControllerComponent` over `JPH::CharacterVirtual`):
   ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
   trigger/sensor interaction
+- Joints: fixed, hinge (limits + motor), ball-and-socket (swing cone), prismatic
+  (limits + motor) and 6-DOF (swing/twist limits) components mapped to Jolt constraints
 - Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
 - Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
 - Scene queries: raycast, shapecast and overlap through O3DE's physics query API
@@ -28,7 +30,6 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 
 ### Planned / TODO
 - Convex hull and mesh colliders (cooking)
-- Joints (fixed, hinge, slider, etc.)
 - Async scene queries
 - Soft bodies
 - Vehicle simulation
@@ -213,7 +214,7 @@ JoltPhysics/
 | M3 | Compound colliders | ✅ Done |
 | M4 | Heightfield collider | ✅ Done |
 | M5 | Character controllers | ✅ Done |
-| M6 | Joints | ⬜ Planned |
+| M6 | Joints | ✅ Done |
 | M7 | Vehicles | ⬜ Planned |
 | M8 | Soft bodies, water | ⬜ Planned |
 
@@ -244,6 +245,13 @@ The reference test project `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest` contai
 - **Player** at (0, 6, 1): `Jolt Character Controller` + `CharacterDriverTestComponent`
   (from the test project's gem): walks +x at 1.5 m/s, climbs the stairs, jumps at t=3 s,
   shoves the box aside, and comes to a stand mid-platform.
+- **PendulumAnchor / PendulumBob** (y=12–14): `Jolt Hinge Joint` (unlimited) with the
+  pivot at the anchor; the bob is released 2 m to the side and swings in the YZ plane.
+- **ChainAnchor / ChainLink1 / ChainLink2** (y=16): two `Jolt Ball Joint`s (60° cone)
+  forming a ragdoll-like chain that dangles below the anchor.
+- **DoorFrame / SlidingDoor** (y=20): `Jolt Prismatic Joint` (limits 0–1.5 m, motor)
+  + `JointDriverTestComponent` driving the door open to its limit; the frame slab
+  floats above the door so the two jointed bodies do not overlap.
 
 To reproduce: open the level in the O3DE Editor, press **Ctrl+G** (game mode).
 The box falls and comes to rest with its center at z≈0.48 m (0.5 m half-extent minus

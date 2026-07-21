@@ -113,3 +113,20 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
 - **No `CharacterGameplayComponent` equivalent**: gameplay drives the character via
   `CharacterRequestBus::AddVelocityForTick` (gravity, jumps), as the smoke test's
   `CharacterDriverTestComponent` demonstrates.
+
+## M6 (joints)
+
+- **Jointed bodies still collide with each other** (PhysX disables the pair by
+  default). Jolt has no per-constraint collision toggle; layers/groups or non-
+  overlapping shapes are the workaround.
+- **Limit semantics are made explicit in the Jolt configs**: hinge `LimitFirst`/`LimitSecond`
+  are the lower/upper angle in degrees, prismatic min/max slide in meters, ball cone
+  half-angles about joint Y/Z in degrees (PhysX's field semantics are backend-specific).
+- **Runtime joint control is exposed through `JoltJointRequestBus`** (this gem's own
+  bus) mirroring the PhysX gem's `JointRequestBus` surface, since AzPhysics defines no
+  joint control bus and the PhysX bus lives in the PhysX gem.
+- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
+  visualization and auto-configuration); joints are configured explicitly.
+- **Rebinding a joint to different bodies requires recreating it**
+  (`SetParentBody`/`SetChildBody` only update bookkeeping).
+- **Breakable joints are not implemented** (the `Breakable` flag is parsed but ignored).
