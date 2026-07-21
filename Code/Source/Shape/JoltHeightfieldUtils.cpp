@@ -2,6 +2,9 @@
 
 #include <AzCore/std/numeric.h>
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+
 namespace JoltPhysics
 {
     AZ::u32 JoltHeightfieldUtils::ComputeSampleCount(AZ::u32 numColumns, AZ::u32 numRows)

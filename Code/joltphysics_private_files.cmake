@@ -21,6 +21,10 @@ set(FILES
     Source/Clients/Components/JoltStaticCompoundColliderComponent.h
     Source/Clients/Components/JoltHeightfieldColliderComponent.cpp
     Source/Clients/Components/JoltHeightfieldColliderComponent.h
+    Source/Clients/Components/JoltCharacterControllerComponent.cpp
+    Source/Clients/Components/JoltCharacterControllerComponent.h
+    Source/Character/JoltCharacter.cpp
+    Source/Character/JoltCharacter.h
     Source/Debug/JoltDebugRenderer.cpp
     Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp

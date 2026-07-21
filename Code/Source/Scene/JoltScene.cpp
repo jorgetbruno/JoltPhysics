@@ -1,5 +1,6 @@
 #include <Scene/JoltScene.h>
 #include <Scene/JoltSceneQueryHelpers.h>
+#include <Character/JoltCharacter.h>
 #include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
@@ -10,6 +11,7 @@
 #include <AzCore/Console/ILogger.h>
 
 #include <AzFramework/Physics/RigidBodyBus.h>
+#include <AzFramework/Physics/Character.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 
@@ -102,6 +104,19 @@ namespace JoltPhysics
 
         m_currentDeltaTime = deltaTime;
 
+        // Move characters before the physics step so dynamic bodies respond to them
+        // within the same step (Jolt CharacterVirtual updates are user-driven).
+        for (auto& [crc, body] : m_simulatedBodies)
+        {
+            if (auto* character = azdynamic_cast<JoltCharacter*>(body))
+            {
+                character->ApplyRequestedVelocity(deltaTime);
+                // Per-tick and per-step requests coincide in this backend: the scene
+                // applies accumulated requests once per simulation step.
+                character->ResetRequestedVelocityForTick();
+            }
+        }
+
         m_physicsSystem->Update(deltaTime, m_collisionSteps, m_tempAllocator, m_jobSystem);
     }
 
@@ -177,6 +192,12 @@ namespace JoltPhysics
             staticBody->CreateInScene(this);
             body = staticBody;
         }
+        else if (const auto* characterConfig = azdynamic_cast<const Physics::CharacterConfiguration*>(simulatedBodyConfig))
+        {
+            auto* character = aznew JoltCharacter(*characterConfig);
+            character->CreateInScene(this);
+            body = character;
+        }
 
         if (!body)
         {
@@ -207,6 +228,15 @@ namespace JoltPhysics
             if (staticBody->IsSensor())
             {
                 m_sensorBodyIds.insert(joltIdKey);
+            }
+        }
+        else if (auto* character = azrtti_cast<JoltCharacter*>(body))
+        {
+            // The character's kinematic inner body is what sensors and dynamic bodies
+            // interact with; map it to the character's handle so events resolve.
+            if (const JPH::BodyID innerBodyId = character->GetInnerBodyId(); !innerBodyId.IsInvalid())
+            {
+                m_bodyHandleByJoltId[innerBodyId.GetIndexAndSequenceNumber()] = handle;
             }
         }
 
@@ -371,6 +401,14 @@ namespace JoltPhysics
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
                 staticBody->RemoveFromJoltWorld();
+            }
+            else if (auto* character = azrtti_cast<JoltCharacter*>(body))
+            {
+                // CharacterVirtual's destructor removes its inner body from the physics system.
+                if (const JPH::BodyID innerBodyId = character->GetInnerBodyId(); !innerBodyId.IsInvalid())
+                {
+                    m_bodyHandleByJoltId.erase(innerBodyId.GetIndexAndSequenceNumber());
+                }
             }
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };

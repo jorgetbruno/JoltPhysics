@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzFramework/Physics/Configuration/CollisionConfiguration.h>
+#include <AzFramework/Physics/Shape.h>
 
 #include <AzCore/std/limits.h>
 
