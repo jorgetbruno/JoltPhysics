@@ -27,12 +27,18 @@ set(FILES
     Source/Clients/Components/JoltJointComponentBase.h
     Source/Clients/Components/JoltJointComponents.cpp
     Source/Clients/Components/JoltJointComponents.h
+    Source/Clients/Components/JoltVehicleComponent.cpp
+    Source/Clients/Components/JoltVehicleComponent.h
     Source/Character/JoltCharacter.cpp
     Source/Character/JoltCharacter.h
     Source/Joint/JoltJoint.cpp
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp
     Source/Joint/JoltJointConfiguration.h
+    Source/Vehicle/JoltVehicle.cpp
+    Source/Vehicle/JoltVehicle.h
+    Source/Vehicle/JoltVehicleConfiguration.cpp
+    Source/Vehicle/JoltVehicleConfiguration.h
     Source/Debug/JoltDebugRenderer.cpp
     Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp

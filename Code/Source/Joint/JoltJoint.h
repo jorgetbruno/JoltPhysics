@@ -5,6 +5,11 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Constraints/Constraint.h>
 
+namespace JPH
+{
+    class Body;
+}
+
 namespace JoltPhysics
 {
     class JoltScene;

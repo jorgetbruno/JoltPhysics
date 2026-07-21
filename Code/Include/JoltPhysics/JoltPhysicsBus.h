@@ -50,4 +50,22 @@ namespace JoltPhysics
 
     using JoltJointRequestBus = AZ::EBus<JoltJointRequests>;
 
+    //! Runtime control of vehicles (AzPhysics has no vehicle interfaces in O3DE 26.05,
+    //! so the vehicle surface lives on this gem's own bus).
+    class JoltVehicleRequests
+        : public AZ::ComponentBus
+    {
+    public:
+        virtual ~JoltVehicleRequests() = default;
+
+        //! Applies driver input: throttle [-1..1], steering [-1..1], brake [0..1], handbrake [0..1].
+        virtual void SetDriverInput(float forward, float right, float brake, float handbrake) = 0;
+        //! Chassis speed along its forward axis (m/s).
+        virtual float GetSpeed() const = 0;
+        virtual float GetEngineRpm() const = 0;
+        virtual int GetCurrentGear() const = 0;
+    };
+
+    using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;
+
 } // namespace JoltPhysics

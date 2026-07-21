@@ -9,6 +9,7 @@
 #include <Clients/Components/JoltHeightfieldColliderComponent.h>
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Clients/Components/JoltJointComponents.h>
+#include <Clients/Components/JoltVehicleComponent.h>
 
 namespace JoltPhysics
 {
@@ -31,6 +32,7 @@ namespace JoltPhysics
         descriptors.push_back(JoltHingeJointComponent::CreateDescriptor());
         descriptors.push_back(JoltPrismaticJointComponent::CreateDescriptor());
         descriptors.push_back(JoltD6JointComponent::CreateDescriptor());
+        descriptors.push_back(JoltVehicleComponent::CreateDescriptor());
 
         return descriptors;
     }

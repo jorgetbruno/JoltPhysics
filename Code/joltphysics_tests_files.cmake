@@ -13,4 +13,5 @@ set(FILES
     Tests/JoltComponentBodyCreationTests.cpp
     Tests/JoltCharacterTests.cpp
     Tests/JoltJointTests.cpp
+    Tests/JoltVehicleTests.cpp
 )
