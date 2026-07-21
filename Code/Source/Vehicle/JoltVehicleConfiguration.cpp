@@ -31,6 +31,7 @@ namespace JoltPhysics
             serializeContext->Class<JoltVehicleConfiguration>()
                 ->Version(1)
                 ->Field("Wheels", &JoltVehicleConfiguration::m_wheels)
+                ->Field("ChassisMass", &JoltVehicleConfiguration::m_chassisMass)
                 ->Field("LeftDriveWheel", &JoltVehicleConfiguration::m_leftDriveWheel)
                 ->Field("RightDriveWheel", &JoltVehicleConfiguration::m_rightDriveWheel)
                 ->Field("DifferentialRatio", &JoltVehicleConfiguration::m_differentialRatio)

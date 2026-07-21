@@ -17,6 +17,8 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
   trigger/sensor interaction
 - Joints: fixed, hinge (limits + motor), ball-and-socket (swing cone), prismatic
   (limits + motor) and 6-DOF (swing/twist limits) components mapped to Jolt constraints
+- Wheeled vehicles (`JoltVehicleComponent` over `JPH::VehicleConstraint`): engine,
+  automatic transmission, steering, brakes, suspension, ramp driving
 - Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
 - Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
 - Scene queries: raycast, shapecast and overlap through O3DE's physics query API
@@ -32,7 +34,6 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
 - Convex hull and mesh colliders (cooking)
 - Async scene queries
 - Soft bodies
-- Vehicle simulation
 
 ## Requirements
 
@@ -215,7 +216,7 @@ JoltPhysics/
 | M4 | Heightfield collider | ✅ Done |
 | M5 | Character controllers | ✅ Done |
 | M6 | Joints | ✅ Done |
-| M7 | Vehicles | ⬜ Planned |
+| M7 | Vehicles | ✅ Done |
 | M8 | Soft bodies, water | ⬜ Planned |
 
 ## Smoke Test Level
@@ -252,6 +253,9 @@ The reference test project `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest` contai
 - **DoorFrame / SlidingDoor** (y=20): `Jolt Prismatic Joint` (limits 0–1.5 m, motor)
   + `JointDriverTestComponent` driving the door open to its limit; the frame slab
   floats above the door so the two jointed bodies do not overlap.
+- **Vehicle** at (0, 24, 0.9): `Jolt Rigid Body` chassis + `Jolt Vehicle` (default
+  4-wheel layout) + `VehicleDriverTestComponent`: launches over a 12° ramp
+  (**VehicleRamp**/**VehiclePlatform**), steers gently, and brakes to a stop.
 
 To reproduce: open the level in the O3DE Editor, press **Ctrl+G** (game mode).
 The box falls and comes to rest with its center at z≈0.48 m (0.5 m half-extent minus

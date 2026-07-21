@@ -18,16 +18,39 @@ namespace JoltPhysics
         : m_scene(scene)
         , m_chassisBody(chassisBody)
     {
-        if (!m_scene || !m_scene->GetJoltPhysicsSystem() || !m_chassisBody || configuration.m_wheels.empty())
+        if (!m_scene || !m_scene->GetJoltPhysicsSystem() || !m_chassisBody)
         {
             return;
+        }
+
+        if (configuration.m_chassisMass > 0.0f)
+        {
+            if (JPH::MotionProperties* motionProperties = m_chassisBody->GetMotionProperties())
+            {
+                motionProperties->ScaleToMass(configuration.m_chassisMass);
+            }
+        }
+
+        JoltVehicleConfiguration effectiveConfiguration = configuration;
+        if (effectiveConfiguration.m_wheels.empty())
+        {
+            // Default 4-wheel layout: front axle steers, rear axle drives.
+            struct DefaultWheel { float x, y, steer; };
+            for (const DefaultWheel& desc : { DefaultWheel{ 0.8f, 0.45f, 35.0f }, DefaultWheel{ 0.8f, -0.45f, 35.0f },
+                                              DefaultWheel{ -0.8f, 0.45f, 0.0f }, DefaultWheel{ -0.8f, -0.45f, 0.0f } })
+            {
+                JoltWheelConfiguration wheel;
+                wheel.m_position = AZ::Vector3(desc.x, desc.y, -0.2f);
+                wheel.m_maxSteerAngleDegrees = desc.steer;
+                effectiveConfiguration.m_wheels.push_back(wheel);
+            }
         }
 
         JPH::VehicleConstraintSettings settings;
         settings.mUp = JPH::Vec3::sAxisZ();
         settings.mForward = JPH::Vec3::sAxisX();
 
-        for (const JoltWheelConfiguration& wheelConfig : configuration.m_wheels)
+        for (const JoltWheelConfiguration& wheelConfig : effectiveConfiguration.m_wheels)
         {
             auto* wheelSettings = new JPH::WheelSettingsWV;
             wheelSettings->mPosition = Conversions::ToJolt(wheelConfig.m_position);
@@ -48,19 +71,19 @@ namespace JoltPhysics
         }
 
         auto* controllerSettings = new JPH::WheeledVehicleControllerSettings;
-        controllerSettings->mEngine.mMaxTorque = configuration.m_maxEngineTorque;
-        controllerSettings->mEngine.mMaxRPM = configuration.m_maxEngineRpm;
+        controllerSettings->mEngine.mMaxTorque = effectiveConfiguration.m_maxEngineTorque;
+        controllerSettings->mEngine.mMaxRPM = effectiveConfiguration.m_maxEngineRpm;
         controllerSettings->mTransmission.mMode = JPH::ETransmissionMode::Auto;
         controllerSettings->mTransmission.mGearRatios.assign(
-            configuration.m_gearRatios.begin(), configuration.m_gearRatios.end());
-        controllerSettings->mTransmission.mReverseGearRatios.assign({ configuration.m_reverseGearRatio });
+            effectiveConfiguration.m_gearRatios.begin(), effectiveConfiguration.m_gearRatios.end());
+        controllerSettings->mTransmission.mReverseGearRatios.assign({ effectiveConfiguration.m_reverseGearRatio });
 
-        if (configuration.m_leftDriveWheel >= 0 || configuration.m_rightDriveWheel >= 0)
+        if (effectiveConfiguration.m_leftDriveWheel >= 0 || effectiveConfiguration.m_rightDriveWheel >= 0)
         {
             JPH::VehicleDifferentialSettings differential;
-            differential.mLeftWheel = configuration.m_leftDriveWheel;
-            differential.mRightWheel = configuration.m_rightDriveWheel;
-            differential.mDifferentialRatio = configuration.m_differentialRatio;
+            differential.mLeftWheel = effectiveConfiguration.m_leftDriveWheel;
+            differential.mRightWheel = effectiveConfiguration.m_rightDriveWheel;
+            differential.mDifferentialRatio = effectiveConfiguration.m_differentialRatio;
             controllerSettings->mDifferentials.push_back(differential);
         }
 

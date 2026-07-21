@@ -130,3 +130,20 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
 - **Rebinding a joint to different bodies requires recreating it**
   (`SetParentBody`/`SetChildBody` only update bookkeeping).
 - **Breakable joints are not implemented** (the `Breakable` flag is parsed but ignored).
+
+## M7 (vehicles)
+
+- **No AzPhysics vehicle interfaces exist in O3DE 26.05** (the PhysXVehicle gem is not
+  part of this engine release), so the vehicle system is exposed through the gem's own
+  `JoltVehicleComponent` and `JoltVehicleRequestBus` (rule 5 of the project brief).
+  There is no PhysXVehicle-API compatibility layer.
+- **Chassis mass is set via `JoltVehicleConfiguration::m_chassisMass`** (applied with
+  `ScaleToMass`, default 1200 kg) instead of relying on the rigid body's mass, because
+  the gem's rigid bodies default to 1 kg which is unusable for a car.
+- **Wheel collision uses `VehicleCollisionTesterRay`** (ray per wheel); the cylinder
+  tester found no contacts in this integration (not investigated further).
+- **The chassis is force-woken on driver input**: Jolt's vehicle anti-sleep only resets
+  the sleep timer, so a body that fell asleep while parked would never wake up again
+  (deadlock that leaves the tire constraints inactive).
+- **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
+  for rendering are read from the native constraint by user code.

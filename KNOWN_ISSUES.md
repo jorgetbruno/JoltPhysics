@@ -16,7 +16,11 @@ deviations from PhysX behavior.
   `Physics::Shape` wrapper). → M3 (compound) / later.
 - **Multiple colliders per entity** are disallowed at the component level
   (`JoltColliderService` self-incompatible). Compound collider components arrive in M3.
-- **No vehicles, soft bodies, water** — scheduled M7–M8.
+- **No soft bodies or water** — scheduled M8 (stretch).
+- **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
+  gem is not part of this engine), so vehicles are exposed only through this gem's own
+  component/bus; wheels have no visual transform sync (the chassis moves, wheel meshes
+  are the user's to drive from the native constraint).
 - **Joints do not disable collision between the connected bodies** (PhysX disables it
   by default): jointed bodies whose shapes overlap will fight the constraint — use
   collision layers/groups or keep the shapes apart. `AzPhysics::JointHelpersInterface`

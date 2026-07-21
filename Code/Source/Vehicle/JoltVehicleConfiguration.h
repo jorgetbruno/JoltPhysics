@@ -35,6 +35,7 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         AZStd::vector<JoltWheelConfiguration> m_wheels;
+        float m_chassisMass = 1200.0f; //!< Absolute chassis mass in kg (0 = keep the rigid body's mass).
         int m_leftDriveWheel = 2;    //!< Wheel index driven by the differential (-1 = none).
         int m_rightDriveWheel = 3;   //!< Wheel index driven by the differential (-1 = none).
         float m_differentialRatio = 3.42f;
