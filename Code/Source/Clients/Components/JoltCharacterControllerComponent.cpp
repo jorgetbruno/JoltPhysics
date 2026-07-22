@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 
 #include <AzCore/Component/Entity.h>
@@ -369,4 +370,17 @@ namespace JoltPhysics
         return AzPhysics::SceneQueryHit();
     }
 
+
+    void JoltCharacterControllerComponent::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltCharacterControllerComponent::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
+    }
 } // namespace JoltPhysics

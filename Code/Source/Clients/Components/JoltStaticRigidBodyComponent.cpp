@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
 
 #include <AzCore/Component/Entity.h>
@@ -270,5 +271,18 @@ namespace JoltPhysics
             return body->GetAabb();
         }
         return AZ::Aabb::CreateNull();
+    }
+
+    void JoltStaticRigidBodyComponent::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltStaticRigidBodyComponent::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
     }
 } // namespace JoltPhysics

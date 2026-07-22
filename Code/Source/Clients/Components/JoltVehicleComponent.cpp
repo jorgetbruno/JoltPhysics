@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltVehicleComponent.h>
 
 #include <AzCore/Serialization/EditContext.h>
@@ -157,4 +158,17 @@ namespace JoltPhysics
         return m_vehicle ? m_vehicle->GetCurrentGear() : 0;
     }
 
+
+    void JoltVehicleComponent::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltVehicleComponent::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
+    }
 } // namespace JoltPhysics

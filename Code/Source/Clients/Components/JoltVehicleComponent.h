@@ -25,6 +25,9 @@ namespace JoltPhysics
 
         static void Reflect(AZ::ReflectContext* context);
 
+        //! Serialized identifier for the DPE inspector (empty on plain AZ::Component).
+        AZStd::string GetSerializedIdentifier() const override;
+
         JoltVehicleComponent() = default;
         ~JoltVehicleComponent() override;
 
@@ -34,6 +37,7 @@ namespace JoltPhysics
 
     protected:
         // AZ::Component
+        void OnAfterEntitySet() override;
         void Activate() override;
         void Deactivate() override;
 
@@ -51,6 +55,8 @@ namespace JoltPhysics
         void DestroyVehicle();
 
         JoltVehicleConfiguration m_configuration;
+        AZStd::string m_serializedIdentifier;
+
         JoltVehicle* m_vehicle = nullptr;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
     };

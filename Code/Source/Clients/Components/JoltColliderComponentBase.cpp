@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 
 #include <AzCore/Serialization/EditContext.h>
@@ -59,5 +60,18 @@ namespace JoltPhysics
     void JoltColliderComponentBase::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
     {
         required.push_back(AZ_CRC_CE("TransformService"));
+    }
+
+    void JoltColliderComponentBase::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltColliderComponentBase::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
     }
 } // namespace JoltPhysics

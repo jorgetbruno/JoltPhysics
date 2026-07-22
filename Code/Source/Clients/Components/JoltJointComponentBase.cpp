@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltJointComponentBase.h>
 
 #include <AzCore/Serialization/EditContext.h>
@@ -204,4 +205,17 @@ namespace JoltPhysics
         return GetJointWorldTransform();
     }
 
+
+    void JoltJointComponentBase::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltJointComponentBase::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
+    }
 } // namespace JoltPhysics

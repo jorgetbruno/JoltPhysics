@@ -70,4 +70,6 @@ set(FILES
     Source/Utils/Conversions.cpp
     Source/Utils/Conversions.h
     Source/Utils/ReflectionUtils.h
+    Source/Utils/JoltComponentUtils.cpp
+    Source/Utils/JoltComponentUtils.h
 )

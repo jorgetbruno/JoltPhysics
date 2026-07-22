@@ -1,3 +1,4 @@
+#include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
 
 #include <AzCore/Component/Entity.h>
@@ -670,5 +671,18 @@ namespace JoltPhysics
         {
             body->SetSleepThreshold(threshold);
         }
+    }
+
+    void JoltRigidBodyComponent::OnAfterEntitySet()
+    {
+        if (m_serializedIdentifier.empty())
+        {
+            m_serializedIdentifier = Internal::GenerateSerializedIdentifier(this);
+        }
+    }
+
+    AZStd::string JoltRigidBodyComponent::GetSerializedIdentifier() const
+    {
+        return m_serializedIdentifier;
     }
 } // namespace JoltPhysics

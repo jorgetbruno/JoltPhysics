@@ -27,6 +27,9 @@ namespace JoltPhysics
 
         static void Reflect(AZ::ReflectContext* context);
 
+        //! Serialized identifier for the DPE inspector (empty on plain AZ::Component).
+        AZStd::string GetSerializedIdentifier() const override;
+
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided);
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
@@ -94,6 +97,7 @@ namespace JoltPhysics
 
     protected:
         // AZ::Component
+        void OnAfterEntitySet() override;
         void Activate() override;
         void Deactivate() override;
 
@@ -117,6 +121,8 @@ namespace JoltPhysics
         void RebuildRigidBody();
 
         const AzPhysics::RigidBody* GetRigidBodyConst() const;
+
+        AZStd::string m_serializedIdentifier;
 
         AzPhysics::RigidBodyConfiguration m_configuration;
         AzPhysics::SimulatedBodyHandle m_bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;

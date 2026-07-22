@@ -161,6 +161,27 @@ namespace JoltPhysics
         entity.reset();
     }
 
+    TEST_F(JoltComponentBodyCreationTests, SameTypeComponentsGetDistinctSerializedIdentifiers)
+    {
+        // The DPE inspector requires a non-empty serialized identifier on every
+        // component (AZ::Component::GetSerializedIdentifier); same-type components
+        // on one entity must be deduplicated ("{TypeName}" vs "{TypeName}_2").
+        auto entity = AZStd::make_unique<AZ::Entity>("IdentifierEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* colliderA = entity->CreateComponent<JoltBoxColliderComponent>();
+        auto* colliderB = entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->Init();
+
+        EXPECT_FALSE(colliderA->GetSerializedIdentifier().empty());
+        EXPECT_FALSE(colliderB->GetSerializedIdentifier().empty());
+        EXPECT_NE(colliderA->GetSerializedIdentifier(), colliderB->GetSerializedIdentifier());
+
+        entity->Activate();
+        EXPECT_FALSE(colliderA->GetSerializedIdentifier().empty());
+        EXPECT_NE(colliderA->GetSerializedIdentifier(), colliderB->GetSerializedIdentifier());
+
+        entity.reset();
+    }
     TEST_F(JoltComponentBodyCreationTests, AddingAndRemovingChildColliderAtRuntimeRebuildsBody)
     {
         auto makeColliderChild = [](const char* name, float x)
