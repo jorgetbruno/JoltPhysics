@@ -12,7 +12,7 @@
 ## Register the gem
 
 ```bat
-C:\O3DE\26.05\scripts\o3de.bat register --gem-path C:\Users\jorge\O3DE\Gems\JoltPhysics
+C:\O3DE\26.05\scripts\o3de.bat register --gem-path C:\path\to\JoltPhysics
 ```
 
 ## Create / configure a project
@@ -22,11 +22,11 @@ The gem **replaces PhysX**: disable the PhysX gems before enabling JoltPhysics.
 ```bat
 C:\O3DE\26.05\scripts\o3de.bat create-project --project-path C:\path\to\YourProject
 C:\O3DE\26.05\scripts\o3de.bat disable-gem --project-path C:\path\to\YourProject --gem-name PhysX5
-C:\O3DE\26.05\scripts\o3de.bat enable-gem  --project-path C:\path\to\YourProject --gem-path C:\Users\jorge\O3DE\Gems\JoltPhysics
+C:\O3DE\26.05\scripts\o3de.bat enable-gem  --project-path C:\path\to\YourProject --gem-path C:\path\to\JoltPhysics
 ```
 
-(The reference test project used by the maintainers is `C:\Users\jorge\O3DE\Projects\JoltPhysicsTest`,
-created from the `DefaultProject` template with `PhysX5` disabled and `JoltPhysics` enabled.)
+(A reference test project can be created from the `DefaultProject` template
+with `PhysX5` disabled and `JoltPhysics` enabled.)
 
 ## Configure and build (Windows, Visual Studio generator, profile)
 

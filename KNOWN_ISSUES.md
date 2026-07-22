@@ -40,7 +40,7 @@ deviations from PhysX behavior.
 
 - Gem registers via `external_subdirectories` (O3DE 26.05 manifest behavior), not the
   legacy `gems` list — expected, not a bug.
-- Stale engine entries in `C:\Users\jorge\.o3de\o3de_manifest.json` (25.05, 24.09.2,
+- Stale engine entries in `%USERPROFILE%\.o3de\o3de_manifest.json` (25.05, 24.09.2,
   25.10.x) print `Invalid engine json` warnings from `o3de.bat`; harmless noise.
 
 ## Resolved in M2 (kept for reference)
