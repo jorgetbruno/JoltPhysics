@@ -1,12 +1,16 @@
 #include <Clients/JoltPhysicsSystemComponent.h>
 
+#include <AzCore/Console/IConsole.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
 
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Configuration/SceneConfiguration.h>
+
+#include <ISystem.h>
 
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
@@ -21,6 +25,12 @@
 
 namespace JoltPhysics
 {
+    namespace
+    {
+        AZ_CVAR(int, jolt_Debug, 0, nullptr, AZ::ConsoleFunctorFlags::Null,
+            "Draw Jolt physics collider shapes each frame (0 = off, 1 = wireframe).");
+    }
+
     void JoltPhysicsSystemComponent::Reflect(AZ::ReflectContext* context)
     {
         // Reflect the AzPhysics/AzFramework configuration classes used by the Jolt
@@ -113,6 +123,52 @@ namespace JoltPhysics
         {
             m_physicsSystem->Simulate(deltaTime);
         }
+
+        if (jolt_Debug != 0)
+        {
+            DrawColliderShapes();
+        }
+    }
+
+    void JoltPhysicsSystemComponent::DrawColliderShapes()
+    {
+        Physics::DebugDrawSettings settings;
+        settings.m_isWireframe = true;
+        // Draw everything regardless of camera distance (debug toggle is meant to show all).
+        settings.m_drawDistance = 100000.0f;
+
+        settings.m_drawLineCB = [](const Physics::DebugDrawVertex& from, const Physics::DebugDrawVertex& to,
+                                   [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
+                                   [[maybe_unused]] float thickness, [[maybe_unused]] void* udata)
+        {
+            const AZStd::vector<AZ::Vector3> points = { from.m_position, to.m_position };
+            AzFramework::DebugDisplayRequestBus::Broadcast(
+                &AzFramework::DebugDisplayRequests::DrawLines, points, from.m_color);
+        };
+
+        settings.m_drawTriBatchCB = [](const Physics::DebugDrawVertex* verts, AZ::u32 numVerts, const AZ::u32* indices,
+                                       AZ::u32 numIndices,
+                                       [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
+                                       [[maybe_unused]] void* udata)
+        {
+            AZStd::vector<AZ::Vector3> positions;
+            AZStd::vector<AZ::u32> indexList;
+            positions.reserve(numVerts);
+            indexList.reserve(numIndices);
+            for (AZ::u32 i = 0; i < numVerts; ++i)
+            {
+                positions.push_back(verts[i].m_position);
+            }
+            for (AZ::u32 i = 0; i < numIndices; ++i)
+            {
+                indexList.push_back(indices[i]);
+            }
+            const AZ::Color color = numVerts > 0 ? verts[0].m_color : AZ::Color(0.0f, 1.0f, 0.0f, 1.0f);
+            AzFramework::DebugDisplayRequestBus::Broadcast(
+                &AzFramework::DebugDisplayRequests::DrawTrianglesIndexed, positions, indexList, color);
+        };
+
+        DebugDrawPhysics(settings);
     }
 
     int JoltPhysicsSystemComponent::GetTickOrder()
@@ -343,6 +399,7 @@ namespace JoltPhysics
         drawSettings.mDrawCenterOfMassTransform = settings.m_drawBodyTransforms;
 
         JoltDebugRenderer debugRenderer(&settings);
+        debugRenderer.SetCameraPos(Conversions::ToJoltR(settings.m_cameraPos));
         DistanceBodyDrawFilter bodyDrawFilter(settings.m_cameraPos, settings.m_drawDistance);
 
         for (const auto& scene : m_physicsSystem->GetAllScenes())

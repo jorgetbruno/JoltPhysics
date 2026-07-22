@@ -104,6 +104,9 @@ namespace JoltPhysics
         void DisablePhysics();
         void ActivatePhysicsSimulation();
 
+        //! Draws all collider shapes via AzFramework's debug display (jolt_Debug cvar).
+        void DrawColliderShapes();
+
         bool m_enabled = false;
         JoltSystem* m_physicsSystem = nullptr;
         JoltDefaultWorldComponent m_defaultWorldComponent;

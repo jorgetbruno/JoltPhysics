@@ -52,27 +52,4 @@ namespace JoltPhysics
         const_cast<Physics::DebugDrawSettings*>(m_settings)->DrawTriangleBatch(vertices, 3, indices, 3, nullptr);
     }
 
-    void JoltDebugRenderer::DrawGeometry(
-        [[maybe_unused]] JPH::RMat44Arg inModelMatrix,
-        [[maybe_unused]] const JPH::AABox& inWorldSpaceBounds,
-        [[maybe_unused]] float inLODScaleSq,
-        [[maybe_unused]] JPH::ColorArg inModelColor,
-        [[maybe_unused]] const GeometryRef& inGeometry,
-        [[maybe_unused]] ECullMode inCullMode,
-        [[maybe_unused]] ECastShadow inCastShadow,
-        [[maybe_unused]] EDrawMode inDrawMode)
-    {
-        // Geometries are renderer-created batches; the gem does not create any.
-        // Primitive shapes (box, sphere, capsule, ...) draw via DrawLine/DrawTriangle.
-    }
-
-    void JoltDebugRenderer::DrawText3D(
-        [[maybe_unused]] JPH::RVec3Arg inPosition,
-        [[maybe_unused]] const std::string_view& inString,
-        [[maybe_unused]] JPH::ColorArg inColor,
-        [[maybe_unused]] float inHeight)
-    {
-        // Text rendering is not supported by the O3DE debug draw callbacks.
-    }
-
 } // namespace JoltPhysics
