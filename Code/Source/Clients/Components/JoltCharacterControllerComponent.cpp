@@ -2,6 +2,7 @@
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 
 #include <AzCore/Component/Entity.h>
+#include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -16,6 +17,16 @@ namespace JoltPhysics
 {
     void JoltCharacterControllerComponent::Reflect(AZ::ReflectContext* context)
     {
+        if (auto* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            behaviorContext->EBus<JoltCharacterGameplayRequestBus>("JoltCharacterGameplayRequestBus", "Jolt Character Gameplay")
+                ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
+                ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround, "Is On Ground")
+                ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal, "Get Ground Normal")
+                ;
+        }
+
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::ShapeConfiguration>>();
@@ -67,6 +78,7 @@ namespace JoltPhysics
         Physics::DefaultWorldBus::BroadcastResult(m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
 
         Physics::CharacterRequestBus::Handler::BusConnect(GetEntityId());
+        JoltCharacterGameplayRequestBus::Handler::BusConnect(GetEntityId());
         AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusConnect(GetEntityId());
         AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
         AZ::TickBus::Handler::BusConnect();
@@ -84,6 +96,7 @@ namespace JoltPhysics
         AZ::EntityBus::Handler::BusDisconnect();
         AZ::TransformNotificationBus::Handler::BusDisconnect();
         AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusDisconnect();
+        JoltCharacterGameplayRequestBus::Handler::BusDisconnect();
         Physics::CharacterRequestBus::Handler::BusDisconnect();
 
         DestroyCharacter();
@@ -312,6 +325,28 @@ namespace JoltPhysics
     Physics::Character* JoltCharacterControllerComponent::GetCharacter()
     {
         return azdynamic_cast<Physics::Character*>(GetSimulatedBody());
+    }
+
+    // JoltCharacterGameplayRequestBus
+
+    bool JoltCharacterControllerComponent::IsOnGround() const
+    {
+        if (auto* character = azdynamic_cast<JoltCharacter*>(
+                const_cast<JoltCharacterControllerComponent*>(this)->GetSimulatedBody()))
+        {
+            return character->IsOnGround();
+        }
+        return false;
+    }
+
+    AZ::Vector3 JoltCharacterControllerComponent::GetGroundNormal() const
+    {
+        if (auto* character = azdynamic_cast<JoltCharacter*>(
+                const_cast<JoltCharacterControllerComponent*>(this)->GetSimulatedBody()))
+        {
+            return character->GetGroundNormal();
+        }
+        return AZ::Vector3::CreateAxisZ();
     }
 
     // AzPhysics::SimulatedBodyComponentRequestsBus

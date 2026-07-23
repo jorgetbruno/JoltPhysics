@@ -10,6 +10,8 @@
 #include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
 #include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 
+#include <JoltPhysics/JoltCharacterGameplayBus.h>
+
 namespace JoltPhysics
 {
     class JoltCharacter;
@@ -24,6 +26,7 @@ namespace JoltPhysics
         , private AZ::TransformNotificationBus::Handler
         , private Physics::CharacterRequestBus::Handler
         , private AzPhysics::SimulatedBodyComponentRequestsBus::Handler
+        , private JoltCharacterGameplayRequestBus::Handler
     {
     public:
         AZ_COMPONENT(JoltCharacterControllerComponent, "{F3A5C810-7E2A-4B1C-9D4E-A6B7C8D9E0F1}");
@@ -70,6 +73,10 @@ namespace JoltPhysics
         void AddVelocityForPhysicsTimestep(const AZ::Vector3& velocity) override;
         bool IsPresent() const override;
         Physics::Character* GetCharacter() override;
+
+        // JoltCharacterGameplayRequestBus
+        bool IsOnGround() const override;
+        AZ::Vector3 GetGroundNormal() const override;
 
         // AzPhysics::SimulatedBodyComponentRequestsBus
         void EnablePhysics() override;
