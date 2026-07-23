@@ -1,5 +1,7 @@
 #include <Shape/JoltHeightfieldUtils.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Shape/JoltShape.h>
 #include <Utils/Conversions.h>
 
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
@@ -50,6 +52,59 @@ namespace JoltPhysics
             if (const AzPhysics::ShapeColliderPair* singleCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData))
             {
                 return CreateOffsetJoltShape(*singleCollider);
+            }
+
+            // A pre-built Physics::Shape (e.g. from Physics::SystemRequests::CreateShape,
+            // as used by the WhiteBox gem). Unwrap its native pointer directly.
+            if (const auto* prebuiltShape = AZStd::get_if<AZStd::shared_ptr<Physics::Shape>>(&colliderAndShapeData))
+            {
+                if (*prebuiltShape)
+                {
+                    return static_cast<JPH::Shape*>((*prebuiltShape)->GetNativePointer());
+                }
+                return nullptr;
+            }
+
+            if (const auto* prebuiltShapeList = AZStd::get_if<AZStd::vector<AZStd::shared_ptr<Physics::Shape>>>(&colliderAndShapeData))
+            {
+                if (prebuiltShapeList->empty())
+                {
+                    return nullptr;
+                }
+
+                if (prebuiltShapeList->size() == 1)
+                {
+                    const AZStd::shared_ptr<Physics::Shape>& single = prebuiltShapeList->front();
+                    return single ? static_cast<JPH::Shape*>(single->GetNativePointer()) : nullptr;
+                }
+
+                JPH::StaticCompoundShapeSettings compoundSettings;
+                for (const AZStd::shared_ptr<Physics::Shape>& shapePtr : *prebuiltShapeList)
+                {
+                    if (!shapePtr)
+                    {
+                        continue;
+                    }
+                    if (auto* nativeShape = static_cast<JPH::Shape*>(shapePtr->GetNativePointer()))
+                    {
+                        const auto [localPosition, localRotation] = shapePtr->GetLocalPose();
+                        compoundSettings.AddShape(
+                            Conversions::ToJolt(localPosition), Conversions::ToJolt(localRotation), nativeShape);
+                    }
+                }
+
+                if (compoundSettings.mSubShapes.empty())
+                {
+                    return nullptr;
+                }
+
+                JPH::ShapeSettings::ShapeResult result = compoundSettings.Create();
+                if (result.HasError())
+                {
+                    AZ_Error("JoltPhysics", false, "Failed to create compound shape from prebuilt shapes: %s", result.GetError().c_str());
+                    return nullptr;
+                }
+                return result.Get();
             }
 
             if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData))
@@ -107,11 +162,15 @@ namespace JoltPhysics
     }
 
     AZStd::shared_ptr<Physics::Shape> JoltShapeUtils::CreateShape(
-        [[maybe_unused]] const Physics::ColliderConfiguration& colliderConfiguration,
-        [[maybe_unused]] const Physics::ShapeConfiguration& shapeConfiguration)
+        const Physics::ColliderConfiguration& colliderConfiguration,
+        const Physics::ShapeConfiguration& shapeConfiguration)
     {
-        // TODO: Create O3DE Shape wrapper around Jolt shape
-        return nullptr;
+        JPH::RefConst<JPH::Shape> nativeShape = CreateJoltShapeFromConfig(shapeConfiguration);
+        if (!nativeShape)
+        {
+            return nullptr;
+        }
+        return AZStd::make_shared<JoltShape>(colliderConfiguration, shapeConfiguration, nativeShape);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShape(
@@ -152,6 +211,34 @@ namespace JoltPhysics
                 return JoltHeightfieldUtils::WrapZUp(nativeHeightfield);
             }
             return nullptr;
+        }
+
+        case Physics::ShapeType::CookedMesh:
+        {
+            // "Cooked" here just means our own packed vertex/index blob (see JoltMeshUtils);
+            // Jolt needs no offline cooking pass. Cache the built native shape on the
+            // configuration so repeated calls (and ReleaseNativeMeshObject) don't rebuild it.
+            auto& meshConfiguration = const_cast<Physics::CookedMeshShapeConfiguration&>(
+                static_cast<const Physics::CookedMeshShapeConfiguration&>(shapeConfiguration));
+
+            if (auto* cachedMesh = static_cast<JPH::Shape*>(meshConfiguration.GetCachedNativeMesh()))
+            {
+                return cachedMesh;
+            }
+
+            JPH::RefConst<JPH::Shape> meshShape =
+                JoltMeshUtils::CreateMeshShapeFromCookedData(meshConfiguration.GetCookedMeshData());
+            if (!meshShape)
+            {
+                return nullptr;
+            }
+
+            // The configuration stores a raw void*; take an extra ref so the shape
+            // stays alive independent of this RefConst going out of scope, matched by
+            // a Release() in JoltPhysicsSystemComponent::ReleaseNativeMeshObject.
+            meshShape->AddRef();
+            meshConfiguration.SetCachedNativeMesh(const_cast<JPH::Shape*>(meshShape.GetPtr()));
+            return meshShape;
         }
 
         default:

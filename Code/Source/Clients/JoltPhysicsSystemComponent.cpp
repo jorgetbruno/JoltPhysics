@@ -14,6 +14,7 @@
 
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Scene/JoltScene.h>
 #include <Debug/JoltDebugRenderer.h>
 #include <Utils/Conversions.h>
@@ -103,10 +104,19 @@ namespace JoltPhysics
         Physics::CollisionRequestBus::Handler::BusConnect();
         Physics::SystemDebugRequestBus::Handler::BusConnect();
         AZ::TickBus::Handler::BusConnect();
+
+        // Physics::System and Physics::SystemRequests are the same type (see SystemBus.h:
+        // "using SystemRequests = System;"), but AZ::Interface<Physics::System> is a separate
+        // registration mechanism from the SystemRequestBus above. Some callers (e.g. the
+        // WhiteBox gem's EditorWhiteBoxColliderComponent) go through AZ::Interface<Physics::System>
+        // specifically, so both need to resolve to this component.
+        AZ::Interface<Physics::System>::Register(this);
     }
 
     void JoltPhysicsSystemComponent::Deactivate()
     {
+        AZ::Interface<Physics::System>::Unregister(this);
+
         AZ::TickBus::Handler::BusDisconnect();
         Physics::SystemDebugRequestBus::Handler::BusDisconnect();
         Physics::CollisionRequestBus::Handler::BusDisconnect();
@@ -207,9 +217,14 @@ namespace JoltPhysics
         return JoltShapeUtils::CreateShape(colliderConfiguration, configuration);
     }
 
-    void JoltPhysicsSystemComponent::ReleaseNativeMeshObject([[maybe_unused]] void* nativeMeshObject)
+    void JoltPhysicsSystemComponent::ReleaseNativeMeshObject(void* nativeMeshObject)
     {
-        // TODO: Implement mesh object release
+        // Balances the AddRef() taken in JoltShapeUtils::CreateJoltShapeFromConfig when a
+        // CookedMesh shape is first built and cached on its configuration.
+        if (nativeMeshObject)
+        {
+            static_cast<JPH::Shape*>(nativeMeshObject)->Release();
+        }
     }
 
     void JoltPhysicsSystemComponent::ReleaseNativeHeightfieldObject([[maybe_unused]] void* nativeHeightfieldObject)
@@ -247,14 +262,17 @@ namespace JoltPhysics
     }
 
     bool JoltPhysicsSystemComponent::CookTriangleMeshToMemory(
-        [[maybe_unused]] const AZ::Vector3* vertices,
-        [[maybe_unused]] AZ::u32 vertexCount,
-        [[maybe_unused]] const AZ::u32* indices,
-        [[maybe_unused]] AZ::u32 indexCount,
-        [[maybe_unused]] AZStd::vector<AZ::u8>& result)
+        const AZ::Vector3* vertices,
+        AZ::u32 vertexCount,
+        const AZ::u32* indices,
+        AZ::u32 indexCount,
+        AZStd::vector<AZ::u8>& result)
     {
-        // TODO: Implement triangle mesh cooking to memory
-        return false;
+        // Jolt needs no offline cooking pass (MeshShapeSettings::Create() builds its BVH
+        // from a raw triangle list), so "cooking" here is just packing the geometry into
+        // the blob format JoltMeshUtils::CreateMeshShapeFromCookedData expects.
+        result = JoltMeshUtils::PackTriangleMesh(vertices, vertexCount, indices, indexCount);
+        return !result.empty();
     }
 
     AzPhysics::CollisionLayer JoltPhysicsSystemComponent::GetCollisionLayerByName(const AZStd::string& layerName)

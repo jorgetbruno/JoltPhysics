@@ -336,8 +336,6 @@ namespace JoltPhysics
             outFriction = materials[clampedIndex].first;
             outRestitution = materials[clampedIndex].second;
             return true;
-            outRestitution = materials[clampedIndex].second;
-            return true;
         }
 
         if (!shape || shape->GetSubType() != JPH::EShapeSubType::StaticCompound)

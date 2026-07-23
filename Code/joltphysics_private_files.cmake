@@ -65,6 +65,10 @@ set(FILES
     Source/RigidBody/JoltStaticRigidBody.h
     Source/Shape/JoltHeightfieldUtils.cpp
     Source/Shape/JoltHeightfieldUtils.h
+    Source/Shape/JoltMeshUtils.cpp
+    Source/Shape/JoltMeshUtils.h
+    Source/Shape/JoltShape.cpp
+    Source/Shape/JoltShape.h
     Source/Shape/JoltShapeUtils.cpp
     Source/Shape/JoltShapeUtils.h
     Source/Utils/Conversions.cpp
