@@ -5,6 +5,10 @@
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+#include <Shape/JoltMeshUtils.h>
+
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
@@ -142,4 +146,29 @@ namespace JoltPhysics
         EXPECT_NEAR(capsuleZ, 0.5f, 0.05f);
     }
 
+} // namespace JoltPhysics
+
+namespace JoltPhysics
+{
+    TEST(JoltMeshRoundtrip, PackAndReadBackProducesShape)
+    {
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+        JoltSystemConfiguration systemConfig;
+        system->Initialize(&systemConfig);
+
+        const AZ::Vector3 vertices[] = {
+            AZ::Vector3(0.0f, 0.0f, 0.0f),
+            AZ::Vector3(1.0f, 0.0f, 0.0f),
+            AZ::Vector3(0.0f, 1.0f, 0.0f),
+        };
+        const AZ::u32 indices[] = { 0, 1, 2 };
+
+        AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(vertices, 3, indices, 3);
+        ASSERT_FALSE(blob.empty());
+        JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateMeshShapeFromCookedData(blob);
+        EXPECT_NE(shape, nullptr);
+
+        system->Shutdown();
+    }
 } // namespace JoltPhysics

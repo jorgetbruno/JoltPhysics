@@ -74,7 +74,10 @@ namespace JoltPhysics
         if (header.m_magic != MeshBlobHeader().m_magic || header.m_version != MeshBlobHeader().m_version ||
             header.m_vertexCount == 0 || header.m_indexCount == 0 || header.m_indexCount % 3 != 0)
         {
-            AZ_Error("JoltPhysics", false, "JoltMeshUtils: cooked mesh blob is malformed or from an incompatible version");
+            AZ_Error("JoltPhysics", false,
+                "JoltMeshUtils: cooked mesh blob is malformed or from an incompatible version "
+                "(magic=0x%08X version=%u vertexCount=%u indexCount=%u blobSize=%zu)",
+                header.m_magic, header.m_version, header.m_vertexCount, header.m_indexCount, cookedData.size());
             return nullptr;
         }
 
