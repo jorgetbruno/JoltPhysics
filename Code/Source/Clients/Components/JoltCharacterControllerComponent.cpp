@@ -5,6 +5,7 @@
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzFramework/Physics/PhysicsScene.h>
@@ -36,6 +37,8 @@ namespace JoltPhysics
                 ->Version(1)
                 ->Field("CharacterConfiguration", &JoltCharacterControllerComponent::m_characterConfig)
                 ->Field("ShapeConfiguration", &JoltCharacterControllerComponent::m_shapeConfig)
+                ->Field("Height", &JoltCharacterControllerComponent::m_height)
+                ->Field("Radius", &JoltCharacterControllerComponent::m_radius)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -50,6 +53,14 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_height,
+                        "Height", "Total capsule height, including the hemispherical caps.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_radius,
+                        "Radius", "Capsule radius.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_characterConfig,
                         "Character Configuration", "Configuration of the character controller")
                     ;
@@ -175,7 +186,11 @@ namespace JoltPhysics
         m_characterConfig.m_orientation = worldTransform.GetRotation();
         m_characterConfig.m_entityId = GetEntityId();
         m_characterConfig.m_debugName = GetEntity()->GetName();
-        m_characterConfig.m_shapeConfig = m_shapeConfig;
+        // The inspector-editable Height/Radius drive the capsule; an explicitly-set
+        // m_shapeConfig (e.g. assigned programmatically) takes precedence.
+        m_characterConfig.m_shapeConfig = m_shapeConfig
+            ? m_shapeConfig
+            : AZStd::make_shared<Physics::CapsuleShapeConfiguration>(m_height, m_radius);
 
         if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
         {

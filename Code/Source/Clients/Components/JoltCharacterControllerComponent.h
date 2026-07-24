@@ -56,6 +56,10 @@ namespace JoltPhysics
         {
             return m_shapeConfig;
         }
+        float& GetHeight() { return m_height; }
+        float GetHeight() const { return m_height; }
+        float& GetRadius() { return m_radius; }
+        float GetRadius() const { return m_radius; }
 
     protected:
         // AZ::Component
@@ -111,6 +115,12 @@ namespace JoltPhysics
 
         Physics::CharacterConfiguration m_characterConfig;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfig;
+
+        // Capsule dimensions edited in the inspector. Defaults match JoltCharacter's
+        // fallback capsule (1.8 m tall, 0.3 m radius). m_shapeConfig, if set
+        // programmatically, takes precedence over these.
+        float m_height = 1.8f;
+        float m_radius = 0.3f;
 
         AZStd::string m_serializedIdentifier;
 

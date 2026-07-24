@@ -17,19 +17,28 @@ namespace JoltPhysics
                 ->Version(1)
                 ->Field("CharacterConfiguration", &EditorJoltCharacterControllerComponent::m_characterConfig)
                 ->Field("ShapeConfiguration", &EditorJoltCharacterControllerComponent::m_shapeConfig)
+                ->Field("Height", &EditorJoltCharacterControllerComponent::m_height)
+                ->Field("Radius", &EditorJoltCharacterControllerComponent::m_radius)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
                 // The Physics::CharacterConfiguration field-level edit context comes from
-                // AzFramework; only the wrapper element is added here (mirrors the runtime
-                // component, which also exposes just the character configuration).
+                // AzFramework; the capsule Height/Radius are exposed here as plain floats.
                 editContext->Class<EditorJoltCharacterControllerComponent>(
                     "Jolt Character Controller", "Character controller simulated by the Jolt physics backend (editor)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltCharacterControllerComponent::m_height,
+                        "Height", "Total capsule height, including the hemispherical caps.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltCharacterControllerComponent::m_radius,
+                        "Radius", "Capsule radius.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltCharacterControllerComponent::m_characterConfig,
                         "Character Configuration", "Configuration of the character controller")
                     ;
@@ -63,6 +72,8 @@ namespace JoltPhysics
         {
             component->GetCharacterConfiguration() = m_characterConfig;
             component->GetShapeConfiguration() = m_shapeConfig;
+            component->GetHeight() = m_height;
+            component->GetRadius() = m_radius;
         }
     }
 

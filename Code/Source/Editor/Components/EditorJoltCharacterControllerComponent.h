@@ -28,5 +28,10 @@ namespace JoltPhysics
     private:
         Physics::CharacterConfiguration m_characterConfig;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfig;
+
+        // Capsule dimensions (see JoltCharacterControllerComponent); defaults match the
+        // runtime fallback capsule of 1.8 m height / 0.3 m radius.
+        float m_height = 1.8f;
+        float m_radius = 0.3f;
     };
 } // namespace JoltPhysics
