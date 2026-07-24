@@ -28,7 +28,7 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltJointComponentConfiguration>("Jolt Joint Configuration", "")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltJointComponentConfiguration::m_leadEntity,
                         "Lead entity", "Entity holding the parent body of the joint.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltJointComponentConfiguration::m_followerEntity,
@@ -96,6 +96,14 @@ namespace JoltPhysics
         DestroyJoint();
 
         m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
+    }
+
+    void JoltJointComponentBase::WarnSingleAxisUnsupported(const char* requestName) const
+    {
+        AZ_WarningOnce("JoltPhysics", false,
+            "JoltJointRequestBus::%s is only supported on the hinge and prismatic joints, which have a single "
+            "driven axis. This joint type ignores it.",
+            requestName);
     }
 
     void JoltJointComponentBase::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)

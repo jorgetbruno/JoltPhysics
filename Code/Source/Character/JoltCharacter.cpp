@@ -15,8 +15,11 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 namespace JoltPhysics
@@ -421,10 +424,44 @@ namespace JoltPhysics
             AZ::Vector3(bounds.mMax.GetX(), bounds.mMax.GetY(), bounds.mMax.GetZ()));
     }
 
-    AzPhysics::SceneQueryHit JoltCharacter::RayCast([[maybe_unused]] const AzPhysics::RayCastRequest& request)
+    AzPhysics::SceneQueryHit JoltCharacter::RayCast(const AzPhysics::RayCastRequest& request)
     {
-        // Body-level raycast against the character itself is not supported; use scene queries.
-        return AzPhysics::SceneQueryHit();
+        AzPhysics::SceneQueryHit queryHit;
+        if (!m_shape)
+        {
+            return queryHit;
+        }
+
+        // Cast against the character's shape placed at its current pose. The virtual
+        // character exposes its transformed shape directly; the rigid-body backend's
+        // shape sits at the character centre, so the equivalent is built here (Jolt
+        // positions a transformed shape by its centre of mass).
+        const JPH::TransformedShape transformedShape = (!m_rigidBodyCharacter && m_character)
+            ? m_character->GetTransformedShape()
+            : JPH::TransformedShape(
+                  Conversions::ToJoltR(GetCenterPosition()) +
+                      Conversions::ToJolt(m_orientation) * m_shape->GetCenterOfMass(),
+                  Conversions::ToJolt(m_orientation), m_shape, JPH::BodyID());
+
+        const JPH::RRayCast ray(
+            Conversions::ToJoltR(request.m_start), Conversions::ToJolt(request.m_direction * request.m_distance));
+
+        JPH::RayCastResult result;
+        if (!transformedShape.CastRay(ray, result))
+        {
+            return queryHit;
+        }
+
+        queryHit.m_distance = result.mFraction * request.m_distance;
+        queryHit.m_position = request.m_start + request.m_direction * queryHit.m_distance;
+        queryHit.m_normal = Conversions::FromJolt(
+            transformedShape.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, Conversions::ToJoltR(queryHit.m_position)));
+        queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
+            AzPhysics::SceneQuery::ResultFlags::Position | AzPhysics::SceneQuery::ResultFlags::Normal |
+            AzPhysics::SceneQuery::ResultFlags::BodyHandle | AzPhysics::SceneQuery::ResultFlags::EntityId;
+        queryHit.m_bodyHandle = m_bodyHandle;
+        queryHit.m_entityId = GetEntityId();
+        return queryHit;
     }
 
     AZ::Crc32 JoltCharacter::GetNativeType() const

@@ -66,13 +66,37 @@ namespace JoltPhysics
         // AZ::TickBus
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
 
-        // JoltJointRequestBus (typed components override the meaningful parts)
-        float GetPosition() const override { return 0.0f; }
-        float GetVelocity() const override { return 0.0f; }
+        // JoltJointRequestBus. These describe a single driven axis, which only the hinge
+        // and prismatic joints have; the other types override nothing and answer through
+        // these defaults. They warn rather than silently reporting zero / doing nothing,
+        // since a caller driving the wrong joint type otherwise gets no feedback at all.
+        float GetPosition() const override
+        {
+            WarnSingleAxisUnsupported("GetPosition");
+            return 0.0f;
+        }
+        float GetVelocity() const override
+        {
+            WarnSingleAxisUnsupported("GetVelocity");
+            return 0.0f;
+        }
         AZ::Transform GetTransform() const override;
-        void SetVelocity([[maybe_unused]] float velocity) override {}
-        void SetMaximumForce([[maybe_unused]] float force) override {}
-        AZStd::pair<float, float> GetLimits() const override { return { 0.0f, 0.0f }; }
+        void SetVelocity([[maybe_unused]] float velocity) override
+        {
+            WarnSingleAxisUnsupported("SetVelocity");
+        }
+        void SetMaximumForce([[maybe_unused]] float force) override
+        {
+            WarnSingleAxisUnsupported("SetMaximumForce");
+        }
+        AZStd::pair<float, float> GetLimits() const override
+        {
+            WarnSingleAxisUnsupported("GetLimits");
+            return { 0.0f, 0.0f };
+        }
+
+        //! Reports that a single-axis drive/readout request does not apply to this joint type.
+        void WarnSingleAxisUnsupported(const char* requestName) const;
 
         //! Assembles the backend joint configuration (frames are filled in by the base).
         virtual AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const = 0;

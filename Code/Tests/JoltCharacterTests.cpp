@@ -351,4 +351,52 @@ namespace JoltPhysics
         EXPECT_NEAR(character->GetCenterPosition().GetZ(), 0.9f, 0.15f); // stayed on the floor
     }
 
+    TEST_F(JoltCharacterTests, PerBodyRayCastHitsTheCharacterCapsule)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // Straight down onto the top of the 1.8 m capsule centred at z=0.9.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 20.0f;
+
+        AzPhysics::SceneQueryHit hit = character->RayCast(request);
+        ASSERT_TRUE(static_cast<bool>(hit));
+        EXPECT_EQ(hit.m_bodyHandle, characterHandle);
+        EXPECT_EQ(hit.m_entityId, AZ::EntityId(0xCAFE));
+        EXPECT_NEAR(hit.m_position.GetZ(), 1.8f, 0.1f); // capsule top
+        EXPECT_NEAR(hit.m_normal.GetZ(), 1.0f, 0.1f);
+
+        // A ray to the side misses.
+        request.m_start = AZ::Vector3(3.0f, 0.0f, 5.0f);
+        EXPECT_FALSE(static_cast<bool>(character->RayCast(request)));
+    }
+
+    TEST_F(JoltCharacterTests, RigidBodyCharacterPerBodyRayCastHitsTheCapsule)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // The rigid-body backend has no transformed shape of its own, so the cast builds
+        // one from the character pose; it must land in the same place as the virtual one.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 20.0f;
+
+        AzPhysics::SceneQueryHit hit = character->RayCast(request);
+        ASSERT_TRUE(static_cast<bool>(hit));
+        EXPECT_EQ(hit.m_bodyHandle, characterHandle);
+        EXPECT_NEAR(hit.m_position.GetZ(), 1.8f, 0.1f);
+
+        request.m_start = AZ::Vector3(3.0f, 0.0f, 5.0f);
+        EXPECT_FALSE(static_cast<bool>(character->RayCast(request)));
+    }
+
 } // namespace JoltPhysics

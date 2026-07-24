@@ -490,9 +490,32 @@ namespace JoltPhysics
         return aabb;
     }
 
-    AzPhysics::SceneQueryHit JoltRagdoll::RayCast([[maybe_unused]] const AzPhysics::RayCastRequest& request)
+    AzPhysics::SceneQueryHit JoltRagdoll::RayCast(const AzPhysics::RayCastRequest& request)
     {
-        return AzPhysics::SceneQueryHit();
+        // The ragdoll has no shape of its own; cast against each node and keep the
+        // nearest hit, reported as a hit on the ragdoll rather than on the node body
+        // (the node bodies are owned by the ragdoll and have no handle of their own).
+        AzPhysics::SceneQueryHit closestHit;
+        for (const AZStd::unique_ptr<JoltRagdollNode>& node : m_nodes)
+        {
+            if (!node)
+            {
+                continue;
+            }
+
+            const AzPhysics::SceneQueryHit nodeHit = node->GetRigidBody().RayCast(request);
+            if (nodeHit && (!closestHit || nodeHit.m_distance < closestHit.m_distance))
+            {
+                closestHit = nodeHit;
+            }
+        }
+
+        if (closestHit)
+        {
+            closestHit.m_bodyHandle = m_bodyHandle;
+            closestHit.m_entityId = m_entityId;
+        }
+        return closestHit;
     }
 
     AZ::Crc32 JoltRagdoll::GetNativeType() const

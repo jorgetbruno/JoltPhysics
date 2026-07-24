@@ -250,6 +250,32 @@ namespace JoltPhysics
         EXPECT_NEAR(state[1].m_position.GetX(), 1.0f, 0.1f);
     }
 
+    TEST_F(JoltRagdollTests, PerBodyRayCastHitsNodesAndReportsTheRagdoll)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Straight down through the root node (a 0.15 m sphere centred at z=5).
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 8.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 10.0f;
+
+        AzPhysics::SceneQueryHit hit = ragdoll->RayCast(request);
+        ASSERT_TRUE(static_cast<bool>(hit));
+        // The nearest node is hit, and the hit is attributed to the ragdoll itself.
+        EXPECT_EQ(hit.m_bodyHandle, handle);
+        EXPECT_NEAR(hit.m_position.GetZ(), 5.15f, 0.05f);
+
+        // A ray that misses every node reports no hit.
+        request.m_start = AZ::Vector3(3.0f, 0.0f, 8.0f);
+        EXPECT_FALSE(static_cast<bool>(ragdoll->RayCast(request)));
+    }
+
     TEST_F(JoltRagdollTests, DriveToPoseUsingMotorsBendsTheJointTowardsTheTarget)
     {
         Physics::RagdollConfiguration config;
