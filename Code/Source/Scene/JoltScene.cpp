@@ -470,6 +470,7 @@ namespace JoltPhysics
             {
                 ragdoll->RemoveFromScene();
             }
+            RemoveCollisionSuppressionsForBody(bodyHandle);
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };
             m_freeSceneSlots.push(index);
@@ -698,17 +699,23 @@ namespace JoltPhysics
     }
 
     void JoltScene::SuppressCollisionEvents(
-        [[maybe_unused]] const AzPhysics::SimulatedBodyHandle& bodyHandleA,
-        [[maybe_unused]] const AzPhysics::SimulatedBodyHandle& bodyHandleB)
+        const AzPhysics::SimulatedBodyHandle& bodyHandleA, const AzPhysics::SimulatedBodyHandle& bodyHandleB)
     {
-        // TODO: Implement collision event suppression
+        if (bodyHandleA == AzPhysics::InvalidSimulatedBodyHandle || bodyHandleB == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+        m_suppressedCollisionPairs.insert(MakeBodyHandlePairKey(bodyHandleA, bodyHandleB));
     }
 
     void JoltScene::UnsuppressCollisionEvents(
-        [[maybe_unused]] const AzPhysics::SimulatedBodyHandle& bodyHandleA,
-        [[maybe_unused]] const AzPhysics::SimulatedBodyHandle& bodyHandleB)
+        const AzPhysics::SimulatedBodyHandle& bodyHandleA, const AzPhysics::SimulatedBodyHandle& bodyHandleB)
     {
-        // TODO: Implement collision event unsuppression
+        if (bodyHandleA == AzPhysics::InvalidSimulatedBodyHandle || bodyHandleB == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+        m_suppressedCollisionPairs.erase(MakeBodyHandlePairKey(bodyHandleA, bodyHandleB));
     }
 
     void JoltScene::SetGravity(const AZ::Vector3& gravity)
@@ -818,6 +825,16 @@ namespace JoltPhysics
 
         for (AzPhysics::CollisionEvent& collisionEvent : collisionEvents)
         {
+            // Pairs registered with SuppressCollisionEvents still collide; only their
+            // events are dropped. Filtering here (rather than in the contact callbacks)
+            // keeps the suppression set main-thread only.
+            if (!m_suppressedCollisionPairs.empty() &&
+                m_suppressedCollisionPairs.contains(
+                    MakeBodyHandlePairKey(collisionEvent.m_bodyHandle1, collisionEvent.m_bodyHandle2)))
+            {
+                continue;
+            }
+
             // Body pointers are resolved here on the main thread; a body queued during
             // the step may have been removed by the time we dispatch, so re-resolve and
             // skip anything that has gone away.
@@ -917,6 +934,33 @@ namespace JoltPhysics
         const AZ::u32 low = AZStd::min(key1, key2);
         const AZ::u32 high = AZStd::max(key1, key2);
         return (static_cast<AZ::u64>(low) << 32) | high;
+    }
+
+    AZ::u64 JoltScene::MakeBodyHandlePairKey(
+        const AzPhysics::SimulatedBodyHandle& bodyHandleA, const AzPhysics::SimulatedBodyHandle& bodyHandleB)
+    {
+        const auto indexA = static_cast<AZ::u32>(AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandleA));
+        const auto indexB = static_cast<AZ::u32>(AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandleB));
+        const AZ::u32 low = AZStd::min(indexA, indexB);
+        const AZ::u32 high = AZStd::max(indexA, indexB);
+        return (static_cast<AZ::u64>(low) << 32) | high;
+    }
+
+    void JoltScene::RemoveCollisionSuppressionsForBody(const AzPhysics::SimulatedBodyHandle& bodyHandle)
+    {
+        if (m_suppressedCollisionPairs.empty())
+        {
+            return;
+        }
+
+        const auto removedIndex = static_cast<AZ::u32>(AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandle));
+        for (auto it = m_suppressedCollisionPairs.begin(); it != m_suppressedCollisionPairs.end();)
+        {
+            const AZ::u32 keyLow = static_cast<AZ::u32>(*it >> 32);
+            const AZ::u32 keyHigh = static_cast<AZ::u32>(*it & 0xFFFFFFFF);
+            it = (keyLow == removedIndex || keyHigh == removedIndex) ? m_suppressedCollisionPairs.erase(it)
+                                                                    : AZStd::next(it);
+        }
     }
 
     bool JoltScene::TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2)

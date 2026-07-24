@@ -72,13 +72,14 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&config);
         }
 
-        // Dynamic unit box at the given height.
-        AzPhysics::SimulatedBodyHandle AddDynamicBox(float z)
+        // Dynamic unit box at the given height (and optional x offset, to drop several
+        // boxes onto the slab without them landing on each other).
+        AzPhysics::SimulatedBodyHandle AddDynamicBox(float z, float x = 0.0f)
         {
             auto collider = AZStd::make_shared<Physics::ColliderConfiguration>();
             auto shape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
             AzPhysics::RigidBodyConfiguration config;
-            config.m_position = AZ::Vector3(0.0f, 0.0f, z);
+            config.m_position = AZ::Vector3(x, 0.0f, z);
             config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(collider, shape);
             return m_scene->AddSimulatedBody(&config);
         }
@@ -278,6 +279,101 @@ namespace JoltPhysics
         EXPECT_EQ(sensorCollisionBegin, 0);
         EXPECT_EQ(boxCollisionBegin, 0);
         EXPECT_LT(boxBody->GetPosition().GetZ(), 1.0f); // passed through, did not rest on it
+    }
+
+    TEST_F(JoltCollisionEventTests, SuppressedPairFiresNoCollisionEventsButStillCollides)
+    {
+        auto slabHandle = AddStaticSlab();
+        auto boxHandle = AddDynamicBox(3.0f);
+
+        auto* slabBody = m_scene->GetSimulatedBodyFromHandle(slabHandle);
+        auto* boxBody = m_scene->GetSimulatedBodyFromHandle(boxHandle);
+        ASSERT_NE(slabBody, nullptr);
+        ASSERT_NE(boxBody, nullptr);
+
+        int slabEvents = 0;
+        int boxEvents = 0;
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler slabBegin(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++slabEvents; });
+        AzPhysics::SimulatedBodyEvents::OnCollisionPersist::Handler slabPersist(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++slabEvents; });
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler boxBegin(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++boxEvents; });
+        slabBody->RegisterOnCollisionBeginHandler(slabBegin);
+        slabBody->RegisterOnCollisionPersistHandler(slabPersist);
+        boxBody->RegisterOnCollisionBeginHandler(boxBegin);
+
+        // Suppression is symmetric: registering (slab, box) also covers (box, slab).
+        m_scene->SuppressCollisionEvents(slabHandle, boxHandle);
+
+        SimulateSeconds(1.5f);
+
+        EXPECT_EQ(slabEvents, 0);
+        EXPECT_EQ(boxEvents, 0);
+        // Only the events are suppressed - the box still lands on the slab (top at z=1,
+        // unit box half-extent 0.5).
+        EXPECT_NEAR(boxBody->GetPosition().GetZ(), 1.5f, 0.1f);
+    }
+
+    TEST_F(JoltCollisionEventTests, UnsuppressRestoresCollisionEvents)
+    {
+        auto slabHandle = AddStaticSlab();
+        auto boxHandle = AddDynamicBox(1.5f); // starts resting on the slab
+
+        auto* slabBody = m_scene->GetSimulatedBodyFromHandle(slabHandle);
+        ASSERT_NE(slabBody, nullptr);
+
+        int slabEvents = 0;
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler slabBegin(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++slabEvents; });
+        AzPhysics::SimulatedBodyEvents::OnCollisionPersist::Handler slabPersist(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++slabEvents; });
+        slabBody->RegisterOnCollisionBeginHandler(slabBegin);
+        slabBody->RegisterOnCollisionPersistHandler(slabPersist);
+
+        // Reversed argument order also matches the pair.
+        m_scene->SuppressCollisionEvents(boxHandle, slabHandle);
+        SimulateSeconds(0.5f);
+        ASSERT_EQ(slabEvents, 0);
+
+        m_scene->UnsuppressCollisionEvents(slabHandle, boxHandle);
+        SimulateSeconds(0.5f);
+        EXPECT_GT(slabEvents, 0); // the resting contact now reports Persist again
+    }
+
+    TEST_F(JoltCollisionEventTests, SuppressionDoesNotAffectOtherPairs)
+    {
+        auto slabHandle = AddStaticSlab();
+        auto suppressedBox = AddDynamicBox(3.0f, -2.0f);
+        auto otherBox = AddDynamicBox(3.0f, 2.0f);
+
+        auto* slabBody = m_scene->GetSimulatedBodyFromHandle(slabHandle);
+        ASSERT_NE(slabBody, nullptr);
+
+        int suppressedBoxEvents = 0;
+        int otherBoxEvents = 0;
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler slabBegin(
+            [&](AzPhysics::SimulatedBodyHandle self, const AzPhysics::CollisionEvent& event)
+            {
+                const AzPhysics::SimulatedBodyHandle other =
+                    (event.m_bodyHandle1 == self) ? event.m_bodyHandle2 : event.m_bodyHandle1;
+                if (other == suppressedBox)
+                {
+                    ++suppressedBoxEvents;
+                }
+                else if (other == otherBox)
+                {
+                    ++otherBoxEvents;
+                }
+            });
+        slabBody->RegisterOnCollisionBeginHandler(slabBegin);
+
+        m_scene->SuppressCollisionEvents(slabHandle, suppressedBox);
+
+        SimulateSeconds(2.0f);
+
+        EXPECT_EQ(suppressedBoxEvents, 0);
+        EXPECT_GE(otherBoxEvents, 1); // the un-suppressed pair still reports normally
     }
 
 } // namespace JoltPhysics

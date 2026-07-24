@@ -194,6 +194,13 @@ namespace JoltPhysics
         //! Normalized, order-independent key for a pair of Jolt bodies.
         static AZ::u64 MakeContactPairKey(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
 
+        //! Normalized, order-independent key for a pair of simulated body handles.
+        static AZ::u64 MakeBodyHandlePairKey(
+            const AzPhysics::SimulatedBodyHandle& bodyHandleA, const AzPhysics::SimulatedBodyHandle& bodyHandleB);
+        //! Drops every suppression entry referencing the given body (called when it is
+        //! removed, so a recycled scene slot does not inherit stale suppressions).
+        void RemoveCollisionSuppressionsForBody(const AzPhysics::SimulatedBodyHandle& bodyHandle);
+
         void SyncActiveBodyTransform(const AzPhysics::SimulatedBodyHandleList& activeBodyHandles);
 
         bool m_isEnabled = true;
@@ -230,6 +237,12 @@ namespace JoltPhysics
         //! synthesize the matching Exit. Touched from Jolt's contact callbacks (job threads).
         AZStd::mutex m_triggerOverlapsMutex;
         AZStd::unordered_map<AZ::u64, int> m_activeTriggerOverlaps;
+
+        //! Body pairs whose collision events are suppressed (normalized handle-pair keys).
+        //! The bodies still collide; only the event dispatch is filtered, matching the
+        //! PhysX backend. Main-thread only: Suppress/Unsuppress are gameplay-side calls and
+        //! the filtering happens in ProcessCollisionEvents, not in the contact callbacks.
+        AZStd::unordered_set<AZ::u64> m_suppressedCollisionPairs;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;
