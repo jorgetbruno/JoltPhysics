@@ -21,7 +21,9 @@ namespace JoltPhysics
     {
         // Creates the shape for a single collider/shape pair, wrapping it in a
         // RotatedTranslatedShape when the collider configuration has a non-identity
-        // offset or rotation. Note: trigger shapes (m_isTrigger) are not supported yet.
+        // offset or rotation. Note: the trigger flag (m_isTrigger) is applied per body
+        // (Jolt sensors are body-level), not per shape - a compound mixing trigger and
+        // solid shapes is not supported.
         JPH::RefConst<JPH::Shape> CreateOffsetJoltShape(const AzPhysics::ShapeColliderPair& colliderAndShape)
         {
             if (!colliderAndShape.second)
@@ -318,6 +320,37 @@ namespace JoltPhysics
         if (const auto* colliderList = AZStd::get_if<AzPhysics::ShapeColliderPairList>(&colliderAndShapeData))
         {
             return *colliderList;
+        }
+
+        return {};
+    }
+
+    AZStd::vector<AZStd::shared_ptr<Physics::Shape>> JoltShapeUtils::GetPrebuiltShapes(
+        const AzPhysics::ShapeVariantData& colliderAndShapeData)
+    {
+        if (const auto* prebuiltShape = AZStd::get_if<AZStd::shared_ptr<Physics::Shape>>(&colliderAndShapeData))
+        {
+            if (*prebuiltShape)
+            {
+                return { *prebuiltShape };
+            }
+            return {};
+        }
+
+        if (const auto* prebuiltShapeList = AZStd::get_if<AZStd::vector<AZStd::shared_ptr<Physics::Shape>>>(&colliderAndShapeData))
+        {
+            AZStd::vector<AZStd::shared_ptr<Physics::Shape>> shapes;
+            shapes.reserve(prebuiltShapeList->size());
+            for (const AZStd::shared_ptr<Physics::Shape>& shape : *prebuiltShapeList)
+            {
+                // Match the sub-shape order of CreateJoltShapeFromVariant, which skips
+                // null entries when building the compound.
+                if (shape)
+                {
+                    shapes.push_back(shape);
+                }
+            }
+            return shapes;
         }
 
         return {};

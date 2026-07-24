@@ -37,6 +37,11 @@ namespace JoltPhysics
         static AzPhysics::ShapeColliderPairList GetColliderPairList(
             const AzPhysics::ShapeVariantData& colliderAndShapeData);
 
+        //! Returns the prebuilt Physics::Shape objects from the variant data (empty when
+        //! the variant holds shape configurations instead), in compound sub-shape order.
+        static AZStd::vector<AZStd::shared_ptr<Physics::Shape>> GetPrebuiltShapes(
+            const AzPhysics::ShapeVariantData& colliderAndShapeData);
+
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);
 

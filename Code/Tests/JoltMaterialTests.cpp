@@ -6,7 +6,9 @@
 #include <AzCore/Interface/Interface.h>
 
 #include <Material/JoltMaterial.h>
+#include <Material/JoltMaterialManager.h>
 #include <RigidBody/JoltStaticRigidBody.h>
+#include <Shape/JoltShapeUtils.h>
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
@@ -14,6 +16,7 @@
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Material/PhysicsMaterialManager.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
@@ -192,9 +195,9 @@ namespace JoltPhysics
 
         auto* slabBody = static_cast<JoltStaticRigidBody*>(m_scene->GetSimulatedBodyFromHandle(slabHandle));
         ASSERT_NE(slabBody, nullptr);
-        ASSERT_EQ(slabBody->GetColliderMaterials().size(), 2u);
-        EXPECT_FLOAT_EQ(slabBody->GetColliderMaterials()[0].second, 0.0f);
-        EXPECT_FLOAT_EQ(slabBody->GetColliderMaterials()[1].second, 0.9f);
+        ASSERT_EQ(slabBody->GetColliderCount(), 2u);
+        EXPECT_FLOAT_EQ(JoltMaterialManager::GetFrictionRestitution(slabBody->GetColliderMaterial(0).get()).second, 0.0f);
+        EXPECT_FLOAT_EQ(JoltMaterialManager::GetFrictionRestitution(slabBody->GetColliderMaterial(1).get()).second, 0.9f);
 
         auto dropSphere = [this](float x)
         {
@@ -247,6 +250,153 @@ namespace JoltPhysics
         EXPECT_TRUE(bouncyTouched);
         EXPECT_LT(deadMaxAfterBounce, 0.7f);
         EXPECT_GT(bouncyMaxAfterBounce, 1.2f);
+    }
+
+    TEST_F(JoltMaterialTests, StandaloneShapeMaterialRoundTrip)
+    {
+        auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
+        ASSERT_NE(materialManager, nullptr);
+
+        // The shape resolves its material from the collider's first material slot.
+        auto asset = CreateMaterialAsset(0.7f, 0.8f);
+        Physics::ColliderConfiguration colliderConfig;
+        colliderConfig.m_materialSlots.SetMaterialAsset(0, asset);
+        Physics::SphereShapeConfiguration shapeConfig(0.5f);
+
+        AZStd::shared_ptr<Physics::Shape> shape = JoltShapeUtils::CreateShape(colliderConfig, shapeConfig);
+        ASSERT_NE(shape, nullptr);
+        ASSERT_NE(shape->GetMaterial(), nullptr);
+        EXPECT_EQ(shape->GetMaterialId(), Physics::MaterialId::CreateFromAssetId(asset.GetId()));
+        EXPECT_FLOAT_EQ(shape->GetMaterial()->GetProperty("Restitution").GetValue<float>(), 0.8f);
+
+        // SetMaterial replaces it.
+        auto defaultMaterial = materialManager->GetDefaultMaterial();
+        shape->SetMaterial(defaultMaterial);
+        EXPECT_EQ(shape->GetMaterial().get(), defaultMaterial.get());
+        EXPECT_EQ(shape->GetMaterialId(), defaultMaterial->GetId());
+    }
+
+    TEST_F(JoltMaterialTests, PrebuiltShapeBodyUsesShapeMaterial)
+    {
+        auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
+        ASSERT_NE(materialManager, nullptr);
+
+        // Static slab built from a prebuilt Physics::Shape carrying a bouncy material.
+        Physics::ColliderConfiguration slabCollider;
+        Physics::BoxShapeConfiguration slabShape(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AZStd::shared_ptr<Physics::Shape> shape = JoltShapeUtils::CreateShape(slabCollider, slabShape);
+        ASSERT_NE(shape, nullptr);
+
+        auto bouncyAsset = CreateMaterialAsset(0.5f, 0.9f);
+        auto bouncyMaterial = materialManager->FindOrCreateMaterial(
+            Physics::MaterialId::CreateFromAssetId(bouncyAsset.GetId()), bouncyAsset);
+        shape->SetMaterial(bouncyMaterial);
+
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData = shape;
+        auto slabHandle = m_scene->AddSimulatedBody(&slabConfig);
+
+        auto* slabBody = azdynamic_cast<JoltStaticRigidBody*>(m_scene->GetSimulatedBodyFromHandle(slabHandle));
+        ASSERT_NE(slabBody, nullptr);
+        ASSERT_EQ(slabBody->GetColliderCount(), 1u);
+        EXPECT_EQ(slabBody->GetColliderMaterial(0).get(), bouncyMaterial.get());
+
+        // A default (dead) sphere dropped onto the bouncy slab rebounds (restitution
+        // combines as max of the two materials).
+        auto sphereCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
+        AzPhysics::RigidBodyConfiguration sphereConfig;
+        sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        sphereConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(sphereCollider, sphereShape);
+        auto sphereHandle = m_scene->AddSimulatedBody(&sphereConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        float maxAfterBounce = 0.0f;
+        bool touched = false;
+        for (int i = 0; i < 240; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+
+            const float z = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
+            if (z < 0.55f)
+            {
+                touched = true;
+            }
+            else if (touched)
+            {
+                maxAfterBounce = AZStd::max(maxAfterBounce, z);
+            }
+        }
+
+        EXPECT_TRUE(touched);
+        EXPECT_GT(maxAfterBounce, 1.2f);
+    }
+
+    TEST_F(JoltMaterialTests, MaterialPropertyChangeAppliesToExistingBody)
+    {
+        auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
+        ASSERT_NE(materialManager, nullptr);
+
+        // Slab with a dead material (restitution 0).
+        auto slabAsset = CreateMaterialAsset(0.5f, 0.0f);
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_materialSlots.SetMaterialAsset(0, slabAsset);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto sphereCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
+        AzPhysics::RigidBodyConfiguration sphereConfig;
+        sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        sphereConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(sphereCollider, sphereShape);
+        auto sphereHandle = m_scene->AddSimulatedBody(&sphereConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        auto measureBounce = [&]()
+        {
+            float maxAfterBounce = 0.0f;
+            bool touched = false;
+            for (int i = 0; i < 240; ++i)
+            {
+                m_scene->StartSimulation(fixedDeltaTime);
+                m_scene->FinishSimulation();
+
+                const float z = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
+                if (z < 0.55f)
+                {
+                    touched = true;
+                }
+                else if (touched)
+                {
+                    maxAfterBounce = AZStd::max(maxAfterBounce, z);
+                }
+            }
+            EXPECT_TRUE(touched);
+            return maxAfterBounce;
+        };
+
+        // Dead first drop.
+        EXPECT_LT(measureBounce(), 0.7f);
+
+        // Make the slab's material bouncy at runtime - no body is recreated - and
+        // drop the same sphere again: existing bodies pick up the new value.
+        auto slabMaterial = materialManager->GetMaterial(Physics::MaterialId::CreateFromAssetId(slabAsset.GetId()));
+        ASSERT_NE(slabMaterial, nullptr);
+        slabMaterial->SetProperty("Restitution", 0.9f);
+
+        auto* sphereBody = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(sphereHandle));
+        ASSERT_NE(sphereBody, nullptr);
+        sphereBody->SetTransform(AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 3.0f)));
+        sphereBody->SetLinearVelocity(AZ::Vector3::CreateZero());
+        sphereBody->SetAngularVelocity(AZ::Vector3::CreateZero());
+        sphereBody->ForceAwake();
+
+        EXPECT_GT(measureBounce(), 1.2f);
     }
 
 } // namespace JoltPhysics

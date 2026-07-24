@@ -1,6 +1,7 @@
 #include <RigidBody/JoltRigidBody.h>
 #include <Scene/JoltScene.h>
 #include <Utils/Conversions.h>
+#include <Shape/JoltShape.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
@@ -121,33 +122,39 @@ namespace JoltPhysics
 
         const AzPhysics::ShapeColliderPairList colliderPairs =
             JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
+        m_prebuiltShapes = JoltShapeUtils::GetPrebuiltShapes(m_configuration.m_colliderAndShapeData);
 
-        if (!colliderPairs.empty() && colliderPairs.front().first)
+        const Physics::ColliderConfiguration* firstCollider = nullptr;
+        if (!colliderPairs.empty())
         {
-            const Physics::ColliderConfiguration& firstCollider = *colliderPairs.front().first;
-            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(firstCollider);
-            bodySettings.mIsSensor = firstCollider.m_isTrigger;
-            m_isSensor = firstCollider.m_isTrigger;
+            firstCollider = colliderPairs.front().first.get();
+        }
+        else if (!m_prebuiltShapes.empty())
+        {
+            if (const auto* joltShape = azrtti_cast<const JoltShape*>(m_prebuiltShapes.front().get()))
+            {
+                firstCollider = joltShape->GetColliderConfiguration();
+            }
+        }
+
+        if (firstCollider)
+        {
+            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*firstCollider);
+            bodySettings.mIsSensor = firstCollider->m_isTrigger;
+            m_isSensor = firstCollider->m_isTrigger;
         }
 
         m_colliderMaterials.reserve(colliderPairs.size());
         for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
         {
-            if (colliderConfig)
-            {
-                m_colliderMaterials.push_back(JoltMaterialManager::ResolveFrictionRestitution(*colliderConfig));
-            }
-            else
-            {
-                m_colliderMaterials.emplace_back(JoltMaterial::DefaultFriction, JoltMaterial::DefaultRestitution);
-            }
+            m_colliderMaterials.push_back(
+                colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr);
         }
 
-        if (!m_colliderMaterials.empty())
-        {
-            bodySettings.mFriction = m_colliderMaterials.front().first;
-            bodySettings.mRestitution = m_colliderMaterials.front().second;
-        }
+        const auto [initialFriction, initialRestitution] =
+            JoltMaterialManager::GetFrictionRestitution(GetColliderMaterial(0).get());
+        bodySettings.mFriction = initialFriction;
+        bodySettings.mRestitution = initialRestitution;
 
         bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);
 
@@ -158,6 +165,26 @@ namespace JoltPhysics
     void JoltRigidBody::SyncTransform()
     {
         // Transform sync is handled by Jolt's simulation
+    }
+
+    size_t JoltRigidBody::GetColliderCount() const
+    {
+        return AZStd::max(m_colliderMaterials.size(), m_prebuiltShapes.size());
+    }
+
+    AZStd::shared_ptr<Physics::Material> JoltRigidBody::GetColliderMaterial(size_t colliderIndex) const
+    {
+        // Prebuilt shapes own their material and may be given a new one at any time
+        // (Physics::Shape::SetMaterial), so read through the shape.
+        if (colliderIndex < m_prebuiltShapes.size())
+        {
+            return m_prebuiltShapes[colliderIndex]->GetMaterial();
+        }
+        if (colliderIndex < m_colliderMaterials.size())
+        {
+            return m_colliderMaterials[colliderIndex];
+        }
+        return nullptr;
     }
 
     AZ::Vector3 JoltRigidBody::GetPosition() const

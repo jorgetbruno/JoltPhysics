@@ -1,8 +1,11 @@
 #include <Shape/JoltShape.h>
+#include <Material/JoltMaterialManager.h>
 #include <Utils/Conversions.h>
 
 #include <AzCore/Math/Aabb.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
+
+#include <AzFramework/Physics/Material/PhysicsMaterial.h>
 
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -22,24 +25,23 @@ namespace JoltPhysics
         , m_collisionLayer(colliderConfiguration.m_collisionLayer)
         , m_restOffset(colliderConfiguration.m_restOffset)
         , m_contactOffset(colliderConfiguration.m_contactOffset)
+        , m_material(JoltMaterialManager::ResolveMaterial(colliderConfiguration))
     {
     }
 
-    // Materials are not currently wired up to the AzFramework physics material system for
-    // standalone shapes; the collider's material slots (if any) are only used by collider
-    // components that build native shapes directly (JoltShapeUtils::CreateJoltShapeFromConfig).
-    void JoltShape::SetMaterial([[maybe_unused]] const AZStd::shared_ptr<Physics::Material>& material)
+    void JoltShape::SetMaterial(const AZStd::shared_ptr<Physics::Material>& material)
     {
+        m_material = material;
     }
 
     AZStd::shared_ptr<Physics::Material> JoltShape::GetMaterial() const
     {
-        return nullptr;
+        return m_material;
     }
 
     Physics::MaterialId JoltShape::GetMaterialId() const
     {
-        return {};
+        return m_material ? m_material->GetId() : Physics::MaterialId();
     }
 
     void JoltShape::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)

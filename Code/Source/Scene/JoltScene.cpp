@@ -3,6 +3,7 @@
 #include <Character/JoltCharacter.h>
 #include <Character/JoltRagdoll.h>
 #include <Joint/JoltJoint.h>
+#include <Material/JoltMaterialManager.h>
 #include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
@@ -304,39 +305,36 @@ namespace JoltPhysics
             return false;
         }
 
-        const AZStd::vector<AZStd::pair<float, float>>* colliderMaterials = nullptr;
-        if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
-        {
-            colliderMaterials = &rigidBody->GetColliderMaterials();
-        }
-        else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle)))
-        {
-            colliderMaterials = &staticBody->GetColliderMaterials();
-        }
+        // Materials are read live from the Physics::Material objects (rather than values
+        // baked at body creation) so runtime material changes - SetProperty on a material,
+        // SetMaterial on a prebuilt shape - apply to contacts of existing bodies.
+        JoltRigidBody* rigidBody = azrtti_cast<JoltRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle));
+        JoltStaticRigidBody* staticBody =
+            rigidBody ? nullptr : azrtti_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle));
 
-        // Only compounds (more than one collider) and heightfields need per-sub-shape overrides.
-        if (!colliderMaterials || colliderMaterials->size() <= 1)
+        const size_t colliderCount =
+            rigidBody ? rigidBody->GetColliderCount() : (staticBody ? staticBody->GetColliderCount() : 0);
+        if (colliderCount == 0)
         {
             return false;
         }
+
+        auto getColliderMaterial = [rigidBody, staticBody](size_t index)
+        {
+            return rigidBody ? rigidBody->GetColliderMaterial(index) : staticBody->GetColliderMaterial(index);
+        };
 
         const JPH::Shape* shape = body.GetShape();
 
         // Heightfield bodies: per-triangle material from the provider data.
         if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(shape))
         {
-            auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(GetSimulatedBodyFromHandle(bodyHandle));
             if (!staticBody)
             {
                 return false;
             }
 
             const auto& materialIndices = staticBody->GetHeightfieldMaterialIndices();
-            const auto& materials = staticBody->GetColliderMaterials();
-            if (materials.empty())
-            {
-                return false;
-            }
 
             JPH::SubShapeID remainder;
             const AZ::u32 triangleId = subShapeId.PopID(heightFieldShape->GetSubShapeIDBitsRecursive(), remainder);
@@ -348,28 +346,37 @@ namespace JoltPhysics
             const size_t indexPosition = squareY * (sampleCount - 1) + squareX;
             const AZ::u8 materialIndex =
                 indexPosition < materialIndices.size() ? materialIndices[indexPosition] : 0;
-            const AZ::u8 clampedIndex = materialIndex < materials.size() ? materialIndex : 0;
+            const AZ::u8 clampedIndex = materialIndex < colliderCount ? materialIndex : 0;
 
-            outFriction = materials[clampedIndex].first;
-            outRestitution = materials[clampedIndex].second;
+            const auto heightfieldValues =
+                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(clampedIndex).get());
+            outFriction = heightfieldValues.first;
+            outRestitution = heightfieldValues.second;
             return true;
         }
 
-        if (!shape || shape->GetSubType() != JPH::EShapeSubType::StaticCompound)
+        // Compound bodies: material of the collider the touching sub-shape belongs to.
+        if (shape && shape->GetSubType() == JPH::EShapeSubType::StaticCompound)
         {
-            return false;
+            JPH::SubShapeID remainder;
+            const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
+            const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
+            if (subShapeIndex >= colliderCount)
+            {
+                return false;
+            }
+
+            const auto subShapeValues =
+                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(subShapeIndex).get());
+            outFriction = subShapeValues.first;
+            outRestitution = subShapeValues.second;
+            return true;
         }
 
-        JPH::SubShapeID remainder;
-        const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
-        const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
-        if (subShapeIndex >= colliderMaterials->size())
-        {
-            return false;
-        }
-
-        outFriction = (*colliderMaterials)[subShapeIndex].first;
-        outRestitution = (*colliderMaterials)[subShapeIndex].second;
+        // Single-collider bodies: the first (only) collider's material.
+        const auto singleValues = JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(0).get());
+        outFriction = singleValues.first;
+        outRestitution = singleValues.second;
         return true;
     }
 

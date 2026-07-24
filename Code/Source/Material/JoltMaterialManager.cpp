@@ -33,16 +33,14 @@ namespace JoltPhysics
         return AZStd::make_shared<JoltMaterial>(id, materialAsset);
     }
 
-    AZStd::pair<float, float> JoltMaterialManager::ResolveFrictionRestitution(
+    AZStd::shared_ptr<Physics::Material> JoltMaterialManager::ResolveMaterial(
         const Physics::ColliderConfiguration& colliderConfiguration)
     {
         auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
         if (!materialManager)
         {
-            return { JoltMaterial::DefaultFriction, JoltMaterial::DefaultRestitution };
+            return nullptr;
         }
-
-        AZStd::shared_ptr<Physics::Material> material;
 
         const Physics::MaterialSlots& materialSlots = colliderConfiguration.m_materialSlots;
         if (materialSlots.GetSlotsCount() > 0)
@@ -50,22 +48,30 @@ namespace JoltPhysics
             const AZ::Data::Asset<Physics::MaterialAsset> materialAsset = materialSlots.GetMaterialAsset(0);
             if (materialAsset.GetId().IsValid())
             {
-                material = materialManager->FindOrCreateMaterial(
-                    Physics::MaterialId::CreateFromAssetId(materialAsset.GetId()), materialAsset);
+                if (auto material = materialManager->FindOrCreateMaterial(
+                        Physics::MaterialId::CreateFromAssetId(materialAsset.GetId()), materialAsset))
+                {
+                    return material;
+                }
             }
         }
 
-        if (!material)
-        {
-            material = materialManager->GetDefaultMaterial();
-        }
+        return materialManager->GetDefaultMaterial();
+    }
 
-        if (const auto* joltMaterial = azrtti_cast<const JoltMaterial*>(material.get()))
+    AZStd::pair<float, float> JoltMaterialManager::GetFrictionRestitution(const Physics::Material* material)
+    {
+        if (const auto* joltMaterial = azrtti_cast<const JoltMaterial*>(material))
         {
             return { joltMaterial->GetDynamicFriction(), joltMaterial->GetRestitution() };
         }
-
         return { JoltMaterial::DefaultFriction, JoltMaterial::DefaultRestitution };
+    }
+
+    AZStd::pair<float, float> JoltMaterialManager::ResolveFrictionRestitution(
+        const Physics::ColliderConfiguration& colliderConfiguration)
+    {
+        return GetFrictionRestitution(ResolveMaterial(colliderConfiguration).get());
     }
 
 } // namespace JoltPhysics

@@ -12,6 +12,11 @@ namespace JPH
     class Shape;
 }
 
+namespace Physics
+{
+    class Material;
+}
+
 namespace JoltPhysics
 {
     class JoltScene;
@@ -42,8 +47,12 @@ namespace JoltPhysics
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
         bool IsSensor() const { return m_isSensor; }
 
-        //! {friction, restitution} per collider, in collider order (compound sub-shape order).
-        const AZStd::vector<AZStd::pair<float, float>>& GetColliderMaterials() const { return m_colliderMaterials; }
+        //! Number of colliders the body was built from (compound sub-shape order).
+        size_t GetColliderCount() const;
+        //! The material of the collider at the given index, read live so runtime material
+        //! changes (Physics::Material::SetProperty, Physics::Shape::SetMaterial) apply to
+        //! contacts of existing bodies. Null when the index is out of range.
+        AZStd::shared_ptr<Physics::Material> GetColliderMaterial(size_t colliderIndex) const;
 
         AZ::Vector3 GetPosition() const override;
         AZ::Quaternion GetOrientation() const override;
@@ -119,7 +128,11 @@ namespace JoltPhysics
         bool m_simulationEnabled = true;
         bool m_removedFromWorld = false;
         bool m_adopted = false; //!< True when wrapping a body owned elsewhere (see AdoptBody).
-        AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
+        //! Per-collider materials resolved from the collider configurations at creation.
+        AZStd::vector<AZStd::shared_ptr<Physics::Material>> m_colliderMaterials;
+        //! When built from prebuilt Physics::Shape objects, the shapes are kept so
+        //! GetColliderMaterial reflects later Shape::SetMaterial calls.
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_prebuiltShapes;
     };
 
 } // namespace JoltPhysics

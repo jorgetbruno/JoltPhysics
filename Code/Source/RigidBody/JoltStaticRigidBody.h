@@ -12,6 +12,11 @@ namespace JPH
     class HeightFieldShape;
 }
 
+namespace Physics
+{
+    class Material;
+}
+
 namespace JoltPhysics
 {
     class JoltScene;
@@ -45,8 +50,13 @@ namespace JoltPhysics
 
         void AddShape(AZStd::shared_ptr<Physics::Shape> shape) override;
 
-        //! {friction, restitution} per collider, or per provider material slot for heightfields.
-        const AZStd::vector<AZStd::pair<float, float>>& GetColliderMaterials() const { return m_colliderMaterials; }
+        //! Number of colliders the body was built from (compound sub-shape order), or the
+        //! number of provider material slots for heightfields.
+        size_t GetColliderCount() const;
+        //! The material of the collider (or heightfield material slot) at the given index,
+        //! read live so runtime material changes apply to contacts of existing bodies.
+        //! Null when the index is out of range.
+        AZStd::shared_ptr<Physics::Material> GetColliderMaterial(size_t colliderIndex) const;
         //! Per-square material indices for heightfield bodies (empty otherwise).
         const AZStd::vector<AZ::u8>& GetHeightfieldMaterialIndices() const { return m_heightfieldMaterialIndices; }
 
@@ -61,7 +71,11 @@ namespace JoltPhysics
         AZ::EntityId m_entityId;
         bool m_isSensor = false;
         bool m_removedFromWorld = false;
-        AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
+        //! Per-collider (or per heightfield material slot) materials resolved at creation.
+        AZStd::vector<AZStd::shared_ptr<Physics::Material>> m_colliderMaterials;
+        //! When built from prebuilt Physics::Shape objects, the shapes are kept so
+        //! GetColliderMaterial reflects later Shape::SetMaterial calls.
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_prebuiltShapes;
         AZStd::vector<AZ::u8> m_heightfieldMaterialIndices;
 
         void ResolveHeightfieldMaterialData(const JPH::HeightFieldShape* heightFieldShape);

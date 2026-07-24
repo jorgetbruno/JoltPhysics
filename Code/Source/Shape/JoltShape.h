@@ -11,9 +11,10 @@ namespace JoltPhysics
     //! Standalone Physics::Shape wrapper around a native Jolt shape.
     //! Used for callers that go through the generic Physics::SystemRequests::CreateShape
     //! entry point (e.g. the WhiteBox gem) rather than through a Jolt collider component.
-    //! Note: this is a fairly minimal implementation. In particular it does not integrate
-    //! with the AzFramework physics material system (SetMaterial/GetMaterial are no-ops);
-    //! collision layer/group and local pose are stored and reflected into the native shape
+    //! The material is resolved from the collider configuration's first material slot at
+    //! creation and can be replaced with SetMaterial; bodies built from prebuilt shapes
+    //! read it live at contact time, so material changes apply to existing bodies.
+    //! Collision layer/group and local pose are stored and reflected into the native shape
     //! only at creation time (Jolt shapes are otherwise immutable geometry).
     class JoltShape final
         : public Physics::Shape
@@ -71,6 +72,14 @@ namespace JoltPhysics
             AZStd::vector<AZ::u32>& indices,
             const AZ::Aabb* optionalBounds = nullptr) const override;
 
+        //! The collider configuration the shape was created with (per-body settings such
+        //! as the trigger flag and collision group are taken from it when a body is built
+        //! from prebuilt shapes).
+        const Physics::ColliderConfiguration* GetColliderConfiguration() const
+        {
+            return m_colliderConfiguration.get();
+        }
+
     private:
         JPH::RefConst<JPH::Shape> m_nativeShape;
         AZStd::shared_ptr<Physics::ColliderConfiguration> m_colliderConfiguration;
@@ -84,6 +93,8 @@ namespace JoltPhysics
 
         float m_restOffset = 0.0f;
         float m_contactOffset = 0.02f;
+
+        AZStd::shared_ptr<Physics::Material> m_material;
 
         void* m_attachedActor = nullptr;
     };
