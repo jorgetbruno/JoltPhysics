@@ -40,6 +40,8 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltFixedJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
                     ;
             }
         }
@@ -77,6 +79,10 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltBallJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltBallJointComponent::m_limitProperties,
+                        "Swing limit", "Swing cone half-angles about the joint-frame Y (lower) and Z (upper) axes, in degrees.")
                     ;
             }
         }
@@ -124,6 +130,12 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltHingeJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltHingeJointComponent::m_limitProperties,
+                        "Angular limit", "Rotation limit about the hinge (joint-frame X) axis, in degrees.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltHingeJointComponent::m_motorProperties,
+                        "Motor", "Optional motor that actuates the hinge.")
                     ;
             }
         }
@@ -209,6 +221,12 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltPrismaticJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltPrismaticJointComponent::m_limitProperties,
+                        "Slide limit", "Travel limit along the slide (joint-frame X) axis, in meters.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltPrismaticJointComponent::m_motorProperties,
+                        "Motor", "Optional motor that actuates the slide.")
                     ;
             }
         }
@@ -292,6 +310,26 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltD6JointComponent::m_swingLimitY,
+                        "Swing limit Y", "Max swing angle from the joint-frame Y axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltD6JointComponent::m_swingLimitZ,
+                        "Swing limit Z", "Max swing angle from the joint-frame Z axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltD6JointComponent::m_twistLimitLower,
+                        "Twist limit lower", "Lower twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltD6JointComponent::m_twistLimitUpper,
+                        "Twist limit upper", "Upper twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
                     ;
             }
         }
