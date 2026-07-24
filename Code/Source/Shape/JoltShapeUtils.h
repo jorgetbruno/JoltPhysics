@@ -42,6 +42,13 @@ namespace JoltPhysics
         static AzPhysics::ShapeColliderPairList GetColliderPairList(
             const AzPhysics::ShapeVariantData& colliderAndShapeData);
 
+        //! Warns when the colliders of a compound body disagree on the trigger flag.
+        //! Jolt sensors are per-body, so the first collider's flag decides for the whole
+        //! body and the rest are ignored; without this the mismatch is silent and the
+        //! body simply behaves unlike the authored colliders. See DIVERGENCES.md.
+        static void WarnOnMixedTriggerFlags(
+            const AzPhysics::ShapeColliderPairList& colliderPairs, const AZStd::string& debugName);
+
         //! Returns the prebuilt Physics::Shape objects from the variant data (empty when
         //! the variant holds shape configurations instead), in compound sub-shape order.
         static AZStd::vector<AZStd::shared_ptr<Physics::Shape>> GetPrebuiltShapes(

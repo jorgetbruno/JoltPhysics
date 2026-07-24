@@ -357,6 +357,30 @@ namespace JoltPhysics
         return {};
     }
 
+    void JoltShapeUtils::WarnOnMixedTriggerFlags(
+        const AzPhysics::ShapeColliderPairList& colliderPairs, const AZStd::string& debugName)
+    {
+        if (colliderPairs.size() <= 1 || !colliderPairs.front().first)
+        {
+            return;
+        }
+
+        const bool bodyIsTrigger = colliderPairs.front().first->m_isTrigger;
+        for (size_t i = 1; i < colliderPairs.size(); ++i)
+        {
+            const Physics::ColliderConfiguration* colliderConfig = colliderPairs[i].first.get();
+            if (colliderConfig && colliderConfig->m_isTrigger != bodyIsTrigger)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Body '%s': collider %zu sets Trigger to %s but collider 0 sets it to %s. Jolt sensors are "
+                    "per-body, so the whole body is %s a trigger. Split the trigger colliders into their own body.",
+                    debugName.c_str(), i, colliderConfig->m_isTrigger ? "true" : "false",
+                    bodyIsTrigger ? "true" : "false", bodyIsTrigger ? "" : "not");
+                return; // one warning per body is enough
+            }
+        }
+    }
+
     JPH::Ref<JPH::MutableCompoundShape> JoltShapeUtils::MakeMutableCompound(const JPH::Shape* shape)
     {
         JPH::Ref<JPH::MutableCompoundShape> mutableCompound = new JPH::MutableCompoundShape();

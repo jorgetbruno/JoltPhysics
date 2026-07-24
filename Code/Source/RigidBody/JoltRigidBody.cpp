@@ -146,6 +146,7 @@ namespace JoltPhysics
             bodySettings.mIsSensor = firstCollider->m_isTrigger;
             m_isSensor = firstCollider->m_isTrigger;
         }
+        JoltShapeUtils::WarnOnMixedTriggerFlags(colliderPairs, m_configuration.m_debugName);
 
         m_colliderMaterials.reserve(colliderPairs.size() + prebuiltShapes.size());
         for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
