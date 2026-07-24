@@ -147,6 +147,27 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   (deadlock that leaves the tire constraints inactive).
 - **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
   for rendering are read from the native constraint by user code.
+- **All three Jolt controllers are available** through `JoltVehicleConfiguration::m_vehicleType`:
+  wheeled (car), motorcycle and tracked (tank). PhysXVehicle only models wheeled
+  vehicles, so the other two have no PhysX counterpart to be compatible with.
+- **A tracked vehicle steers by track speed, not wheel angle.** The shared
+  `SetDriverInput(forward, right, brake, handbrake)` maps steering onto a left/right
+  track ratio (full lock reverses the inner track, pivoting the vehicle on the spot)
+  and folds the handbrake into the brake, since a tank has neither steered wheels nor
+  a separate handbrake. Per-wheel steer angles and brake torques are ignored on this
+  type; braking comes from the track's own brake torque. Wheels are assigned to the
+  left or right track by the sign of their Y position, and the first wheel of each
+  track is its driven wheel.
+- **Motorcycle lean gains must be sized to the chassis.** Jolt's defaults
+  (`mLeanSpringConstant` 5000, `mLeanSpringDamping` 1000) suit a particular bike; on a
+  lighter one the balance correction is violent enough to throw the vehicle into the
+  air. The gem warns at creation when the gains imply a lean response above 3 Hz for
+  the chassis roll inertia and suggests workable values (roughly
+  `constant = I * (2*pi*f)^2` and `damping = 2 * I * (2*pi*f)` for `f` around 1-2 Hz).
+- **The motorcycle only balances while every wheel is on the ground** (a Jolt
+  restriction: the lean impulse is skipped unless all wheels have contact). A bike
+  with a car-sized engine wheelies, loses front contact and falls over, so the engine
+  needs sizing for the vehicle too.
 
 ## Scene queries and rigid body details
 

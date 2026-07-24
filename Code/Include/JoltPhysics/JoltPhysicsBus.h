@@ -59,11 +59,15 @@ namespace JoltPhysics
         virtual ~JoltVehicleRequests() = default;
 
         //! Applies driver input: throttle [-1..1], steering [-1..1], brake [0..1], handbrake [0..1].
+        //! A tracked vehicle converts the steering into a left/right track speed ratio
+        //! (full lock pivots it on the spot) and folds the handbrake into the brake.
         virtual void SetDriverInput(float forward, float right, float brake, float handbrake) = 0;
         //! Chassis speed along its forward axis (m/s).
         virtual float GetSpeed() const = 0;
         virtual float GetEngineRpm() const = 0;
         virtual int GetCurrentGear() const = 0;
+        //! How far a motorcycle is leaned over, in radians (0 for the other vehicle types).
+        virtual float GetLeanAngle() const = 0;
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;

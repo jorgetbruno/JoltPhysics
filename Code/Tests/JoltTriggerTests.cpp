@@ -1,8 +1,8 @@
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
-#include <AzCore/Debug/TraceMessageBus.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
-#include <AzCore/std/string/string.h>
+
+#include "JoltTestWarningCatcher.h"
 
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
@@ -16,45 +16,6 @@
 
 namespace JoltPhysics
 {
-    //! Collects gem warnings so a test can assert that a diagnostic actually fired
-    //! (and keeps them out of the test output while connected).
-    class JoltWarningCatcher : public AZ::Debug::TraceMessageBus::Handler
-    {
-    public:
-        JoltWarningCatcher()
-        {
-            BusConnect();
-        }
-        ~JoltWarningCatcher() override
-        {
-            BusDisconnect();
-        }
-
-        bool OnPreWarning(
-            const char* window, const char*, int, const char*, const char* message) override
-        {
-            if (window && AZStd::string_view(window) == "JoltPhysics")
-            {
-                m_warnings.push_back(message ? message : "");
-            }
-            return true; // handled; do not print
-        }
-
-        bool ContainsWarningWith(AZStd::string_view substring) const
-        {
-            for (const AZStd::string& warning : m_warnings)
-            {
-                if (warning.contains(substring))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        AZStd::vector<AZStd::string> m_warnings;
-    };
-
     class JoltTriggerTests : public ::testing::Test
     {
     protected:

@@ -71,12 +71,39 @@ namespace JoltPhysics
         }
     }
 
+    AZ::Crc32 JoltVehicleConfiguration::GetWheeledSettingsVisibility() const
+    {
+        // Engine drive layout: a tracked vehicle drives tracks, not named wheels.
+        return m_vehicleType == JoltVehicleType::Tracked ? AZ::Edit::PropertyVisibility::Hide
+                                                         : AZ::Edit::PropertyVisibility::Show;
+    }
+
+    AZ::Crc32 JoltVehicleConfiguration::GetMotorcycleSettingsVisibility() const
+    {
+        return m_vehicleType == JoltVehicleType::Motorcycle ? AZ::Edit::PropertyVisibility::Show
+                                                            : AZ::Edit::PropertyVisibility::Hide;
+    }
+
+    AZ::Crc32 JoltVehicleConfiguration::GetTrackedSettingsVisibility() const
+    {
+        return m_vehicleType == JoltVehicleType::Tracked ? AZ::Edit::PropertyVisibility::Show
+                                                         : AZ::Edit::PropertyVisibility::Hide;
+    }
+
     void JoltVehicleConfiguration::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltVehicleConfiguration>()
-                ->Version(1)
+                ->Version(2)
+                ->Field("VehicleType", &JoltVehicleConfiguration::m_vehicleType)
+                ->Field("MaxLeanAngleDegrees", &JoltVehicleConfiguration::m_maxLeanAngleDegrees)
+                ->Field("LeanSpringConstant", &JoltVehicleConfiguration::m_leanSpringConstant)
+                ->Field("LeanSpringDamping", &JoltVehicleConfiguration::m_leanSpringDamping)
+                ->Field("TrackInertia", &JoltVehicleConfiguration::m_trackInertia)
+                ->Field("TrackAngularDamping", &JoltVehicleConfiguration::m_trackAngularDamping)
+                ->Field("TrackMaxBrakeTorque", &JoltVehicleConfiguration::m_trackMaxBrakeTorque)
+                ->Field("TrackDifferentialRatio", &JoltVehicleConfiguration::m_trackDifferentialRatio)
                 ->Field("Wheels", &JoltVehicleConfiguration::m_wheels)
                 ->Field("ChassisMass", &JoltVehicleConfiguration::m_chassisMass)
                 ->Field("LeftDriveWheel", &JoltVehicleConfiguration::m_leftDriveWheel)
@@ -94,8 +121,17 @@ namespace JoltPhysics
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                         ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltVehicleConfiguration::m_vehicleType,
+                        "Vehicle type", "Which Jolt controller drives the chassis. Only the settings that apply "
+                        "to the selected type are shown.")
+                        ->EnumAttribute(JoltVehicleType::Wheeled, "Wheeled (car)")
+                        ->EnumAttribute(JoltVehicleType::Motorcycle, "Motorcycle")
+                        ->EnumAttribute(JoltVehicleType::Tracked, "Tracked (tank)")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_wheels,
-                        "Wheels", "The vehicle's wheels. Drive-wheel indices below refer to positions in this list.")
+                        "Wheels", "The vehicle's wheels. Leave empty for a default layout for the selected type. "
+                        "On a tracked vehicle the wheels are split into a left and a right track by the sign of "
+                        "their Y position, and the first wheel of each track drives it.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_chassisMass,
                         "Chassis mass", "Absolute chassis mass; 0 keeps the rigid body's own mass.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
@@ -103,12 +139,15 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_leftDriveWheel,
                         "Left drive wheel", "Index into Wheels driven by the differential; -1 = none.")
                         ->Attribute(AZ::Edit::Attributes::Min, -1)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetWheeledSettingsVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_rightDriveWheel,
                         "Right drive wheel", "Index into Wheels driven by the differential; -1 = none.")
                         ->Attribute(AZ::Edit::Attributes::Min, -1)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetWheeledSettingsVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_differentialRatio,
                         "Differential ratio", "Final drive ratio between the engine and the driven wheels.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetWheeledSettingsVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_maxEngineTorque,
                         "Max engine torque", "Peak engine torque.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
@@ -121,6 +160,40 @@ namespace JoltPhysics
                         "Gear ratios", "Forward gear ratios, from first gear to top.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_reverseGearRatio,
                         "Reverse gear ratio", "Reverse gear ratio (negative).")
+
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_maxLeanAngleDegrees,
+                        "Max lean angle", "How far the motorcycle leans into turns.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 89.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetMotorcycleSettingsVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_leanSpringConstant,
+                        "Lean spring constant", "Strength of the spring that keeps the motorcycle upright.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetMotorcycleSettingsVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_leanSpringDamping,
+                        "Lean spring damping", "Damping of the lean spring.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetMotorcycleSettingsVisibility)
+
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_trackInertia,
+                        "Track inertia", "Moment of inertia of a track and its wheels, as seen on the driven wheel.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " kg m^2")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetTrackedSettingsVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_trackAngularDamping,
+                        "Track angular damping", "Damping applied to a track's rotation.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetTrackedSettingsVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_trackMaxBrakeTorque,
+                        "Track max brake torque", "Braking torque available on a track's driven wheel.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " Nm")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetTrackedSettingsVisibility)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_trackDifferentialRatio,
+                        "Track differential ratio", "Ratio between gearbox and track driven-wheel rotation.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltVehicleConfiguration::GetTrackedSettingsVisibility)
                     ;
             }
         }

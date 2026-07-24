@@ -58,6 +58,7 @@ namespace JoltPhysics
         float GetSpeed() const override;
         float GetEngineRpm() const override;
         int GetCurrentGear() const override;
+        float GetLeanAngle() const override;
 
     private:
         void CreateVehicle();

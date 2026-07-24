@@ -7,7 +7,17 @@
 
 namespace JoltPhysics
 {
+    //! Which Jolt vehicle controller drives the chassis.
+    enum class JoltVehicleType : AZ::u8
+    {
+        Wheeled = 0, //!< JPH::WheeledVehicleController - car/truck, steered by wheel angle.
+        Motorcycle,  //!< JPH::MotorcycleController - wheeled plus a lean-balance spring.
+        Tracked,     //!< JPH::TrackedVehicleController - tank, steered by track speed.
+    };
+
     //! One wheel of a Jolt vehicle (mirrors the useful subset of JPH::WheelSettingsWV).
+    //! Steering and brake torques are ignored on a tracked vehicle, which brakes and
+    //! steers through its tracks rather than per wheel.
     struct JoltWheelConfiguration
     {
         AZ_CLASS_ALLOCATOR(JoltWheelConfiguration, AZ::SystemAllocator);
@@ -26,13 +36,18 @@ namespace JoltPhysics
         float m_maxHandBrakeTorque = 1000.0f;
     };
 
-    //! 4-wheel-drive-capable vehicle settings: wheels, engine, transmission and the
-    //! driven-wheel differential (mirrors the PhysXVehicle gem's configuration shape).
+    //! Vehicle settings: wheels, engine, transmission and drive layout. Which fields
+    //! apply depends on m_vehicleType - the differential drives named wheels on a
+    //! wheeled vehicle or motorcycle, while a tracked vehicle drives two tracks whose
+    //! wheels are assigned automatically by side (mirrors the PhysXVehicle gem's
+    //! configuration shape, extended for Jolt's other two controllers).
     struct JoltVehicleConfiguration
     {
         AZ_CLASS_ALLOCATOR(JoltVehicleConfiguration, AZ::SystemAllocator);
         AZ_TYPE_INFO(JoltVehicleConfiguration, "{B8C9D0E1-F2A3-4456-B7C8-D9E0F1A2B3C4}");
         static void Reflect(AZ::ReflectContext* context);
+
+        JoltVehicleType m_vehicleType = JoltVehicleType::Wheeled;
 
         AZStd::vector<JoltWheelConfiguration> m_wheels;
         float m_chassisMass = 1200.0f; //!< Absolute chassis mass in kg (0 = keep the rigid body's mass).
@@ -43,5 +58,24 @@ namespace JoltPhysics
         float m_maxEngineRpm = 6000.0f;
         AZStd::vector<float> m_gearRatios = { 2.66f, 1.78f, 1.3f, 1.0f, 0.74f };
         float m_reverseGearRatio = -2.9f;
+
+        //! Motorcycle: the lean-balance spring that keeps the bike upright.
+        float m_maxLeanAngleDegrees = 45.0f;
+        float m_leanSpringConstant = 5000.0f;
+        float m_leanSpringDamping = 1000.0f;
+
+        //! Tracked: per-track properties. Wheels are assigned to the left or right track
+        //! by the sign of their Y position, and the first wheel of each track is its
+        //! driven wheel.
+        float m_trackInertia = 10.0f;           //!< kg m^2, as seen on the driven wheel.
+        float m_trackAngularDamping = 0.5f;
+        float m_trackMaxBrakeTorque = 15000.0f; //!< Nm on the driven wheel.
+        float m_trackDifferentialRatio = 6.0f;
+
+        //! Property visibility helpers for the editor (the inspector only shows the
+        //! settings that apply to the selected vehicle type).
+        AZ::Crc32 GetWheeledSettingsVisibility() const;
+        AZ::Crc32 GetMotorcycleSettingsVisibility() const;
+        AZ::Crc32 GetTrackedSettingsVisibility() const;
     };
 } // namespace JoltPhysics

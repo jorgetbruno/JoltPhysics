@@ -161,6 +161,11 @@ namespace JoltPhysics
         return m_vehicle ? m_vehicle->GetCurrentGear() : 0;
     }
 
+    float JoltVehicleComponent::GetLeanAngle() const
+    {
+        return m_vehicle ? m_vehicle->GetLeanAngle() : 0.0f;
+    }
+
 
     void JoltVehicleComponent::OnAfterEntitySet()
     {

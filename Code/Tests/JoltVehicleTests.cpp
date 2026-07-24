@@ -2,6 +2,8 @@
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
+#include "JoltTestWarningCatcher.h"
+
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <Scene/JoltScene.h>
@@ -87,15 +89,50 @@ namespace JoltPhysics
             return config;
         }
 
+        //! Two-wheeler using the default motorcycle wheel layout. The engine is sized for
+        //! a bike rather than a car: the lean controller only balances while every wheel
+        //! is on the ground, so a car-sized engine on this mass just wheelies and falls.
+        static JoltVehicleConfiguration MakeMotorcycleConfiguration()
+        {
+            JoltVehicleConfiguration config;
+            config.m_vehicleType = JoltVehicleType::Motorcycle;
+            config.m_chassisMass = 250.0f;
+            config.m_maxEngineTorque = 150.0f;
+            // The lean spring acts on the chassis roll inertia (~8.5 kg m^2 here), so its
+            // gains have to be sized for the bike: Jolt's defaults are several times too
+            // stiff at this mass and the correction impulse throws the bike into the air.
+            config.m_leanSpringConstant = 1200.0f;
+            config.m_leanSpringDamping = 200.0f;
+            return config; // empty wheel list -> the default two-wheel layout
+        }
+
+        //! Tank using the default tracked wheel layout (four road wheels per side).
+        static JoltVehicleConfiguration MakeTrackedConfiguration()
+        {
+            JoltVehicleConfiguration config;
+            config.m_vehicleType = JoltVehicleType::Tracked;
+            config.m_chassisMass = 2000.0f;
+            return config; // empty wheel list -> the default eight-wheel layout
+        }
+
         void CreateVehicle(const AZ::Vector3& position)
+        {
+            CreateVehicle(position, MakeCarConfiguration(), AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+        }
+
+        void CreateVehicle(
+            const AZ::Vector3& position,
+            const JoltVehicleConfiguration& vehicleConfiguration,
+            const AZ::Vector3& chassisDimensions,
+            float chassisMass)
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
             auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
-            boxShape->m_dimensions = AZ::Vector3(2.0f, 1.0f, 0.5f);
+            boxShape->m_dimensions = chassisDimensions;
 
             AzPhysics::RigidBodyConfiguration chassisConfig;
             chassisConfig.m_position = position;
-            chassisConfig.m_mass = 1200.0f;
+            chassisConfig.m_mass = chassisMass;
             chassisConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
             m_chassisHandle = m_scene->AddSimulatedBody(&chassisConfig);
             ASSERT_NE(m_chassisHandle, AzPhysics::InvalidSimulatedBodyHandle);
@@ -103,8 +140,16 @@ namespace JoltPhysics
             JPH::Body* chassisBody = static_cast<JoltScene*>(m_scene)->GetJoltBody(m_chassisHandle);
             ASSERT_NE(chassisBody, nullptr);
 
-            m_vehicle.reset(aznew JoltVehicle(MakeCarConfiguration(), static_cast<JoltScene*>(m_scene), chassisBody));
+            m_vehicle.reset(aznew JoltVehicle(vehicleConfiguration, static_cast<JoltScene*>(m_scene), chassisBody));
             ASSERT_TRUE(m_vehicle->IsValid());
+        }
+
+        //! Yaw of the chassis around the world up axis, in degrees.
+        float GetChassisYawDegrees()
+        {
+            const AZ::Vector3 forward =
+                GetChassis()->GetOrientation().TransformVector(AZ::Vector3::CreateAxisX());
+            return AZ::RadToDeg(atan2f(forward.GetY(), forward.GetX()));
         }
 
         AzPhysics::RigidBody* GetChassis()
@@ -293,6 +338,98 @@ namespace JoltPhysics
 
         EXPECT_GT(vehicle->GetSpeed(), 3.0f);
         EXPECT_GT(rawBody->GetPosition().GetX(), 3.0f);
+    }
+
+    TEST_F(JoltVehicleTests, TrackedVehicleDrivesForward)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), MakeTrackedConfiguration(), AZ::Vector3(3.0f, 1.6f, 0.6f), 2000.0f);
+
+        EXPECT_EQ(m_vehicle->GetVehicleType(), JoltVehicleType::Tracked);
+        // The default layout puts four road wheels on each of the two tracks.
+        EXPECT_EQ(m_vehicle->GetConstraint()->GetWheels().size(), 8u);
+
+        auto* chassis = GetChassis();
+        ASSERT_NE(chassis, nullptr);
+
+        // Settle onto the ground.
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        EXPECT_TRUE(m_vehicle->GetConstraint()->GetWheel(0)->HasContact());
+
+        const float startX = chassis->GetPosition().GetX();
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+
+        EXPECT_GT(m_vehicle->GetSpeed(), 1.0f);
+        EXPECT_GT(m_vehicle->GetEngineRpm(), 1000.0f);
+        EXPECT_GT(chassis->GetPosition().GetX() - startX, 1.0f);
+    }
+
+    TEST_F(JoltVehicleTests, TrackedVehiclePivotsOnFullSteeringLock)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), MakeTrackedConfiguration(), AZ::Vector3(3.0f, 1.6f, 0.6f), 2000.0f);
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+
+        const float startYaw = GetChassisYawDegrees();
+        const AZ::Vector3 startPosition = GetChassis()->GetPosition();
+
+        // Full lock counter-rotates the tracks, so the tank turns on the spot instead of
+        // driving along an arc the way a steered vehicle would.
+        DriveSteps(0.5f, 1.0f, 0.0f, 180);
+
+        float yawDelta = GetChassisYawDegrees() - startYaw;
+        // Normalize across the +/-180 wrap.
+        yawDelta = fmodf(yawDelta + 540.0f, 360.0f) - 180.0f;
+
+        EXPECT_GT(AZStd::abs(yawDelta), 20.0f);
+        const float travelled = GetChassis()->GetPosition().GetDistance(startPosition);
+        EXPECT_LT(travelled, 3.0f); // pivoting, not driving away
+    }
+
+    TEST_F(JoltVehicleTests, MotorcycleStaysUprightWhileDriving)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.8f), MakeMotorcycleConfiguration(), AZ::Vector3(1.8f, 0.4f, 0.5f), 250.0f);
+
+        EXPECT_EQ(m_vehicle->GetVehicleType(), JoltVehicleType::Motorcycle);
+        // The default layout is a front and a rear wheel.
+        EXPECT_EQ(m_vehicle->GetConstraint()->GetWheels().size(), 2u);
+
+        auto* chassis = GetChassis();
+        ASSERT_NE(chassis, nullptr);
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        // Part throttle keeps the front wheel down; see MakeMotorcycleConfiguration.
+        DriveSteps(0.4f, 0.0f, 0.0f, 240);
+
+        // It drives off under its own power...
+        EXPECT_GT(chassis->GetPosition().GetX(), 2.0f);
+        // ...and the lean-balance spring keeps a two-wheeler that would otherwise topple
+        // roughly upright (its own up axis still close to the world up).
+        const AZ::Vector3 chassisUp = chassis->GetOrientation().TransformVector(AZ::Vector3::CreateAxisZ());
+        EXPECT_GT(chassisUp.GetZ(), 0.9f);
+        EXPECT_LT(m_vehicle->GetLeanAngle(), AZ::DegToRad(20.0f));
+        // Both wheels stay on the ground: the lean controller stops correcting as soon as
+        // a wheel leaves it, so losing contact is how a motorcycle setup goes wrong.
+        EXPECT_TRUE(m_vehicle->GetConstraint()->GetWheel(0)->HasContact());
+        EXPECT_TRUE(m_vehicle->GetConstraint()->GetWheel(1)->HasContact());
+    }
+
+    TEST_F(JoltVehicleTests, MotorcycleWarnsWhenLeanGainsAreTooStiffForTheChassis)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+
+        // Jolt's default lean gains on a light bike: stiff enough that the balance
+        // correction throws it around, which is reported rather than left to be
+        // discovered as a motorcycle launching itself into the air.
+        JoltVehicleConfiguration config = MakeMotorcycleConfiguration();
+        config.m_leanSpringConstant = 5000.0f;
+        config.m_leanSpringDamping = 1000.0f;
+
+        JoltWarningCatcher warnings;
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.8f), config, AZ::Vector3(1.8f, 0.4f, 0.5f), 250.0f);
+        EXPECT_TRUE(warnings.ContainsWarningWith("lean spring constant"));
     }
 
 } // namespace JoltPhysics
