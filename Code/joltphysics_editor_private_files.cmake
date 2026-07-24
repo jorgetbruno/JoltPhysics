@@ -7,6 +7,11 @@ set(FILES
     Source/Editor/JoltEditorSettingsRegistryManager.h
     Source/Editor/Components/EditorJoltColliderComponentBase.cpp
     Source/Editor/Components/EditorJoltColliderComponentBase.h
+    Source/Editor/Components/EditorJoltColliderDrawUtils.h
     Source/Editor/Components/EditorJoltBoxColliderComponent.cpp
     Source/Editor/Components/EditorJoltBoxColliderComponent.h
+    Source/Editor/Components/EditorJoltSphereColliderComponent.cpp
+    Source/Editor/Components/EditorJoltSphereColliderComponent.h
+    Source/Editor/Components/EditorJoltCapsuleColliderComponent.cpp
+    Source/Editor/Components/EditorJoltCapsuleColliderComponent.h
 )

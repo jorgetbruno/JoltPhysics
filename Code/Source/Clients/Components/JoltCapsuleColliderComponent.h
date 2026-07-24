@@ -20,6 +20,15 @@ namespace JoltPhysics
         // JoltColliderComponentBase
         AzPhysics::ShapeColliderPair GetShapeColliderPair() const override;
 
+        Physics::CapsuleShapeConfiguration& GetShapeConfiguration()
+        {
+            return *m_shapeConfiguration;
+        }
+        const Physics::CapsuleShapeConfiguration& GetShapeConfiguration() const
+        {
+            return *m_shapeConfiguration;
+        }
+
     private:
         AZStd::shared_ptr<Physics::CapsuleShapeConfiguration> m_shapeConfiguration =
             AZStd::make_shared<Physics::CapsuleShapeConfiguration>();
