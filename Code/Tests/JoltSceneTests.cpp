@@ -171,4 +171,28 @@ namespace JoltPhysics
 
         system->Shutdown();
     }
+
+    TEST(JoltConvexRoundtrip, PackAndReadBackProducesShape)
+    {
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+        JoltSystemConfiguration systemConfig;
+        system->Initialize(&systemConfig);
+
+        // The eight corners of a unit cube (a convex point cloud; no indices needed).
+        const AZ::Vector3 vertices[] = {
+            AZ::Vector3(-0.5f, -0.5f, -0.5f), AZ::Vector3(0.5f, -0.5f, -0.5f),
+            AZ::Vector3(-0.5f, 0.5f, -0.5f),  AZ::Vector3(0.5f, 0.5f, -0.5f),
+            AZ::Vector3(-0.5f, -0.5f, 0.5f),  AZ::Vector3(0.5f, -0.5f, 0.5f),
+            AZ::Vector3(-0.5f, 0.5f, 0.5f),   AZ::Vector3(0.5f, 0.5f, 0.5f),
+        };
+
+        AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackConvexMesh(vertices, 8);
+        ASSERT_FALSE(blob.empty());
+        JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateConvexShapeFromCookedData(blob);
+        ASSERT_NE(shape, nullptr);
+        EXPECT_EQ(shape->GetType(), JPH::EShapeType::Convex);
+
+        system->Shutdown();
+    }
 } // namespace JoltPhysics

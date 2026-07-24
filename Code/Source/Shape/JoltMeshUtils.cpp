@@ -8,6 +8,7 @@
 #include <Jolt/Math/Float3.h>
 #include <Jolt/Geometry/IndexedTriangle.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 
 namespace JoltPhysics
 {
@@ -22,6 +23,15 @@ namespace JoltPhysics
             AZ::u32 m_version = 1;
             AZ::u32 m_vertexCount = 0;
             AZ::u32 m_indexCount = 0; // always a multiple of 3
+        };
+
+        // Distinct magic from MeshBlobHeader so a convex blob fed to the triangle-mesh
+        // decoder (or vice versa) fails loudly instead of misinterpreting the bytes.
+        struct ConvexBlobHeader
+        {
+            AZ::u32 m_magic = 0x4A435648; // 'HVCJ' ("Jolt Convex Hull")
+            AZ::u32 m_version = 1;
+            AZ::u32 m_vertexCount = 0;
         };
     }
 
@@ -119,6 +129,83 @@ namespace JoltPhysics
         if (result.HasError())
         {
             AZ_Error("JoltPhysics", false, "Failed to create mesh shape: %s", result.GetError().c_str());
+            return nullptr;
+        }
+        return result.Get();
+    }
+
+    AZStd::vector<AZ::u8> JoltMeshUtils::PackConvexMesh(const AZ::Vector3* vertices, AZ::u32 vertexCount)
+    {
+        AZStd::vector<AZ::u8> result;
+        if (!vertices || vertexCount == 0)
+        {
+            return result;
+        }
+
+        ConvexBlobHeader header;
+        header.m_vertexCount = vertexCount;
+
+        const size_t vertexBytes = static_cast<size_t>(vertexCount) * 3 * sizeof(float);
+        result.reserve(sizeof(ConvexBlobHeader) + vertexBytes);
+
+        const auto* headerBytes = reinterpret_cast<const AZ::u8*>(&header);
+        result.insert(result.end(), headerBytes, headerBytes + sizeof(ConvexBlobHeader));
+
+        for (AZ::u32 i = 0; i < vertexCount; ++i)
+        {
+            const float xyz[3] = { vertices[i].GetX(), vertices[i].GetY(), vertices[i].GetZ() };
+            const auto* bytes = reinterpret_cast<const AZ::u8*>(xyz);
+            result.insert(result.end(), bytes, bytes + sizeof(xyz));
+        }
+
+        return result;
+    }
+
+    JPH::RefConst<JPH::Shape> JoltMeshUtils::CreateConvexShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData)
+    {
+        if (cookedData.size() < sizeof(ConvexBlobHeader))
+        {
+            return nullptr;
+        }
+
+        ConvexBlobHeader header;
+        memcpy(&header, cookedData.data(), sizeof(ConvexBlobHeader));
+
+        if (header.m_magic != ConvexBlobHeader().m_magic || header.m_version != ConvexBlobHeader().m_version ||
+            header.m_vertexCount == 0)
+        {
+            AZ_Error("JoltPhysics", false,
+                "JoltMeshUtils: cooked convex blob is malformed or from an incompatible version "
+                "(magic=0x%08X version=%u vertexCount=%u blobSize=%zu)",
+                header.m_magic, header.m_version, header.m_vertexCount, cookedData.size());
+            return nullptr;
+        }
+
+        const size_t vertexBytes = static_cast<size_t>(header.m_vertexCount) * 3 * sizeof(float);
+        const size_t expectedSize = sizeof(ConvexBlobHeader) + vertexBytes;
+        if (cookedData.size() != expectedSize)
+        {
+            AZ_Error("JoltPhysics", false, "JoltMeshUtils: cooked convex blob size mismatch (expected %zu, got %zu)",
+                expectedSize, cookedData.size());
+            return nullptr;
+        }
+
+        const AZ::u8* vertexCursor = cookedData.data() + sizeof(ConvexBlobHeader);
+
+        JPH::Array<JPH::Vec3> points;
+        points.reserve(header.m_vertexCount);
+        for (AZ::u32 i = 0; i < header.m_vertexCount; ++i)
+        {
+            float xyz[3];
+            memcpy(xyz, vertexCursor + static_cast<size_t>(i) * 3 * sizeof(float), sizeof(xyz));
+            points.push_back(JPH::Vec3(xyz[0], xyz[1], xyz[2]));
+        }
+
+        JPH::ConvexHullShapeSettings settings(points);
+        JPH::ShapeSettings::ShapeResult result = settings.Create();
+        if (result.HasError())
+        {
+            AZ_Error("JoltPhysics", false, "Failed to create convex hull shape: %s", result.GetError().c_str());
             return nullptr;
         }
         return result.Get();

@@ -226,8 +226,12 @@ namespace JoltPhysics
                 return cachedMesh;
             }
 
+            // The same cooked config carries either a triangle mesh or a convex hull;
+            // decode the blob according to the type the cooker recorded on it.
             JPH::RefConst<JPH::Shape> meshShape =
-                JoltMeshUtils::CreateMeshShapeFromCookedData(meshConfiguration.GetCookedMeshData());
+                (meshConfiguration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
+                ? JoltMeshUtils::CreateConvexShapeFromCookedData(meshConfiguration.GetCookedMeshData())
+                : JoltMeshUtils::CreateMeshShapeFromCookedData(meshConfiguration.GetCookedMeshData());
             if (!meshShape)
             {
                 return nullptr;

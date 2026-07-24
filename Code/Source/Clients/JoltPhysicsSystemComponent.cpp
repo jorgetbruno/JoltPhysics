@@ -15,6 +15,8 @@
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Shape/JoltMeshUtils.h>
+
+#include <AzCore/IO/SystemFile.h>
 #include <Scene/JoltScene.h>
 #include <Debug/JoltDebugRenderer.h>
 #include <Utils/Conversions.h>
@@ -239,33 +241,67 @@ namespace JoltPhysics
         }
     }
 
-    bool JoltPhysicsSystemComponent::CookConvexMeshToFile(
-        [[maybe_unused]] const AZStd::string& filePath,
-        [[maybe_unused]] const AZ::Vector3* vertices,
-        [[maybe_unused]] AZ::u32 vertexCount)
+    namespace
     {
-        // TODO: Implement convex mesh cooking
-        return false;
+        // Writes a cooked blob to disk. The blob is self-describing (magic/version header),
+        // so this is a plain byte dump - there is no separate on-disk format.
+        bool WriteCookedBlobToFile(const AZStd::string& filePath, const AZStd::vector<AZ::u8>& blob)
+        {
+            if (blob.empty())
+            {
+                return false;
+            }
+
+            AZ::IO::SystemFile file;
+            if (!file.Open(filePath.c_str(),
+                    AZ::IO::SystemFile::SF_OPEN_CREATE | AZ::IO::SystemFile::SF_OPEN_WRITE_ONLY))
+            {
+                AZ_Error("JoltPhysics", false, "Failed to open '%s' for writing cooked mesh data.", filePath.c_str());
+                return false;
+            }
+
+            const AZ::IO::SystemFile::SizeType written = file.Write(blob.data(), blob.size());
+            file.Close();
+
+            if (written != blob.size())
+            {
+                AZ_Error("JoltPhysics", false, "Failed to write cooked mesh data to '%s' (%llu of %zu bytes).",
+                    filePath.c_str(), static_cast<AZ::u64>(written), blob.size());
+                return false;
+            }
+            return true;
+        }
+    }
+
+    bool JoltPhysicsSystemComponent::CookConvexMeshToFile(
+        const AZStd::string& filePath,
+        const AZ::Vector3* vertices,
+        AZ::u32 vertexCount)
+    {
+        return WriteCookedBlobToFile(filePath, JoltMeshUtils::PackConvexMesh(vertices, vertexCount));
     }
 
     bool JoltPhysicsSystemComponent::CookConvexMeshToMemory(
-        [[maybe_unused]] const AZ::Vector3* vertices,
-        [[maybe_unused]] AZ::u32 vertexCount,
-        [[maybe_unused]] AZStd::vector<AZ::u8>& result)
+        const AZ::Vector3* vertices,
+        AZ::u32 vertexCount,
+        AZStd::vector<AZ::u8>& result)
     {
-        // TODO: Implement convex mesh cooking to memory
-        return false;
+        // Jolt builds the hull from the raw point cloud on ConvexHullShapeSettings::Create(),
+        // so "cooking" is just packing the points into the blob CreateConvexShapeFromCookedData
+        // expects (see JoltMeshUtils).
+        result = JoltMeshUtils::PackConvexMesh(vertices, vertexCount);
+        return !result.empty();
     }
 
     bool JoltPhysicsSystemComponent::CookTriangleMeshToFile(
-        [[maybe_unused]] const AZStd::string& filePath,
-        [[maybe_unused]] const AZ::Vector3* vertices,
-        [[maybe_unused]] AZ::u32 vertexCount,
-        [[maybe_unused]] const AZ::u32* indices,
-        [[maybe_unused]] AZ::u32 indexCount)
+        const AZStd::string& filePath,
+        const AZ::Vector3* vertices,
+        AZ::u32 vertexCount,
+        const AZ::u32* indices,
+        AZ::u32 indexCount)
     {
-        // TODO: Implement triangle mesh cooking
-        return false;
+        return WriteCookedBlobToFile(
+            filePath, JoltMeshUtils::PackTriangleMesh(vertices, vertexCount, indices, indexCount));
     }
 
     bool JoltPhysicsSystemComponent::CookTriangleMeshToMemory(

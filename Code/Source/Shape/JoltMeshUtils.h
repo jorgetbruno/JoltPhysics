@@ -27,6 +27,15 @@ namespace JoltPhysics
         //! Builds a Jolt mesh shape from a previously packed blob (as produced by
         //! PackTriangleMesh). Returns nullptr if the blob is malformed or empty.
         static JPH::RefConst<JPH::Shape> CreateMeshShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);
+
+        //! Packs raw convex-hull point data (vertices only, no indices) into a blob.
+        //! Jolt builds the hull from the point cloud on Create(), so no offline pass is
+        //! needed - this is just the packed points.
+        static AZStd::vector<AZ::u8> PackConvexMesh(const AZ::Vector3* vertices, AZ::u32 vertexCount);
+
+        //! Builds a Jolt convex-hull shape from a blob produced by PackConvexMesh.
+        //! Returns nullptr if the blob is malformed or empty.
+        static JPH::RefConst<JPH::Shape> CreateConvexShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);
     };
 
 } // namespace JoltPhysics
