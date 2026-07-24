@@ -10,6 +10,7 @@ set(FILES
     Tests/JoltMaterialTests.cpp
     Tests/JoltTriggerTests.cpp
     Tests/JoltCollisionEventTests.cpp
+    Tests/JoltRagdollTests.cpp
     Tests/JoltRigidBodyTests.cpp
     Tests/JoltComponentBodyCreationTests.cpp
     Tests/JoltCharacterTests.cpp

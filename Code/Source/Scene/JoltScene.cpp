@@ -1,6 +1,7 @@
 #include <Scene/JoltScene.h>
 #include <Scene/JoltSceneQueryHelpers.h>
 #include <Character/JoltCharacter.h>
+#include <Character/JoltRagdoll.h>
 #include <Joint/JoltJoint.h>
 #include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
@@ -208,6 +209,12 @@ namespace JoltPhysics
             auto* character = aznew JoltCharacter(*characterConfig);
             character->CreateInScene(this);
             body = character;
+        }
+        else if (const auto* ragdollConfig = azdynamic_cast<const Physics::RagdollConfiguration*>(simulatedBodyConfig))
+        {
+            auto* ragdoll = aznew JoltRagdoll(*ragdollConfig);
+            ragdoll->CreateInScene(this);
+            body = ragdoll;
         }
 
         if (!body)
@@ -448,6 +455,10 @@ namespace JoltPhysics
                     m_bodyHandleByJoltId.erase(innerBodyId.GetIndexAndSequenceNumber());
                 }
                 character->RemoveFromScene();
+            }
+            else if (auto* ragdoll = azrtti_cast<JoltRagdoll*>(body))
+            {
+                ragdoll->RemoveFromScene();
             }
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };

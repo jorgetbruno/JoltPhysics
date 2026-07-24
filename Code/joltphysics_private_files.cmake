@@ -31,6 +31,8 @@ set(FILES
     Source/Clients/Components/JoltVehicleComponent.h
     Source/Character/JoltCharacter.cpp
     Source/Character/JoltCharacter.h
+    Source/Character/JoltRagdoll.cpp
+    Source/Character/JoltRagdoll.h
     Source/Joint/JoltJoint.cpp
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp
