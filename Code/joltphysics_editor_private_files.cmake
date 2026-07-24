@@ -5,4 +5,8 @@ set(FILES
     Source/Editor/EditorComponentDescriptors.h
     Source/Editor/JoltEditorSettingsRegistryManager.cpp
     Source/Editor/JoltEditorSettingsRegistryManager.h
+    Source/Editor/Components/EditorJoltColliderComponentBase.cpp
+    Source/Editor/Components/EditorJoltColliderComponentBase.h
+    Source/Editor/Components/EditorJoltBoxColliderComponent.cpp
+    Source/Editor/Components/EditorJoltBoxColliderComponent.h
 )

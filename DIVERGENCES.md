@@ -147,3 +147,22 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   (deadlock that leaves the tire constraints inactive).
 - **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
   for rendering are read from the native constraint by user code.
+
+## Editor components (PhysX-style editor/runtime split)
+
+- **Collider components now have editor variants** (`EditorJoltBoxColliderComponent`,
+  deriving from `AzToolsFramework::Components::EditorComponentBase`), mirroring the
+  PhysX gem's editor/runtime split. The editor component activates in the Edit
+  viewport (plain `AZ::Component`s are silently wrapped by `GenericComponentWrapper`
+  and never activate there), draws the collider wireframe, and spawns the runtime
+  component via `BuildGameEntity` on game-mode/export.
+- **The runtime collider components no longer appear in the Add Component menu**
+  (their `AppearsInAddComponentMenu` attribute was removed). This matches PhysX,
+  where only the editor components are addable. Runtime components remain registered
+  so prefabs saved before the split keep loading and simulating unchanged (they are
+  wrapped by `GenericComponentWrapper` in the editor and instantiate into the game
+  entity as before).
+- **Edit-time wireframe drawing only exists for editor-component colliders.**
+  Entities in old prefabs that still carry runtime colliders get no edit-viewport
+  wireframe (same as before the split); replace them with the editor components to
+  get it. Game-mode debug draw (`jolt_Debug 1`) works for both.

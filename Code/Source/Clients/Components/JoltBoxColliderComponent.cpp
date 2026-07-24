@@ -24,7 +24,11 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltBoxColliderComponent>("Jolt Box Collider", "Box shaped collider for the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the editor-side EditorJoltBoxColliderComponent
+                        // owns the menu entry (PhysX-style editor/runtime split). This runtime
+                        // component stays registered so existing prefabs load and BuildGameEntity
+                        // can spawn it, and the EditContext below keeps its properties editable
+                        // through the GenericComponentWrapper in those old prefabs.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltBoxColliderComponent::m_shapeConfiguration,
