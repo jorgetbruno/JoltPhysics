@@ -2,6 +2,7 @@
 #include <Scene/JoltScene.h>
 #include <Utils/Conversions.h>
 #include <Shape/JoltShapeUtils.h>
+#include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
 
@@ -30,7 +31,9 @@ namespace JoltPhysics
 
     JoltRigidBody::~JoltRigidBody()
     {
-        if (m_scene && !m_bodyId.IsInvalid())
+        // An adopted body is owned by something else (e.g. a JPH::Ragdoll); never remove
+        // or destroy it here.
+        if (!m_adopted && m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {
@@ -43,9 +46,17 @@ namespace JoltPhysics
         }
     }
 
+    void JoltRigidBody::AdoptBody(JoltScene* scene, const JPH::BodyID& bodyId, AZ::EntityId entityId)
+    {
+        m_scene = scene;
+        m_bodyId = bodyId;
+        m_entityId = entityId;
+        m_adopted = true;
+    }
+
     void JoltRigidBody::RemoveFromJoltWorld()
     {
-        if (m_scene && !m_bodyId.IsInvalid() && !m_removedFromWorld)
+        if (!m_adopted && m_scene && !m_bodyId.IsInvalid() && !m_removedFromWorld)
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
             {

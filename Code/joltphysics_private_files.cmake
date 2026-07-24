@@ -33,6 +33,8 @@ set(FILES
     Source/Character/JoltCharacter.h
     Source/Character/JoltRagdoll.cpp
     Source/Character/JoltRagdoll.h
+    Source/Character/JoltRagdollNode.cpp
+    Source/Character/JoltRagdollNode.h
     Source/Joint/JoltJoint.cpp
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp

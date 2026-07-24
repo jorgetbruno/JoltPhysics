@@ -4,6 +4,7 @@
 
 #include <Character/JoltRagdoll.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+#include <Joint/JoltJointConfiguration.h>
 #include <Scene/JoltScene.h>
 #include <System/JoltSystem.h>
 
@@ -136,6 +137,43 @@ namespace JoltPhysics
         Physics::RagdollState later;
         ragdoll->GetState(later);
         EXPECT_NEAR(later[0].m_position.GetZ(), zAfterDisable, 0.01f);
+    }
+
+    TEST_F(JoltRagdollTests, NodesAreAccessibleAsRigidBodiesWithArticulatedJoint)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+
+        // Give the child an articulated swing-twist joint at the midpoint between the bodies.
+        auto jointConfig = AZStd::make_shared<JoltSwingTwistJointConfiguration>();
+        jointConfig->m_parentLocalPosition = AZ::Vector3(0.0f, 0.0f, -0.25f);
+        jointConfig->m_childLocalPosition = AZ::Vector3(0.0f, 0.0f, 0.25f);
+        config.m_nodes[1].m_jointConfig = jointConfig;
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+
+        ragdoll->EnableSimulation(config.m_initialState);
+        SimulateSeconds(1.0f);
+
+        // Per-node access is available and reflects the simulation.
+        Physics::RagdollNode* node0 = ragdoll->GetNode(0);
+        Physics::RagdollNode* node1 = ragdoll->GetNode(1);
+        ASSERT_NE(node0, nullptr);
+        ASSERT_NE(node1, nullptr);
+        EXPECT_TRUE(node0->IsSimulating());
+
+        // GetRigidBody() wraps the same body the ragdoll state reports.
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        ASSERT_EQ(state.size(), 2u);
+        EXPECT_TRUE(node0->GetRigidBody().GetPosition().IsClose(state[0].m_position, 0.05f));
+        EXPECT_TRUE(node1->GetRigidBody().GetPosition().IsClose(state[1].m_position, 0.05f));
+
+        // The articulated joint still holds the bodies together (~0.5 m apart).
+        const float separation = state[0].m_position.GetDistance(state[1].m_position);
+        EXPECT_NEAR(separation, 0.5f, 0.25f);
     }
 
 } // namespace JoltPhysics

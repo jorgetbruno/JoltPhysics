@@ -27,6 +27,12 @@ namespace JoltPhysics
         ~JoltRigidBody() override;
 
         void CreateInScene(JoltScene* scene);
+
+        //! Wraps an existing Jolt body that this object does NOT own (e.g. a body owned by
+        //! a JPH::Ragdoll). All getters/setters operate on that body, but the wrapper never
+        //! removes or destroys it - the owner is responsible for its lifetime.
+        void AdoptBody(JoltScene* scene, const JPH::BodyID& bodyId, AZ::EntityId entityId);
+
         void SyncTransform();
 
         //! Removes the Jolt body from the physics world immediately (the object
@@ -112,6 +118,7 @@ namespace JoltPhysics
         bool m_isSensor = false;
         bool m_simulationEnabled = true;
         bool m_removedFromWorld = false;
+        bool m_adopted = false; //!< True when wrapping a body owned elsewhere (see AdoptBody).
         AZStd::vector<AZStd::pair<float, float>> m_colliderMaterials;
     };
 

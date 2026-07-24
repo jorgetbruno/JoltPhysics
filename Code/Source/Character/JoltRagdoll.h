@@ -2,6 +2,9 @@
 
 #include <AzFramework/Physics/Ragdoll.h>
 
+#include <AzCore/std/smart_ptr/unique_ptr.h>
+#include <AzCore/std/containers/vector.h>
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Ragdoll/Ragdoll.h>
@@ -9,6 +12,7 @@
 namespace JoltPhysics
 {
     class JoltScene;
+    class JoltRagdollNode;
 
     //! Physics::Ragdoll implementation backed by JPH::Ragdoll: a skeleton of dynamic
     //! bodies connected by constraints, built from a Physics::RagdollConfiguration.
@@ -67,6 +71,7 @@ namespace JoltPhysics
 
         JPH::Ref<JPH::RagdollSettings> m_settings;
         JPH::Ref<JPH::Ragdoll> m_ragdoll;
+        AZStd::vector<AZStd::unique_ptr<JoltRagdollNode>> m_nodes;
 
         AZ::EntityId m_entityId;
         size_t m_numNodes = 0;

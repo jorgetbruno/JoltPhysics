@@ -1,8 +1,10 @@
 #include <Character/JoltRagdoll.h>
+#include <Character/JoltRagdollNode.h>
 
 #include <AzCore/std/algorithm.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
+#include <Joint/JoltJointConfiguration.h>
 #include <Scene/JoltScene.h>
 #include <Shape/JoltShapeUtils.h>
 #include <System/CollisionLayerFilters.h>
@@ -13,12 +15,73 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 namespace JoltPhysics
 {
     namespace
     {
+        //! Builds a swing-twist constraint (the ragdoll joint) to the parent body from the
+        //! node's joint configuration. The joint frames come from the config's parent/child
+        //! local transforms; the swing/twist limits are read from a recognized Jolt joint
+        //! config type, otherwise moderate defaults are used. Returns null when there is no
+        //! joint config (the caller then falls back to a floppy point constraint).
+        JPH::Ref<JPH::TwoBodyConstraintSettings> BuildRagdollJointSettings(const AzPhysics::JointConfiguration* jointConfig)
+        {
+            if (!jointConfig)
+            {
+                return nullptr;
+            }
+
+            auto axis = [](const AZ::Quaternion& rotation, const AZ::Vector3& localAxis)
+            {
+                return Conversions::ToJolt(rotation.TransformVector(localAxis));
+            };
+
+            // Returned as a raw pointer so the JPH::Ref<TwoBodyConstraintSettings> return
+            // type adopts it via the base class (Ref<Derived> does not upcast implicitly).
+            JPH::SwingTwistConstraintSettings* settings = new JPH::SwingTwistConstraintSettings;
+            settings->mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings->mPosition1 = Conversions::ToJoltR(jointConfig->m_parentLocalPosition);
+            settings->mTwistAxis1 = axis(jointConfig->m_parentLocalRotation, AZ::Vector3::CreateAxisX());
+            settings->mPlaneAxis1 = axis(jointConfig->m_parentLocalRotation, AZ::Vector3::CreateAxisY());
+            settings->mPosition2 = Conversions::ToJoltR(jointConfig->m_childLocalPosition);
+            settings->mTwistAxis2 = axis(jointConfig->m_childLocalRotation, AZ::Vector3::CreateAxisX());
+            settings->mPlaneAxis2 = axis(jointConfig->m_childLocalRotation, AZ::Vector3::CreateAxisY());
+            settings->mSwingType = JPH::ESwingType::Cone;
+
+            // Default limits (degrees); refined from a recognized Jolt joint config.
+            float normalHalfCone = 45.0f;
+            float planeHalfCone = 45.0f;
+            float twistMin = -45.0f;
+            float twistMax = 45.0f;
+            if (const auto* swingTwist = azrtti_cast<const JoltSwingTwistJointConfiguration*>(jointConfig))
+            {
+                normalHalfCone = swingTwist->m_normalHalfConeAngle;
+                planeHalfCone = swingTwist->m_planeHalfConeAngle;
+                twistMin = swingTwist->m_twistLower;
+                twistMax = swingTwist->m_twistUpper;
+            }
+            else if (const auto* d6 = azrtti_cast<const JoltD6JointLimitConfiguration*>(jointConfig))
+            {
+                normalHalfCone = d6->m_swingLimitY;
+                planeHalfCone = d6->m_swingLimitZ;
+                twistMin = d6->m_twistLimitLower;
+                twistMax = d6->m_twistLimitUpper;
+            }
+            else if (const auto* cone = azrtti_cast<const JoltConeJointConfiguration*>(jointConfig))
+            {
+                normalHalfCone = cone->m_halfConeAngle;
+                planeHalfCone = cone->m_halfConeAngle;
+            }
+            settings->mNormalHalfConeAngle = AZ::DegToRad(normalHalfCone);
+            settings->mPlaneHalfConeAngle = AZ::DegToRad(planeHalfCone);
+            settings->mTwistMinAngle = AZ::DegToRad(twistMin);
+            settings->mTwistMaxAngle = AZ::DegToRad(twistMax);
+            return settings;
+        }
+
         //! Builds a JPH::RagdollSettings (skeleton + one part per node) from the O3DE
         //! ragdoll configuration. Slice 1: bodies are dynamic capsules/shapes from the
         //! collider configuration, connected to their parent by a point constraint.
@@ -83,18 +146,25 @@ namespace JoltPhysics
                     part.mMassPropertiesOverride.mMass = nodeConfig.m_mass;
                 }
 
-                // Connect each non-root node to its parent. Slice 1 uses a point constraint
-                // (a ball joint) at the node's world position -> a floppy ragdoll. Slice 2
-                // will build the constraint from nodeConfig.m_jointConfig with proper limits.
+                // Connect each non-root node to its parent with an articulated swing-twist
+                // joint built from the node's joint configuration (limits included). When the
+                // node has no joint config, fall back to a floppy point constraint at the
+                // node's world position so the ragdoll still holds together.
                 if (skeleton->GetJoint(static_cast<int>(i)).mParentJointIndex >= 0)
                 {
-                    JPH::Ref<JPH::PointConstraintSettings> constraint = new JPH::PointConstraintSettings;
-                    constraint->mSpace = JPH::EConstraintSpace::WorldSpace;
-                    const JPH::RVec3 pivot = (i < config.m_initialState.size())
-                        ? Conversions::ToJoltR(config.m_initialState[i].m_position)
-                        : JPH::RVec3::sZero();
-                    constraint->mPoint1 = pivot;
-                    constraint->mPoint2 = pivot;
+                    JPH::Ref<JPH::TwoBodyConstraintSettings> constraint =
+                        BuildRagdollJointSettings(nodeConfig.m_jointConfig.get());
+                    if (!constraint)
+                    {
+                        JPH::Ref<JPH::PointConstraintSettings> point = new JPH::PointConstraintSettings;
+                        point->mSpace = JPH::EConstraintSpace::WorldSpace;
+                        const JPH::RVec3 pivot = (i < config.m_initialState.size())
+                            ? Conversions::ToJoltR(config.m_initialState[i].m_position)
+                            : JPH::RVec3::sZero();
+                        point->mPoint1 = pivot;
+                        point->mPoint2 = pivot;
+                        constraint = point;
+                    }
                     part.mToParent = constraint;
                 }
             }
@@ -132,6 +202,15 @@ namespace JoltPhysics
 
         m_ragdoll = m_settings->CreateRagdoll(/*collisionGroup*/ 0, /*userData*/ 0, m_scene->GetJoltPhysicsSystem());
         m_numNodes = m_configuration.m_nodes.size();
+
+        // Wrap each ragdoll-owned body as a RagdollNode for per-node access.
+        m_nodes.reserve(m_numNodes);
+        for (size_t i = 0; i < m_numNodes; ++i)
+        {
+            auto node = AZStd::make_unique<JoltRagdollNode>();
+            node->Setup(m_scene, m_ragdoll->GetBodyID(static_cast<int>(i)), m_entityId, &m_simulated);
+            m_nodes.push_back(AZStd::move(node));
+        }
     }
 
     void JoltRagdoll::RemoveFromScene()
@@ -244,10 +323,9 @@ namespace JoltPhysics
         WriteNodeState(nodeIndex, nodeState);
     }
 
-    Physics::RagdollNode* JoltRagdoll::GetNode([[maybe_unused]] size_t nodeIndex) const
+    Physics::RagdollNode* JoltRagdoll::GetNode(size_t nodeIndex) const
     {
-        // Per-node RagdollNode access (with GetRigidBody/GetJoint) is a follow-up slice.
-        return nullptr;
+        return nodeIndex < m_nodes.size() ? m_nodes[nodeIndex].get() : nullptr;
     }
 
     size_t JoltRagdoll::GetNumNodes() const
