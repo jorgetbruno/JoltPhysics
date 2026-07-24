@@ -23,6 +23,20 @@ namespace JoltPhysics
                 ->Field("FollowerEntity", &JoltJointComponentConfiguration::m_followerEntity)
                 ->Field("LocalTransformFromFollower", &JoltJointComponentConfiguration::m_localTransformFromFollower)
                 ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JoltJointComponentConfiguration>("Jolt Joint Configuration", "")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltJointComponentConfiguration::m_leadEntity,
+                        "Lead entity", "Entity holding the parent body of the joint.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltJointComponentConfiguration::m_followerEntity,
+                        "Follower entity", "Entity holding the child body (this entity when left invalid).")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltJointComponentConfiguration::m_localTransformFromFollower,
+                        "Joint frame", "Joint frame in the follower entity's local space.")
+                    ;
+            }
         }
     }
 

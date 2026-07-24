@@ -1,6 +1,7 @@
 #include <Joint/JoltJointConfiguration.h>
 
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Serialization/EditContext.h>
 
 #include <Utils/ReflectionUtils.h>
 
@@ -16,6 +17,25 @@ namespace JoltPhysics
                 ->Field("ForceMax", &JointGenericProperties::m_forceMax)
                 ->Field("TorqueMax", &JointGenericProperties::m_torqueMax)
                 ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JointGenericProperties>("Generic Joint Properties", "")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JointGenericProperties::m_flags,
+                        "Flags", "Optional joint behaviours.")
+                        ->EnumAttribute(JointGenericProperties::GenericJointFlag::None, "None")
+                        ->EnumAttribute(JointGenericProperties::GenericJointFlag::Breakable, "Breakable")
+                        ->EnumAttribute(JointGenericProperties::GenericJointFlag::SelfCollide, "Self-collide")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointGenericProperties::m_forceMax,
+                        "Max force", "Force at which a breakable joint breaks.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointGenericProperties::m_torqueMax,
+                        "Max torque", "Torque at which a breakable joint breaks.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ;
+            }
         }
     }
 
@@ -33,6 +53,31 @@ namespace JoltPhysics
                 ->Field("Stiffness", &JointLimitProperties::m_stiffness)
                 ->Field("Tolerance", &JointLimitProperties::m_tolerance)
                 ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JointLimitProperties>("Joint Limit Properties", "")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_isLimited,
+                        "Is limited", "Whether the joint's degree of freedom is limited.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_limitFirst,
+                        "Limit lower", "Lower limit. Hinge: angle (deg). Prismatic: min slide (m). Ball: cone half-angle about joint Y (deg).")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_limitSecond,
+                        "Limit upper", "Upper limit. Hinge: angle (deg). Prismatic: max slide (m). Ball: cone half-angle about joint Z (deg).")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_isSoftLimit,
+                        "Soft limit", "Soft limits use a spring + damping; hard limits use a tolerance band.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_stiffness,
+                        "Stiffness", "Soft-limit spring strength.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_damping,
+                        "Damping", "Soft-limit damping.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_tolerance,
+                        "Tolerance", "Hard-limit distance at which the limit begins to be enforced.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ;
+            }
         }
     }
 
@@ -45,6 +90,19 @@ namespace JoltPhysics
                 ->Field("UseMotor", &JointMotorProperties::m_useMotor)
                 ->Field("DriveForceLimit", &JointMotorProperties::m_driveForceLimit)
                 ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JointMotorProperties>("Joint Motor Properties", "")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointMotorProperties::m_useMotor,
+                        "Use motor", "Enables joint actuation (driven by a JointDriver / script).")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointMotorProperties::m_driveForceLimit,
+                        "Drive force limit", "Maximum force/torque the motor applies.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ;
+            }
         }
     }
 

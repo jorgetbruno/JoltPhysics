@@ -31,6 +31,26 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltD6JointComponent::m_swingLimitY,
+                        "Swing limit Y", "Max swing angle from the joint-frame Y axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltD6JointComponent::m_swingLimitZ,
+                        "Swing limit Z", "Max swing angle from the joint-frame Z axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltD6JointComponent::m_twistLimitLower,
+                        "Twist limit lower", "Lower twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltD6JointComponent::m_twistLimitUpper,
+                        "Twist limit upper", "Upper twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
                     ;
             }
         }

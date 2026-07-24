@@ -29,6 +29,10 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltBallJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltBallJointComponent::m_limitProperties,
+                        "Swing limit", "Swing cone half-angles about the joint-frame Y (lower) and Z (upper) axes, in degrees.")
                     ;
             }
         }

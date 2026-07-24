@@ -30,6 +30,12 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltPrismaticJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltPrismaticJointComponent::m_limitProperties,
+                        "Slide limit", "Travel limit along the slide (joint-frame X) axis, in meters.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltPrismaticJointComponent::m_motorProperties,
+                        "Motor", "Optional motor that actuates the slide.")
                     ;
             }
         }

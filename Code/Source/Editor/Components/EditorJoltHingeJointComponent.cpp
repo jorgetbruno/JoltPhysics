@@ -30,6 +30,12 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltHingeJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltHingeJointComponent::m_limitProperties,
+                        "Angular limit", "Rotation limit about the hinge (joint-frame X) axis, in degrees.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltHingeJointComponent::m_motorProperties,
+                        "Motor", "Optional motor that actuates the hinge.")
                     ;
             }
         }
