@@ -715,7 +715,100 @@ namespace JoltPhysics
 
     void JoltScene::ProcessCollisionEvents()
     {
-        // TODO: Process accumulated collision events
+        AzPhysics::CollisionEventList collisionEvents;
+        {
+            AZStd::lock_guard lock(m_collisionEventMutex);
+            collisionEvents.swap(m_queuedCollisionEvents);
+        }
+
+        for (AzPhysics::CollisionEvent& collisionEvent : collisionEvents)
+        {
+            // Body pointers are resolved here on the main thread; a body queued during
+            // the step may have been removed by the time we dispatch, so re-resolve and
+            // skip anything that has gone away.
+            collisionEvent.m_body1 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle1);
+            collisionEvent.m_body2 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle2);
+
+            // Each body sees itself as body1 (matches the PhysX backend). Dispatch to
+            // body1 as-is, then swap the perspective (bodies, handles, shapes and the
+            // contact normals) and dispatch to body2.
+            if (collisionEvent.m_body1)
+            {
+                collisionEvent.m_body1->ProcessCollisionEvent(collisionEvent);
+            }
+
+            if (collisionEvent.m_body2)
+            {
+                AZStd::swap(collisionEvent.m_body1, collisionEvent.m_body2);
+                AZStd::swap(collisionEvent.m_bodyHandle1, collisionEvent.m_bodyHandle2);
+                AZStd::swap(collisionEvent.m_shape1, collisionEvent.m_shape2);
+                for (AzPhysics::Contact& contact : collisionEvent.m_contacts)
+                {
+                    contact.m_normal = -contact.m_normal;
+                }
+                collisionEvent.m_body1->ProcessCollisionEvent(collisionEvent);
+            }
+        }
+    }
+
+    void JoltScene::QueueCollisionEvent(AzPhysics::CollisionEvent::Type type,
+        JPH::BodyID body1Id, JPH::BodyID body2Id, const JPH::ContactManifold& manifold)
+    {
+        const AzPhysics::SimulatedBodyHandle handle1 = GetBodyHandleFromJoltId(body1Id);
+        const AzPhysics::SimulatedBodyHandle handle2 = GetBodyHandleFromJoltId(body2Id);
+        if (handle1 == AzPhysics::InvalidSimulatedBodyHandle || handle2 == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        AzPhysics::CollisionEvent collisionEvent;
+        collisionEvent.m_type = type;
+        collisionEvent.m_bodyHandle1 = handle1;
+        collisionEvent.m_bodyHandle2 = handle2;
+
+        // Build the contact list from the manifold. The normal points from shape 1
+        // towards shape 2 (Jolt: "direction to move body 2 out of collision"); separation
+        // is the negative of the penetration depth. Jolt does not expose the solved
+        // impulse in this callback, so m_impulse is left zero.
+        const JPH::Vec3 normal = manifold.mWorldSpaceNormal;
+        const AZ::u32 pointCount = static_cast<AZ::u32>(manifold.mRelativeContactPointsOn1.size());
+        collisionEvent.m_contacts.reserve(pointCount);
+        for (AZ::u32 i = 0; i < pointCount; ++i)
+        {
+            AzPhysics::Contact contact;
+            // Midpoint of the two surface points is a stable contact position whether or
+            // not the shapes interpenetrate. Convert each world-space point through
+            // Conversions::FromJolt so this stays correct under Jolt's double-precision
+            // build (the contact points come back as RVec3).
+            const AZ::Vector3 pointOn1 = Conversions::FromJolt(manifold.GetWorldSpaceContactPointOn1(i));
+            const AZ::Vector3 pointOn2 = Conversions::FromJolt(manifold.GetWorldSpaceContactPointOn2(i));
+            contact.m_position = 0.5f * (pointOn1 + pointOn2);
+            contact.m_normal = Conversions::FromJolt(normal);
+            contact.m_impulse = AZ::Vector3::CreateZero();
+            contact.m_separation = -manifold.mPenetrationDepth;
+            collisionEvent.m_contacts.push_back(contact);
+        }
+
+        AZStd::lock_guard lock(m_collisionEventMutex);
+        m_queuedCollisionEvents.push_back(AZStd::move(collisionEvent));
+    }
+
+    void JoltScene::QueueCollisionEndEvent(JPH::BodyID body1Id, JPH::BodyID body2Id)
+    {
+        const AzPhysics::SimulatedBodyHandle handle1 = GetBodyHandleFromJoltId(body1Id);
+        const AzPhysics::SimulatedBodyHandle handle2 = GetBodyHandleFromJoltId(body2Id);
+        if (handle1 == AzPhysics::InvalidSimulatedBodyHandle || handle2 == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        AzPhysics::CollisionEvent collisionEvent;
+        collisionEvent.m_type = AzPhysics::CollisionEvent::Type::End;
+        collisionEvent.m_bodyHandle1 = handle1;
+        collisionEvent.m_bodyHandle2 = handle2;
+
+        AZStd::lock_guard lock(m_collisionEventMutex);
+        m_queuedCollisionEvents.push_back(AZStd::move(collisionEvent));
     }
 
     void JoltScene::SyncActiveBodyTransform(
@@ -767,8 +860,6 @@ namespace JoltPhysics
         const JPH::ContactManifold& inManifold,
         JPH::ContactSettings& ioSettings)
     {
-        // TODO: Queue collision begin event
-
         ApplySubShapeMaterials(inBody1, inBody2, inManifold, ioSettings);
 
         const bool sensor1 = inBody1.IsSensor();
@@ -782,6 +873,14 @@ namespace JoltPhysics
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Enter, inBody2.GetID(), inBody1.GetID());
         }
+
+        // A collision event is raised only when neither body is a trigger; overlaps
+        // involving a sensor are reported through the trigger events above.
+        if (!sensor1 && !sensor2)
+        {
+            m_scene->QueueCollisionEvent(
+                AzPhysics::CollisionEvent::Type::Begin, inBody1.GetID(), inBody2.GetID(), inManifold);
+        }
     }
 
     void JoltContactListener::OnContactPersisted(
@@ -790,9 +889,13 @@ namespace JoltPhysics
         const JPH::ContactManifold& inManifold,
         JPH::ContactSettings& ioSettings)
     {
-        // TODO: Queue collision persist event
-
         ApplySubShapeMaterials(inBody1, inBody2, inManifold, ioSettings);
+
+        if (!inBody1.IsSensor() && !inBody2.IsSensor())
+        {
+            m_scene->QueueCollisionEvent(
+                AzPhysics::CollisionEvent::Type::Persist, inBody1.GetID(), inBody2.GetID(), inManifold);
+        }
     }
 
     void JoltContactListener::ApplySubShapeMaterials(
@@ -816,18 +919,24 @@ namespace JoltPhysics
 
     void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
     {
-        // TODO: Queue collision end event
-
         const JPH::BodyID bodyId1 = inSubShapePair.GetBody1ID();
         const JPH::BodyID bodyId2 = inSubShapePair.GetBody2ID();
 
-        if (m_scene->IsSensorBody(bodyId1))
+        const bool sensor1 = m_scene->IsSensorBody(bodyId1);
+        const bool sensor2 = m_scene->IsSensorBody(bodyId2);
+
+        if (sensor1)
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId1, bodyId2);
         }
-        if (m_scene->IsSensorBody(bodyId2))
+        if (sensor2)
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId2, bodyId1);
+        }
+
+        if (!sensor1 && !sensor2)
+        {
+            m_scene->QueueCollisionEndEvent(bodyId1, bodyId2);
         }
     }
 

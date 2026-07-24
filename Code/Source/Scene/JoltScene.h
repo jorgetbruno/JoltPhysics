@@ -120,6 +120,16 @@ namespace JoltPhysics
         //! Queues a trigger enter/exit event from the Jolt contact listener (job threads).
         void QueueTriggerEvent(AzPhysics::TriggerEvent::Type type, JPH::BodyID triggerBodyId, JPH::BodyID otherBodyId);
 
+        //! Queues a collision begin/persist event from the Jolt contact listener (job threads).
+        //! The contact list is built from the manifold here, while Jolt still has both
+        //! bodies locked; the body pointers are resolved later on the main thread.
+        void QueueCollisionEvent(AzPhysics::CollisionEvent::Type type,
+            JPH::BodyID body1Id, JPH::BodyID body2Id, const JPH::ContactManifold& manifold);
+
+        //! Queues a collision end event. No manifold is available on contact removal,
+        //! so the resulting event carries an empty contact list.
+        void QueueCollisionEndEvent(JPH::BodyID body1Id, JPH::BodyID body2Id);
+
         //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
         //! safe to call from the contact listener.
         bool IsSensorBody(JPH::BodyID bodyId) const
@@ -179,6 +189,9 @@ namespace JoltPhysics
 
         AZStd::mutex m_triggerEventMutex;
         AzPhysics::TriggerEventList m_queuedTriggerEvents;
+
+        AZStd::mutex m_collisionEventMutex;
+        AzPhysics::CollisionEventList m_queuedCollisionEvents;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;
