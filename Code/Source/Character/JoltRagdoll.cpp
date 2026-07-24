@@ -245,6 +245,78 @@ namespace JoltPhysics
         m_ragdoll->DriveToPoseUsingKinematics(rootOffset, jointMatrices.data(), deltaTime);
     }
 
+    void JoltRagdoll::DriveToPoseUsingMotors(const Physics::RagdollState& targetPose)
+    {
+        if (!m_ragdoll || !m_settings || !m_simulated || targetPose.empty())
+        {
+            return;
+        }
+
+        bool anyMotorDriven = false;
+        const size_t count = AZStd::min(targetPose.size(), m_numNodes);
+        for (size_t i = 0; i < count; ++i)
+        {
+            // The root has no joint to a parent, so nothing to drive.
+            const int constraintIndex = m_settings->GetConstraintIndexForBodyIndex(static_cast<int>(i));
+            if (constraintIndex < 0)
+            {
+                continue;
+            }
+
+            JPH::TwoBodyConstraint* constraint = m_ragdoll->GetConstraint(constraintIndex);
+            if (!constraint || constraint->GetSubType() != JPH::EConstraintSubType::SwingTwist)
+            {
+                // Only the articulated (swing-twist) joints have motors; the point
+                // constraint fallback used for jointless nodes cannot be driven.
+                continue;
+            }
+            auto* swingTwist = static_cast<JPH::SwingTwistConstraint*>(constraint);
+
+            const Physics::RagdollNodeState& nodeState = targetPose[i];
+            if (nodeState.m_strength <= 0.0f)
+            {
+                // Strength zero means "leave this joint to physics"; releasing the motor
+                // is what makes a per-node animation/physics blend possible.
+                swingTwist->SetSwingMotorState(JPH::EMotorState::Off);
+                swingTwist->SetTwistMotorState(JPH::EMotorState::Off);
+                continue;
+            }
+
+            // Motors drive the child's orientation relative to its parent, so the target
+            // is the node's world orientation taken into the parent's frame.
+            AZ::Quaternion parentOrientation = AZ::Quaternion::CreateIdentity();
+            if (i < m_configuration.m_parentIndices.size())
+            {
+                const size_t parentIndex = m_configuration.m_parentIndices[i];
+                if (parentIndex < targetPose.size())
+                {
+                    parentOrientation = targetPose[parentIndex].m_orientation;
+                }
+            }
+            const AZ::Quaternion localOrientation =
+                (parentOrientation.GetConjugate() * nodeState.m_orientation).GetNormalized();
+
+            // m_strength is mapped to the motor's spring frequency (Hz) and m_dampingRatio
+            // to its damping, so a stronger joint springs to the pose faster and a lower
+            // damping ratio overshoots. See DIVERGENCES.md.
+            const JPH::SpringSettings springSettings(
+                JPH::ESpringMode::FrequencyAndDamping, nodeState.m_strength, AZStd::max(nodeState.m_dampingRatio, 0.0f));
+            swingTwist->GetSwingMotorSettings().mSpringSettings = springSettings;
+            swingTwist->GetTwistMotorSettings().mSpringSettings = springSettings;
+
+            swingTwist->SetSwingMotorState(JPH::EMotorState::Position);
+            swingTwist->SetTwistMotorState(JPH::EMotorState::Position);
+            swingTwist->SetTargetOrientationBS(Conversions::ToJolt(localOrientation));
+            anyMotorDriven = true;
+        }
+
+        // Motors cannot move bodies that have gone to sleep.
+        if (anyMotorDriven)
+        {
+            m_ragdoll->Activate();
+        }
+    }
+
     void JoltRagdoll::RemoveFromScene()
     {
         DisableSimulation();

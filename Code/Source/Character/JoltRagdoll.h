@@ -40,6 +40,18 @@ namespace JoltPhysics
         //! animation and push dynamic objects). Jolt-specific animation-driving entry point.
         void DriveToPoseUsingKinematics(const Physics::RagdollState& targetPose, float deltaTime);
 
+        //! Soft-keys the ragdoll toward the target pose ("powered ragdoll"): each joint's
+        //! motor is driven towards the target orientation of its node relative to its
+        //! parent, so the bodies stay dynamic and blend animation against physics -
+        //! they collide, get pushed around, and spring back towards the pose.
+        //!
+        //! Per node, RagdollNodeState::m_strength is the motor's spring frequency in Hz
+        //! (0 disables the motor, leaving that joint purely physical) and
+        //! m_dampingRatio is its damping ratio, so the animation/physics blend can be
+        //! varied per node and over time. Only the orientation of each node state is
+        //! used; motors steer joints, they do not teleport bodies.
+        void DriveToPoseUsingMotors(const Physics::RagdollState& targetPose);
+
         // Physics::Ragdoll
         void EnableSimulation(const Physics::RagdollState& initialState) override;
         void EnableSimulationQueued(const Physics::RagdollState& initialState) override;

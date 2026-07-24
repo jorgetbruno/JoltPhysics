@@ -78,6 +78,27 @@ namespace JoltPhysics
             addNode("child", AZ::Vector3(0.0f, 0.0f, rootZ - 0.5f), /*parent*/ 0);
         }
 
+        //! Gives the child node an articulated swing-twist joint at the midpoint between
+        //! the bodies (motors only exist on these; a jointless node gets a point
+        //! constraint, which cannot be driven).
+        static void AddSwingTwistJointToChild(Physics::RagdollConfiguration& config)
+        {
+            auto jointConfig = AZStd::make_shared<JoltSwingTwistJointConfiguration>();
+            jointConfig->m_parentLocalPosition = AZ::Vector3(0.0f, 0.0f, -0.25f);
+            jointConfig->m_childLocalPosition = AZ::Vector3(0.0f, 0.0f, 0.25f);
+            config.m_nodes[1].m_jointConfig = jointConfig;
+        }
+
+        //! The angle of the child's orientation relative to the root, in degrees.
+        static float GetChildAngleRelativeToRootDegrees(const Physics::RagdollState& state)
+        {
+            const AZ::Quaternion relative = state[0].m_orientation.GetConjugate() * state[1].m_orientation;
+            // The sign of w is irrelevant (q and -q are the same rotation), so fold it away
+            // before taking the angle.
+            const float halfAngleCosine = AZStd::min(AZStd::abs(relative.GetW()), 1.0f);
+            return AZ::RadToDeg(2.0f * acosf(halfAngleCosine));
+        }
+
         AZStd::unique_ptr<JoltSystem> m_system;
         AzPhysics::SceneHandle m_sceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
@@ -227,6 +248,79 @@ namespace JoltPhysics
         EXPECT_NEAR(state[0].m_position.GetX(), 1.0f, 0.1f);
         EXPECT_NEAR(state[0].m_position.GetZ(), 5.0f, 0.2f);
         EXPECT_NEAR(state[1].m_position.GetX(), 1.0f, 0.1f);
+    }
+
+    TEST_F(JoltRagdollTests, DriveToPoseUsingMotorsBendsTheJointTowardsTheTarget)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        AddSwingTwistJointToChild(config);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Target pose: the child bent 30 degrees about x relative to the (unrotated) root.
+        constexpr float targetDegrees = 30.0f;
+        Physics::RagdollState target = config.m_initialState;
+        target[1].m_orientation = AZ::Quaternion::CreateRotationX(AZ::DegToRad(targetDegrees));
+        for (Physics::RagdollNodeState& nodeState : target)
+        {
+            nodeState.m_strength = 30.0f; // motor spring frequency, Hz
+            nodeState.m_dampingRatio = 1.0f;
+        }
+
+        const float dt = 1.0f / 60.0f;
+        for (int i = 0; i < 120; ++i) // 2 seconds
+        {
+            ragdoll->DriveToPoseUsingMotors(target);
+            m_scene->StartSimulation(dt);
+            m_scene->FinishSimulation();
+        }
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        ASSERT_EQ(state.size(), 2u);
+
+        // The joint tracks the target angle...
+        EXPECT_NEAR(GetChildAngleRelativeToRootDegrees(state), targetDegrees, 10.0f);
+        // ...while the bodies stay dynamic, so the ragdoll still falls under gravity
+        // (unlike the kinematic drive, motors do not hold it up).
+        EXPECT_LT(state[0].m_position.GetZ(), 4.0f);
+    }
+
+    TEST_F(JoltRagdollTests, ZeroStrengthLeavesTheJointToPhysics)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        AddSwingTwistJointToChild(config);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Same target, but strength 0: the motor is released and the joint is left limp,
+        // so the ragdoll does not adopt the pose.
+        Physics::RagdollState target = config.m_initialState;
+        target[1].m_orientation = AZ::Quaternion::CreateRotationX(AZ::DegToRad(30.0f));
+        for (Physics::RagdollNodeState& nodeState : target)
+        {
+            nodeState.m_strength = 0.0f;
+        }
+
+        const float dt = 1.0f / 60.0f;
+        for (int i = 0; i < 120; ++i)
+        {
+            ragdoll->DriveToPoseUsingMotors(target);
+            m_scene->StartSimulation(dt);
+            m_scene->FinishSimulation();
+        }
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        EXPECT_LT(GetChildAngleRelativeToRootDegrees(state), 10.0f);
     }
 
 } // namespace JoltPhysics

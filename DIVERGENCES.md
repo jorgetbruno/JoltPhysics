@@ -148,6 +148,27 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
 - **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
   for rendering are read from the native constraint by user code.
 
+## Ragdolls
+
+- **Nodes are connected by swing-twist constraints**, built from the node's joint
+  configuration (a Jolt swing-twist, D6 or cone config supplies the limits; anything
+  else falls back to moderate defaults). A node with no joint configuration gets a
+  point constraint instead, which holds the bodies together but has no limits and
+  cannot be motor-driven.
+- **`RagdollNodeState::m_strength` maps to the joint motor's spring frequency in Hz**
+  (and `m_dampingRatio` to its damping ratio) when soft-keying with
+  `DriveToPoseUsingMotors`. PhysX drives its joints from a stiffness/damping pair in
+  different units, so authored strength values do not transfer numerically between
+  the backends — they need retuning. A strength of zero releases the motor, leaving
+  that joint purely physical, which is how a per-node animation/physics blend is
+  expressed.
+- **Animation driving is exposed through the Jolt-specific ragdoll object**
+  (`DriveToPoseUsingKinematics` for hard keying, `DriveToPoseUsingMotors` for soft
+  keying); `Physics::Ragdoll` has no driving entry point of its own in this engine
+  release, so callers cast to `JoltPhysics::JoltRagdoll`.
+- **`SetTransform` on the ragdoll is a no-op** — it is driven per node, so moving it
+  as a whole means writing a repositioned pose through `SetState`.
+
 ## Editor components (PhysX-style editor/runtime split)
 
 - **Every Jolt component family now has an editor variant** (`EditorJolt*` classes
