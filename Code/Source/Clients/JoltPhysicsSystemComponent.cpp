@@ -227,9 +227,16 @@ namespace JoltPhysics
         }
     }
 
-    void JoltPhysicsSystemComponent::ReleaseNativeHeightfieldObject([[maybe_unused]] void* nativeHeightfieldObject)
+    void JoltPhysicsSystemComponent::ReleaseNativeHeightfieldObject(void* nativeHeightfieldObject)
     {
-        // TODO: Implement heightfield object release
+        // Balances the AddRef() taken in JoltHeightfieldColliderComponent::BuildHeightfieldShape
+        // when the cached pointer is first set on the shape configuration. This is a *separate*
+        // reference from the component's own m_nativeShape (JPH::RefConst), which manages its
+        // own lifetime independently - do not assume this is the last reference to the shape.
+        if (nativeHeightfieldObject)
+        {
+            static_cast<JPH::Shape*>(nativeHeightfieldObject)->Release();
+        }
     }
 
     bool JoltPhysicsSystemComponent::CookConvexMeshToFile(

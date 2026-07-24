@@ -118,6 +118,15 @@ namespace JoltPhysics
             materialIndices,
             nativeMaterials);
 
+        if (m_nativeShape)
+        {
+            // The cached pointer on the shape configuration is released independently
+            // (via JoltPhysicsSystemComponent::ReleaseNativeHeightfieldObject, triggered by
+            // SetCachedNativeHeightfield whenever the cached pointer changes/clears - see
+            // Deactivate() and the rebuild path below). Take an extra reference here so that
+            // release doesn't fight with this component's own m_nativeShape lifetime.
+            const_cast<JPH::Shape*>(m_nativeShape.GetPtr())->AddRef();
+        }
         m_shapeConfiguration->SetCachedNativeHeightfield(const_cast<JPH::Shape*>(m_nativeShape.GetPtr()));
 
         return m_nativeShape != nullptr;
