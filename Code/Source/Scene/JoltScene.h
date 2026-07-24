@@ -130,6 +130,13 @@ namespace JoltPhysics
         //! so the resulting event carries an empty contact list.
         void QueueCollisionEndEvent(JPH::BodyID body1Id, JPH::BodyID body2Id);
 
+        //! Records the first/last touching sub-shape of a body pair so collision Begin/End
+        //! fire once per pair. TrackContactAdded returns true on the first contact of the
+        //! pair; TrackContactRemoved returns true when the last contact is removed (false
+        //! if the pair was already cleared because a body was removed mid-contact).
+        bool TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
+        bool TrackContactRemoved(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
+
         //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
         //! safe to call from the contact listener.
         bool IsSensorBody(JPH::BodyID bodyId) const
@@ -168,6 +175,15 @@ namespace JoltPhysics
         void ProcessTriggerEvents();
         void ProcessCollisionEvents();
 
+        //! Builds+queues a collision End event from two resolved body handles.
+        void EnqueueCollisionEndEvent(AzPhysics::SimulatedBodyHandle handle1, AzPhysics::SimulatedBodyHandle handle2);
+        //! Queues collision End events to every still-alive body currently in contact with
+        //! the body being removed (Jolt's own OnContactRemoved for these pairs would arrive
+        //! a step too late, after the removed body's id->handle mapping is gone).
+        void FlushCollisionEndsForRemovedBody(JPH::BodyID removedBodyId, AzPhysics::SimulatedBodyHandle removedHandle);
+        //! Normalized, order-independent key for a pair of Jolt bodies.
+        static AZ::u64 MakeContactPairKey(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
+
         void SyncActiveBodyTransform(const AzPhysics::SimulatedBodyHandleList& activeBodyHandles);
 
         bool m_isEnabled = true;
@@ -192,6 +208,12 @@ namespace JoltPhysics
 
         AZStd::mutex m_collisionEventMutex;
         AzPhysics::CollisionEventList m_queuedCollisionEvents;
+
+        //! Live sub-shape contact count per body pair (normalized key -> count). Lets
+        //! collision Begin/End fire once per pair and lets a removed body synthesize End
+        //! events for its partners. Touched from Jolt's contact callbacks (job threads).
+        AZStd::mutex m_activeContactsMutex;
+        AZStd::unordered_map<AZ::u64, int> m_activeContacts;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

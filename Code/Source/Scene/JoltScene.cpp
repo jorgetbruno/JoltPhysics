@@ -413,6 +413,7 @@ namespace JoltPhysics
             AzPhysics::SimulatedBody* body = m_simulatedBodies[index].second;
             if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
             {
+                FlushCollisionEndsForRemovedBody(rigidBody->GetBodyId(), bodyHandle);
                 const AZ::u32 joltIdKey = rigidBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
@@ -420,6 +421,7 @@ namespace JoltPhysics
             }
             else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
             {
+                FlushCollisionEndsForRemovedBody(staticBody->GetBodyId(), bodyHandle);
                 const AZ::u32 joltIdKey = staticBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
@@ -795,8 +797,12 @@ namespace JoltPhysics
 
     void JoltScene::QueueCollisionEndEvent(JPH::BodyID body1Id, JPH::BodyID body2Id)
     {
-        const AzPhysics::SimulatedBodyHandle handle1 = GetBodyHandleFromJoltId(body1Id);
-        const AzPhysics::SimulatedBodyHandle handle2 = GetBodyHandleFromJoltId(body2Id);
+        EnqueueCollisionEndEvent(GetBodyHandleFromJoltId(body1Id), GetBodyHandleFromJoltId(body2Id));
+    }
+
+    void JoltScene::EnqueueCollisionEndEvent(
+        AzPhysics::SimulatedBodyHandle handle1, AzPhysics::SimulatedBodyHandle handle2)
+    {
         if (handle1 == AzPhysics::InvalidSimulatedBodyHandle || handle2 == AzPhysics::InvalidSimulatedBodyHandle)
         {
             return;
@@ -809,6 +815,75 @@ namespace JoltPhysics
 
         AZStd::lock_guard lock(m_collisionEventMutex);
         m_queuedCollisionEvents.push_back(AZStd::move(collisionEvent));
+    }
+
+    AZ::u64 JoltScene::MakeContactPairKey(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
+    {
+        const AZ::u32 key1 = bodyId1.GetIndexAndSequenceNumber();
+        const AZ::u32 key2 = bodyId2.GetIndexAndSequenceNumber();
+        const AZ::u32 low = AZStd::min(key1, key2);
+        const AZ::u32 high = AZStd::max(key1, key2);
+        return (static_cast<AZ::u64>(low) << 32) | high;
+    }
+
+    bool JoltScene::TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
+    {
+        AZStd::lock_guard lock(m_activeContactsMutex);
+        int& count = m_activeContacts[MakeContactPairKey(bodyId1, bodyId2)];
+        return (count++ == 0); // true only on the first sub-shape contact of the pair
+    }
+
+    bool JoltScene::TrackContactRemoved(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
+    {
+        AZStd::lock_guard lock(m_activeContactsMutex);
+        auto it = m_activeContacts.find(MakeContactPairKey(bodyId1, bodyId2));
+        if (it == m_activeContacts.end())
+        {
+            // Already cleared (e.g. one of the bodies was removed): no End to raise.
+            return false;
+        }
+        if (--it->second <= 0)
+        {
+            m_activeContacts.erase(it);
+            return true; // last sub-shape contact removed -> the bodies fully separated
+        }
+        return false;
+    }
+
+    void JoltScene::FlushCollisionEndsForRemovedBody(JPH::BodyID removedBodyId, AzPhysics::SimulatedBodyHandle removedHandle)
+    {
+        const AZ::u32 removedKey = removedBodyId.GetIndexAndSequenceNumber();
+
+        AZStd::vector<AzPhysics::SimulatedBodyHandle> partnerHandles;
+        {
+            AZStd::lock_guard lock(m_activeContactsMutex);
+            for (auto it = m_activeContacts.begin(); it != m_activeContacts.end();)
+            {
+                const AZ::u32 keyLow = static_cast<AZ::u32>(it->first >> 32);
+                const AZ::u32 keyHigh = static_cast<AZ::u32>(it->first & 0xFFFFFFFF);
+                if (keyLow == removedKey || keyHigh == removedKey)
+                {
+                    const AZ::u32 partnerKey = (keyLow == removedKey) ? keyHigh : keyLow;
+                    if (auto handleIt = m_bodyHandleByJoltId.find(partnerKey); handleIt != m_bodyHandleByJoltId.end())
+                    {
+                        partnerHandles.push_back(handleIt->second);
+                    }
+                    it = m_activeContacts.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+
+        // Jolt only reports OnContactRemoved for these pairs on a later step, by which
+        // point the removed body's id->handle mapping is gone; synthesize the End now so
+        // the surviving partner still hears that the contact ended.
+        for (const AzPhysics::SimulatedBodyHandle partnerHandle : partnerHandles)
+        {
+            EnqueueCollisionEndEvent(partnerHandle, removedHandle);
+        }
     }
 
     void JoltScene::SyncActiveBodyTransform(
@@ -875,8 +950,9 @@ namespace JoltPhysics
         }
 
         // A collision event is raised only when neither body is a trigger; overlaps
-        // involving a sensor are reported through the trigger events above.
-        if (!sensor1 && !sensor2)
+        // involving a sensor are reported through the trigger events above. Begin fires
+        // once per body pair (on the first touching sub-shape), matching PhysX.
+        if (!sensor1 && !sensor2 && m_scene->TrackContactAdded(inBody1.GetID(), inBody2.GetID()))
         {
             m_scene->QueueCollisionEvent(
                 AzPhysics::CollisionEvent::Type::Begin, inBody1.GetID(), inBody2.GetID(), inManifold);
@@ -934,7 +1010,10 @@ namespace JoltPhysics
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId2, bodyId1);
         }
 
-        if (!sensor1 && !sensor2)
+        // End fires once per body pair, when the last touching sub-shape separates. If the
+        // pair is already untracked (a body was removed mid-contact, handled below in
+        // FlushCollisionEndsForRemovedBody), TrackContactRemoved returns false and we skip.
+        if (!sensor1 && !sensor2 && m_scene->TrackContactRemoved(bodyId1, bodyId2))
         {
             m_scene->QueueCollisionEndEvent(bodyId1, bodyId2);
         }

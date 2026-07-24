@@ -213,6 +213,44 @@ namespace JoltPhysics
         EXPECT_GT(box->GetPosition().GetZ(), 2.0f); // it actually left the slab
     }
 
+    TEST_F(JoltCollisionEventTests, RemovingBodyMidContactFiresCollisionEndOnPartner)
+    {
+        // When a body is removed while touching another, the surviving partner must still
+        // receive OnCollisionEnd -- Jolt's own OnContactRemoved for the pair only arrives a
+        // step later, after the removed body's id->handle mapping is gone.
+        auto slabHandle = AddStaticSlab();
+        auto boxHandle = AddDynamicBox(1.5f); // starts resting on the slab (in contact)
+        const AzPhysics::SimulatedBodyHandle boxHandleValue = boxHandle;
+
+        auto* slabBody = m_scene->GetSimulatedBodyFromHandle(slabHandle);
+        ASSERT_NE(slabBody, nullptr);
+
+        int beginCount = 0;
+        int endCount = 0;
+        AzPhysics::SimulatedBodyHandle endOther = AzPhysics::InvalidSimulatedBodyHandle;
+        AzPhysics::SimulatedBodyEvents::OnCollisionBegin::Handler beginHandler(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::CollisionEvent&) { ++beginCount; });
+        AzPhysics::SimulatedBodyEvents::OnCollisionEnd::Handler endHandler(
+            [&](AzPhysics::SimulatedBodyHandle self, const AzPhysics::CollisionEvent& event)
+            {
+                ++endCount;
+                endOther = (event.m_bodyHandle1 == self) ? event.m_bodyHandle2 : event.m_bodyHandle1;
+            });
+        slabBody->RegisterOnCollisionBeginHandler(beginHandler);
+        slabBody->RegisterOnCollisionEndHandler(endHandler);
+
+        SimulateSeconds(0.3f);
+        ASSERT_GE(beginCount, 1);
+        EXPECT_EQ(endCount, 0);
+
+        // Remove the box while it is resting on the slab.
+        m_scene->RemoveSimulatedBody(boxHandle);
+        SimulateSeconds(0.1f); // one flush is enough
+
+        EXPECT_GE(endCount, 1);
+        EXPECT_EQ(endOther, boxHandleValue);
+    }
+
     TEST_F(JoltCollisionEventTests, TriggerVolumeDoesNotFireCollisionEvents)
     {
         // Overlaps that involve a trigger/sensor are reported through trigger events,
