@@ -211,4 +211,70 @@ namespace JoltPhysics
         return result.Get();
     }
 
+    bool JoltMeshUtils::CookVisibleGeometry(
+        const AzFramework::VisibleGeometryContainer& geometryContainer,
+        const AZ::Transform& entityWorldTransform,
+        Physics::CookedMeshShapeConfiguration::MeshType meshType,
+        Physics::CookedMeshShapeConfiguration& outConfiguration)
+    {
+        const AZ::Transform worldToEntity = entityWorldTransform.GetInverse();
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        for (const AzFramework::VisibleGeometry& geometry : geometryContainer)
+        {
+            if (geometry.m_vertices.size() < 9 || geometry.m_vertices.size() % 3 != 0 ||
+                geometry.m_indices.size() < 3 || geometry.m_indices.size() % 3 != 0)
+            {
+                continue;
+            }
+
+            const AZ::u32 baseVertex = static_cast<AZ::u32>(vertices.size());
+            const size_t vertexCount = geometry.m_vertices.size() / 3;
+            vertices.reserve(vertices.size() + vertexCount);
+            for (size_t i = 0; i < vertexCount; ++i)
+            {
+                const AZ::Vector3 localVertex(
+                    geometry.m_vertices[i * 3 + 0], geometry.m_vertices[i * 3 + 1], geometry.m_vertices[i * 3 + 2]);
+                const AZ::Vector3 worldVertex = geometry.m_transform * localVertex;
+                vertices.push_back(worldToEntity.TransformPoint(worldVertex));
+            }
+
+            const size_t baseIndexCount = indices.size();
+            indices.reserve(baseIndexCount + geometry.m_indices.size());
+            for (const uint32_t index : geometry.m_indices)
+            {
+                if (index >= vertexCount)
+                {
+                    AZ_Warning("JoltPhysics", false,
+                        "JoltMeshUtils::CookVisibleGeometry: geometry entry has an out-of-range index (%u >= %zu); "
+                        "the entry is skipped.", index, vertexCount);
+                    vertices.resize(baseVertex);
+                    indices.resize(baseIndexCount);
+                    break;
+                }
+                indices.push_back(baseVertex + index);
+            }
+        }
+
+        if (vertices.empty() || indices.empty())
+        {
+            return false;
+        }
+
+        const AZStd::vector<AZ::u8> cookedData = (meshType == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
+            ? PackConvexMesh(vertices.data(), static_cast<AZ::u32>(vertices.size()))
+            : PackTriangleMesh(
+                  vertices.data(), static_cast<AZ::u32>(vertices.size()),
+                  indices.data(), static_cast<AZ::u32>(indices.size()));
+        if (cookedData.empty())
+        {
+            return false;
+        }
+
+        outConfiguration = Physics::CookedMeshShapeConfiguration();
+        outConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), meshType);
+        return true;
+    }
+
 } // namespace JoltPhysics

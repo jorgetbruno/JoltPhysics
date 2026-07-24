@@ -3,6 +3,7 @@
 #include <Editor/Components/EditorJoltBoxColliderComponent.h>
 #include <Editor/Components/EditorJoltSphereColliderComponent.h>
 #include <Editor/Components/EditorJoltCapsuleColliderComponent.h>
+#include <Editor/Components/EditorJoltMeshColliderComponent.h>
 #include <Editor/Components/EditorJoltRigidBodyComponent.h>
 #include <Editor/Components/EditorJoltStaticRigidBodyComponent.h>
 #include <Editor/Components/EditorJoltHeightfieldColliderComponent.h>
@@ -29,6 +30,7 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltBoxColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltSphereColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltCapsuleColliderComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltMeshColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltStaticRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltHeightfieldColliderComponent::CreateDescriptor());

@@ -1,7 +1,11 @@
 #pragma once
 
+#include <AzCore/Math/Transform.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
+
+#include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Visibility/VisibleGeometryBus.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
@@ -36,6 +40,17 @@ namespace JoltPhysics
         //! Builds a Jolt convex-hull shape from a blob produced by PackConvexMesh.
         //! Returns nullptr if the blob is malformed or empty.
         static JPH::RefConst<JPH::Shape> CreateConvexShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);
+
+        //! Cooks render geometry (as reported by AzFramework::VisibleGeometryRequestBus)
+        //! into a cooked mesh shape configuration. The geometry entries carry local-to-world
+        //! transforms; vertices are brought into the entity's local space (via the inverse of
+        //! entityWorldTransform) so the resulting collider follows the entity's transform.
+        //! Returns false when the container holds no triangles.
+        static bool CookVisibleGeometry(
+            const AzFramework::VisibleGeometryContainer& geometryContainer,
+            const AZ::Transform& entityWorldTransform,
+            Physics::CookedMeshShapeConfiguration::MeshType meshType,
+            Physics::CookedMeshShapeConfiguration& outConfiguration);
     };
 
 } // namespace JoltPhysics

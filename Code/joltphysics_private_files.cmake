@@ -13,6 +13,8 @@ set(FILES
     Source/Clients/Components/JoltSphereColliderComponent.h
     Source/Clients/Components/JoltCapsuleColliderComponent.cpp
     Source/Clients/Components/JoltCapsuleColliderComponent.h
+    Source/Clients/Components/JoltMeshColliderComponent.cpp
+    Source/Clients/Components/JoltMeshColliderComponent.h
     Source/Clients/Components/JoltRigidBodyComponent.cpp
     Source/Clients/Components/JoltRigidBodyComponent.h
     Source/Clients/Components/JoltStaticRigidBodyComponent.cpp

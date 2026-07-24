@@ -14,6 +14,8 @@ set(FILES
     Source/Editor/Components/EditorJoltSphereColliderComponent.h
     Source/Editor/Components/EditorJoltCapsuleColliderComponent.cpp
     Source/Editor/Components/EditorJoltCapsuleColliderComponent.h
+    Source/Editor/Components/EditorJoltMeshColliderComponent.cpp
+    Source/Editor/Components/EditorJoltMeshColliderComponent.h
     Source/Editor/Components/EditorJoltRigidBodyComponent.cpp
     Source/Editor/Components/EditorJoltRigidBodyComponent.h
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.cpp

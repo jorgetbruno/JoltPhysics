@@ -8,6 +8,7 @@ set(FILES
     Tests/JoltCollisionFilteringTests.cpp
     Tests/JoltSceneQueryTests.cpp
     Tests/JoltMaterialTests.cpp
+    Tests/JoltMeshColliderTests.cpp
     Tests/JoltTriggerTests.cpp
     Tests/JoltCollisionEventTests.cpp
     Tests/JoltRagdollTests.cpp
