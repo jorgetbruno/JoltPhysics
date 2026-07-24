@@ -230,6 +230,9 @@ namespace JoltPhysics
         m_simulatedBodies[bodyIndex] = { bodyCrc, body };
         body->m_sceneOwner = m_sceneHandle;
         body->m_bodyHandle = handle;
+        // Bodies enter the world simulating, except ragdolls, which are built outside
+        // the world and only join it on Ragdoll::EnableSimulation.
+        body->m_simulating = azrtti_cast<JoltRagdoll*>(body) == nullptr;
 
         if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
         {
@@ -499,14 +502,67 @@ namespace JoltPhysics
         }
     }
 
-    void JoltScene::EnableSimulationOfBodyInternal([[maybe_unused]] AzPhysics::SimulatedBody& body)
+    void JoltScene::EnableSimulationOfBodyInternal(AzPhysics::SimulatedBody& body)
     {
-        // TODO: Implement body activation in Jolt
+        if (body.m_simulating)
+        {
+            return;
+        }
+
+        if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(&body))
+        {
+            rigidBody->SetSimulationEnabled(true);
+        }
+        else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(&body))
+        {
+            staticBody->SetSimulationEnabled(true);
+        }
+        else if (auto* ragdoll = azrtti_cast<JoltRagdoll*>(&body))
+        {
+            // Re-enable from wherever the ragdoll currently is.
+            Physics::RagdollState currentState;
+            ragdoll->GetState(currentState);
+            ragdoll->EnableSimulation(currentState);
+        }
+        else
+        {
+            AZ_WarningOnce("JoltPhysics", false,
+                "EnableSimulationOfBody: enabling is not supported for this body type (e.g. characters).");
+            return;
+        }
+
+        body.m_simulating = true;
+        m_simulatedBodySimulationEnabledEvent.Signal(m_sceneHandle, body.m_bodyHandle);
     }
 
-    void JoltScene::DisableSimulationOfBodyInternal([[maybe_unused]] AzPhysics::SimulatedBody& body)
+    void JoltScene::DisableSimulationOfBodyInternal(AzPhysics::SimulatedBody& body)
     {
-        // TODO: Implement body deactivation in Jolt
+        if (!body.m_simulating)
+        {
+            return;
+        }
+
+        if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(&body))
+        {
+            rigidBody->SetSimulationEnabled(false);
+        }
+        else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(&body))
+        {
+            staticBody->SetSimulationEnabled(false);
+        }
+        else if (auto* ragdoll = azrtti_cast<JoltRagdoll*>(&body))
+        {
+            ragdoll->DisableSimulation();
+        }
+        else
+        {
+            AZ_WarningOnce("JoltPhysics", false,
+                "DisableSimulationOfBody: disabling is not supported for this body type (e.g. characters).");
+            return;
+        }
+
+        body.m_simulating = false;
+        m_simulatedBodySimulationDisabledEvent.Signal(m_sceneHandle, body.m_bodyHandle);
     }
 
     AzPhysics::JointHandle JoltScene::AddJoint(
@@ -1130,18 +1186,20 @@ namespace JoltPhysics
         }
     }
 
+    // Sleep-state notifications need no handling: transform sync polls the awake bodies
+    // each FinishSimulation (see FlushTransformSync), and SimulatedBody::m_simulating
+    // tracks world membership (Enable/DisableSimulationOfBody), not sleep state. The
+    // listener stays registered as the hook for future sleep events.
     void JoltBodyActivationListener::OnBodyActivated(
         [[maybe_unused]] const JPH::BodyID& inBodyID,
         [[maybe_unused]] AZ::u64 inBodyUserData)
     {
-        // TODO: Handle body activation
     }
 
     void JoltBodyActivationListener::OnBodyDeactivated(
         [[maybe_unused]] const JPH::BodyID& inBodyID,
         [[maybe_unused]] AZ::u64 inBodyUserData)
     {
-        // TODO: Handle body deactivation
     }
 
 } // namespace JoltPhysics

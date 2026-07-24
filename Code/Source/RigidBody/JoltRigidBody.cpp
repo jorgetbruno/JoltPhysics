@@ -336,6 +336,9 @@ namespace JoltPhysics
                 bodyInterface->RemoveBody(m_bodyId);
             }
             m_simulationEnabled = enabled;
+            // Keep the world-membership flag in sync so the destructor and
+            // RemoveFromJoltWorld don't remove a body that is not in the world.
+            m_removedFromWorld = !enabled;
         }
     }
 

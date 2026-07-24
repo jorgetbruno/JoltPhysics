@@ -37,6 +37,10 @@ namespace JoltPhysics
         //! itself is deleted later by the scene's deferred deletion).
         void RemoveFromJoltWorld();
 
+        //! Removes the body from / re-adds it to the physics world without destroying
+        //! it (Scene::DisableSimulationOfBody / EnableSimulationOfBody).
+        void SetSimulationEnabled(bool enabled);
+
         const JPH::BodyID& GetBodyId() const { return m_bodyId; }
         bool IsSensor() const { return m_isSensor; }
 

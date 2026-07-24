@@ -57,6 +57,31 @@ namespace JoltPhysics
         }
     }
 
+    void JoltStaticRigidBody::SetSimulationEnabled(bool enabled)
+    {
+        if (!m_scene || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        auto* bodyInterface = m_scene->GetBodyInterface();
+        if (!bodyInterface)
+        {
+            return;
+        }
+
+        if (enabled && m_removedFromWorld)
+        {
+            bodyInterface->AddBody(m_bodyId, JPH::EActivation::DontActivate);
+            m_removedFromWorld = false;
+        }
+        else if (!enabled && !m_removedFromWorld)
+        {
+            bodyInterface->RemoveBody(m_bodyId);
+            m_removedFromWorld = true;
+        }
+    }
+
     void JoltStaticRigidBody::CreateInScene(JoltScene* scene)
     {
         m_scene = scene;

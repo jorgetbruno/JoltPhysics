@@ -258,6 +258,7 @@ namespace JoltPhysics
         }
         m_ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
         m_simulated = true;
+        m_simulating = true; // keep the SimulatedBody-level flag in sync
         if (!initialState.empty())
         {
             SetState(initialState);
@@ -277,6 +278,7 @@ namespace JoltPhysics
         }
         m_ragdoll->RemoveFromPhysicsSystem();
         m_simulated = false;
+        m_simulating = false; // keep the SimulatedBody-level flag in sync
     }
 
     void JoltRagdoll::DisableSimulationQueued()

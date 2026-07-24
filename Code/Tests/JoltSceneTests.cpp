@@ -147,6 +147,89 @@ namespace JoltPhysics
         EXPECT_NEAR(capsuleZ, 0.5f, 0.05f);
     }
 
+    TEST_F(JoltSceneTests, DisableSimulationFreezesRigidBodyAndEnableResumes)
+    {
+        auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
+        AzPhysics::RigidBodyConfiguration sphereConfig;
+        sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        sphereConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), sphereShape);
+        auto handle = m_scene->AddSimulatedBody(&sphereConfig);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        AzPhysics::SimulatedBody* body = m_scene->GetSimulatedBodyFromHandle(handle);
+        ASSERT_NE(body, nullptr);
+        EXPECT_TRUE(body->m_simulating);
+
+        int enabledSignals = 0;
+        int disabledSignals = 0;
+        AzPhysics::SceneEvents::OnSimulationBodySimulationEnabled::Handler enabledHandler(
+            [&enabledSignals](AzPhysics::SceneHandle, AzPhysics::SimulatedBodyHandle)
+            {
+                ++enabledSignals;
+            });
+        AzPhysics::SceneEvents::OnSimulationBodySimulationDisabled::Handler disabledHandler(
+            [&disabledSignals](AzPhysics::SceneHandle, AzPhysics::SimulatedBodyHandle)
+            {
+                ++disabledSignals;
+            });
+        m_scene->RegisterSimulationBodySimulationEnabledHandler(enabledHandler);
+        m_scene->RegisterSimulationBodySimulationDisabledHandler(disabledHandler);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        auto simulateSeconds = [&](float seconds)
+        {
+            for (int i = 0; i < static_cast<int>(seconds / fixedDeltaTime); ++i)
+            {
+                m_scene->StartSimulation(fixedDeltaTime);
+                m_scene->FinishSimulation();
+            }
+        };
+
+        // Disabled: gravity no longer moves the body.
+        m_scene->DisableSimulationOfBody(handle);
+        EXPECT_FALSE(body->m_simulating);
+        EXPECT_EQ(disabledSignals, 1);
+        simulateSeconds(0.5f);
+        EXPECT_NEAR(body->GetPosition().GetZ(), 5.0f, 0.001f);
+
+        // Disabling again is a no-op (no extra event).
+        m_scene->DisableSimulationOfBody(handle);
+        EXPECT_EQ(disabledSignals, 1);
+
+        // Re-enabled: the body falls again.
+        m_scene->EnableSimulationOfBody(handle);
+        EXPECT_TRUE(body->m_simulating);
+        EXPECT_EQ(enabledSignals, 1);
+        simulateSeconds(0.5f);
+        EXPECT_LT(body->GetPosition().GetZ(), 4.5f);
+    }
+
+    TEST_F(JoltSceneTests, DisabledStaticBodyIgnoredByQueriesUntilReEnabled)
+    {
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(10.0f, 10.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), slabShape);
+        auto handle = m_scene->AddSimulatedBody(&slabConfig);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 100.0f;
+
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+
+        // A disabled body is out of the world: queries no longer see it.
+        m_scene->DisableSimulationOfBody(handle);
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+
+        m_scene->EnableSimulationOfBody(handle);
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+    }
+
 } // namespace JoltPhysics
 
 namespace JoltPhysics
