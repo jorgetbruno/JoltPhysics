@@ -37,6 +37,7 @@ namespace JoltPhysics
                         // menu entry (PhysX-style editor/runtime split). The runtime component
                         // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltRigidBodyComponent::m_configuration,
                         "Configuration", "Rigid body configuration")
@@ -45,6 +46,7 @@ namespace JoltPhysics
                 editContext->Class<AzPhysics::RigidBodyConfiguration>("Jolt Rigid Body Configuration", "")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_kinematic,
                         "Kinematic", "Determines how the movement/position of the rigid body is controlled.")

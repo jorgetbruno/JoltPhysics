@@ -26,6 +26,7 @@ namespace JoltPhysics
                         // the menu entry (PhysX-style editor/runtime split). The runtime component
                         // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
             }
@@ -115,6 +116,7 @@ namespace JoltPhysics
                         // the menu entry (PhysX-style editor/runtime split). The runtime component
                         // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
             }

@@ -22,6 +22,7 @@ namespace JoltPhysics
             behaviorContext->EBus<JoltCharacterGameplayRequestBus>("JoltCharacterGameplayRequestBus", "Jolt Character Gameplay")
                 ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
                 ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                 ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround, "Is On Ground")
                 ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal, "Get Ground Normal")
                 ;
@@ -47,6 +48,7 @@ namespace JoltPhysics
                         // the menu entry (PhysX-style editor/runtime split). The runtime component
                         // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_characterConfig,
                         "Character Configuration", "Configuration of the character controller")

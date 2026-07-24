@@ -30,6 +30,7 @@ namespace JoltPhysics
                         // can spawn it, and the EditContext below keeps its properties editable
                         // through the GenericComponentWrapper in those old prefabs.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltBoxColliderComponent::m_shapeConfiguration,
                         "Shape Configuration", "Box shape properties")
