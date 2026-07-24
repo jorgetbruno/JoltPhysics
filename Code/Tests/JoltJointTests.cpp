@@ -383,4 +383,71 @@ namespace JoltPhysics
         EXPECT_LT((link2->GetPosition() - link1->GetPosition()).GetLength(), 1.2f);
     }
 
+    TEST_F(JoltJointTests, DistanceJointCapsSeparation)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 3.0f));
+
+        JoltDistanceJointConfiguration config;
+        config.m_parentLocalPosition = AZ::Vector3::CreateZero(); // attach at the anchor centre
+        config.m_childLocalPosition = AZ::Vector3::CreateZero();  // attach at the child centre
+        config.m_minDistance = 0.0f;
+        config.m_maxDistance = 2.0f;
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(180);
+
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        const float distance = child->GetPosition().GetDistance(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        EXPECT_LE(distance, 2.05f);           // never separates past the max distance
+        EXPECT_NEAR(distance, 2.0f, 0.1f);    // gravity pulls the tether taut
+    }
+
+    TEST_F(JoltJointTests, ConeJointPinsBodyAtPivot)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 3.0f));
+
+        JoltConeJointConfiguration config;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 3.0f), AZ::Vector3(0.0f, 0.0f, 4.0f));
+        config.m_halfConeAngle = 45.0f;
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(180);
+
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        // The cone joint locks position: the child centre stays ~1 m from the pivot at (0,0,4).
+        const float radius = child->GetPosition().GetDistance(AZ::Vector3(0.0f, 0.0f, 4.0f));
+        EXPECT_NEAR(radius, 1.0f, 0.15f);
+        EXPECT_LT(child->GetPosition().GetZ(), 3.1f); // hangs below the pivot
+    }
+
+    TEST_F(JoltJointTests, SwingTwistJointPinsBodyAtPivot)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 3.0f));
+
+        JoltSwingTwistJointConfiguration config;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 3.0f), AZ::Vector3(0.0f, 0.0f, 4.0f));
+        config.m_normalHalfConeAngle = 45.0f;
+        config.m_planeHalfConeAngle = 45.0f;
+        config.m_twistLower = -45.0f;
+        config.m_twistUpper = 45.0f;
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(180);
+
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        // Swing-twist also locks position: the child centre stays ~1 m from the pivot.
+        const float radius = child->GetPosition().GetDistance(AZ::Vector3(0.0f, 0.0f, 4.0f));
+        EXPECT_NEAR(radius, 1.0f, 0.15f);
+        EXPECT_TRUE(child->GetPosition().IsFinite());
+    }
+
 } // namespace JoltPhysics

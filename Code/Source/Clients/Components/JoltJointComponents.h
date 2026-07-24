@@ -133,6 +133,87 @@ namespace JoltPhysics
         JointMotorProperties m_motorProperties;
     };
 
+    //! Distance joint: keeps the two bodies within [min, max] metres, optionally sprung.
+    class JoltDistanceJointComponent
+        : public JoltJointComponentBase
+    {
+    public:
+        AZ_COMPONENT(JoltDistanceJointComponent, "{C3D4E5F6-A7B8-4293-A4B5-C6D7E8F1A2B3}", JoltJointComponentBase);
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        JoltDistanceJointComponent() = default;
+
+        JointGenericProperties& GetGenericProperties() { return m_genericProperties; }
+        void SetDistanceParams(float minDistance, float maxDistance, float springFrequency, float springDamping)
+        {
+            m_minDistance = minDistance;
+            m_maxDistance = maxDistance;
+            m_springFrequency = springFrequency;
+            m_springDamping = springDamping;
+        }
+
+    protected:
+        AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
+
+        JointGenericProperties m_genericProperties;
+        float m_minDistance = 0.0f;
+        float m_maxDistance = 1.0f;
+        float m_springFrequency = 0.0f;
+        float m_springDamping = 0.0f;
+    };
+
+    //! Cone joint: locks position, limits swing from the joint-frame X axis to a half-cone.
+    class JoltConeJointComponent
+        : public JoltJointComponentBase
+    {
+    public:
+        AZ_COMPONENT(JoltConeJointComponent, "{D4E5F6A7-B8C9-43A4-B5C6-D7E8F1A2B3C4}", JoltJointComponentBase);
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        JoltConeJointComponent() = default;
+
+        JointGenericProperties& GetGenericProperties() { return m_genericProperties; }
+        void SetHalfConeAngle(float halfConeAngle) { m_halfConeAngle = halfConeAngle; }
+
+    protected:
+        AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
+
+        JointGenericProperties m_genericProperties;
+        float m_halfConeAngle = 45.0f;
+    };
+
+    //! Swing-twist joint (e.g. a humanoid shoulder): separate swing half-cones and a twist range.
+    class JoltSwingTwistJointComponent
+        : public JoltJointComponentBase
+    {
+    public:
+        AZ_COMPONENT(JoltSwingTwistJointComponent, "{E5F6A7B8-C9DA-44B5-C6D7-E8F1A2B3C4D5}", JoltJointComponentBase);
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        JoltSwingTwistJointComponent() = default;
+
+        JointGenericProperties& GetGenericProperties() { return m_genericProperties; }
+        void SetSwingTwistLimits(float normalHalfConeAngle, float planeHalfConeAngle, float twistLower, float twistUpper)
+        {
+            m_normalHalfConeAngle = normalHalfConeAngle;
+            m_planeHalfConeAngle = planeHalfConeAngle;
+            m_twistLower = twistLower;
+            m_twistUpper = twistUpper;
+        }
+
+    protected:
+        AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
+
+        JointGenericProperties m_genericProperties;
+        float m_normalHalfConeAngle = 45.0f;
+        float m_planeHalfConeAngle = 45.0f;
+        float m_twistLower = -45.0f;
+        float m_twistUpper = 45.0f;
+    };
+
     //! 6-DOF joint with locked linear axes and swing/twist angular limits.
     class JoltD6JointComponent
         : public JoltJointComponentBase

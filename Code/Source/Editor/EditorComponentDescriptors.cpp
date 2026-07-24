@@ -15,6 +15,9 @@
 #include <Editor/Components/EditorJoltHingeJointComponent.h>
 #include <Editor/Components/EditorJoltPrismaticJointComponent.h>
 #include <Editor/Components/EditorJoltD6JointComponent.h>
+#include <Editor/Components/EditorJoltDistanceJointComponent.h>
+#include <Editor/Components/EditorJoltConeJointComponent.h>
+#include <Editor/Components/EditorJoltSwingTwistJointComponent.h>
 
 namespace JoltPhysics
 {
@@ -38,6 +41,9 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltHingeJointComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltPrismaticJointComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltD6JointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltDistanceJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltConeJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltSwingTwistJointComponent::CreateDescriptor());
 
         return descriptors;
     }

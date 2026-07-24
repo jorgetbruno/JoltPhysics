@@ -32,6 +32,9 @@ namespace JoltPhysics
         descriptors.push_back(JoltHingeJointComponent::CreateDescriptor());
         descriptors.push_back(JoltPrismaticJointComponent::CreateDescriptor());
         descriptors.push_back(JoltD6JointComponent::CreateDescriptor());
+        descriptors.push_back(JoltDistanceJointComponent::CreateDescriptor());
+        descriptors.push_back(JoltConeJointComponent::CreateDescriptor());
+        descriptors.push_back(JoltSwingTwistJointComponent::CreateDescriptor());
         descriptors.push_back(JoltVehicleComponent::CreateDescriptor());
 
         return descriptors;

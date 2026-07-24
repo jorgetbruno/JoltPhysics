@@ -345,4 +345,161 @@ namespace JoltPhysics
         return configuration;
     }
 
+    void JoltDistanceJointComponent::Reflect(AZ::ReflectContext* context)
+    {
+        JoltJointComponentBase::Reflect(context);
+        JoltDistanceJointConfiguration::Reflect(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltDistanceJointComponent, JoltJointComponentBase>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltDistanceJointComponent::m_genericProperties)
+                ->Field("MinDistance", &JoltDistanceJointComponent::m_minDistance)
+                ->Field("MaxDistance", &JoltDistanceJointComponent::m_maxDistance)
+                ->Field("SpringFrequency", &JoltDistanceJointComponent::m_springFrequency)
+                ->Field("SpringDamping", &JoltDistanceJointComponent::m_springDamping)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JoltDistanceJointComponent>("Jolt Distance Joint", "Distance joint simulated by the Jolt physics backend")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltDistanceJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltDistanceJointComponent::m_minDistance,
+                        "Min distance", "Minimum separation between the two attachment points.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltDistanceJointComponent::m_maxDistance,
+                        "Max distance", "Maximum separation between the two attachment points.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltDistanceJointComponent::m_springFrequency,
+                        "Spring frequency", "Spring oscillation frequency; 0 = hard limits.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " Hz")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltDistanceJointComponent::m_springDamping,
+                        "Spring damping", "Spring damping ratio (used when frequency > 0).")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ;
+            }
+        }
+    }
+
+    AZStd::unique_ptr<AzPhysics::JointConfiguration> JoltDistanceJointComponent::BuildJointConfiguration() const
+    {
+        auto configuration = AZStd::make_unique<JoltDistanceJointConfiguration>();
+        configuration->m_genericProperties = m_genericProperties;
+        configuration->m_minDistance = m_minDistance;
+        configuration->m_maxDistance = m_maxDistance;
+        configuration->m_springFrequency = m_springFrequency;
+        configuration->m_springDamping = m_springDamping;
+        return configuration;
+    }
+
+    void JoltConeJointComponent::Reflect(AZ::ReflectContext* context)
+    {
+        JoltJointComponentBase::Reflect(context);
+        JoltConeJointConfiguration::Reflect(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltConeJointComponent, JoltJointComponentBase>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltConeJointComponent::m_genericProperties)
+                ->Field("HalfConeAngle", &JoltConeJointComponent::m_halfConeAngle)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JoltConeJointComponent>("Jolt Cone Joint", "Cone joint simulated by the Jolt physics backend")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltConeJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltConeJointComponent::m_halfConeAngle,
+                        "Half-cone angle", "Maximum swing from the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ;
+            }
+        }
+    }
+
+    AZStd::unique_ptr<AzPhysics::JointConfiguration> JoltConeJointComponent::BuildJointConfiguration() const
+    {
+        auto configuration = AZStd::make_unique<JoltConeJointConfiguration>();
+        configuration->m_genericProperties = m_genericProperties;
+        configuration->m_halfConeAngle = m_halfConeAngle;
+        return configuration;
+    }
+
+    void JoltSwingTwistJointComponent::Reflect(AZ::ReflectContext* context)
+    {
+        JoltJointComponentBase::Reflect(context);
+        JoltSwingTwistJointConfiguration::Reflect(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltSwingTwistJointComponent, JoltJointComponentBase>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltSwingTwistJointComponent::m_genericProperties)
+                ->Field("NormalHalfConeAngle", &JoltSwingTwistJointComponent::m_normalHalfConeAngle)
+                ->Field("PlaneHalfConeAngle", &JoltSwingTwistJointComponent::m_planeHalfConeAngle)
+                ->Field("TwistLower", &JoltSwingTwistJointComponent::m_twistLower)
+                ->Field("TwistUpper", &JoltSwingTwistJointComponent::m_twistUpper)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JoltSwingTwistJointComponent>("Jolt Swing-Twist Joint", "Swing-twist joint simulated by the Jolt physics backend")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSwingTwistJointComponent::m_genericProperties,
+                        "Generic properties", "Break force/torque and generic joint flags.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSwingTwistJointComponent::m_normalHalfConeAngle,
+                        "Swing half-angle Y", "Swing half-cone angle about the joint-frame Y (normal) axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSwingTwistJointComponent::m_planeHalfConeAngle,
+                        "Swing half-angle Z", "Swing half-cone angle about the joint-frame Z (plane) axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSwingTwistJointComponent::m_twistLower,
+                        "Twist lower", "Lower twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSwingTwistJointComponent::m_twistUpper,
+                        "Twist upper", "Upper twist limit about the joint-frame X axis.")
+                        ->Attribute(AZ::Edit::Attributes::Min, -180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
+                    ;
+            }
+        }
+    }
+
+    AZStd::unique_ptr<AzPhysics::JointConfiguration> JoltSwingTwistJointComponent::BuildJointConfiguration() const
+    {
+        auto configuration = AZStd::make_unique<JoltSwingTwistJointConfiguration>();
+        configuration->m_genericProperties = m_genericProperties;
+        configuration->m_normalHalfConeAngle = m_normalHalfConeAngle;
+        configuration->m_planeHalfConeAngle = m_planeHalfConeAngle;
+        configuration->m_twistLower = m_twistLower;
+        configuration->m_twistUpper = m_twistUpper;
+        return configuration;
+    }
+
 } // namespace JoltPhysics

@@ -11,6 +11,8 @@
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/ConeConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 namespace JoltPhysics
@@ -211,6 +213,57 @@ namespace JoltPhysics
 
             return settings.Create(parentBody, childBody);
         }
+
+        JPH::Constraint* CreateDistanceConstraint(
+            const JoltDistanceJointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
+        {
+            JPH::DistanceConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = Conversions::ToJoltR(configuration.m_parentLocalPosition);
+            settings.mPoint2 = Conversions::ToJoltR(configuration.m_childLocalPosition);
+            settings.mMinDistance = configuration.m_minDistance;
+            settings.mMaxDistance = configuration.m_maxDistance;
+            if (configuration.m_springFrequency > 0.0f)
+            {
+                settings.mLimitsSpringSettings.mMode = JPH::ESpringMode::FrequencyAndDamping;
+                settings.mLimitsSpringSettings.mFrequency = configuration.m_springFrequency;
+                settings.mLimitsSpringSettings.mDamping = configuration.m_springDamping;
+            }
+            return settings.Create(parentBody, childBody);
+        }
+
+        JPH::Constraint* CreateConeConstraint(
+            const JoltConeJointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
+        {
+            JPH::ConeConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = Conversions::ToJoltR(configuration.m_parentLocalPosition);
+            settings.mTwistAxis1 = AxisInLocalSpace(configuration.m_parentLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mPoint2 = Conversions::ToJoltR(configuration.m_childLocalPosition);
+            settings.mTwistAxis2 = AxisInLocalSpace(configuration.m_childLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mHalfConeAngle = AZ::DegToRad(configuration.m_halfConeAngle);
+            return settings.Create(parentBody, childBody);
+        }
+
+        JPH::Constraint* CreateSwingTwistConstraint(
+            const JoltSwingTwistJointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
+        {
+            JPH::SwingTwistConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPosition1 = Conversions::ToJoltR(configuration.m_parentLocalPosition);
+            settings.mTwistAxis1 = AxisInLocalSpace(configuration.m_parentLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mPlaneAxis1 = AxisInLocalSpace(configuration.m_parentLocalRotation, AZ::Vector3::CreateAxisY());
+            settings.mPosition2 = Conversions::ToJoltR(configuration.m_childLocalPosition);
+            settings.mTwistAxis2 = AxisInLocalSpace(configuration.m_childLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mPlaneAxis2 = AxisInLocalSpace(configuration.m_childLocalRotation, AZ::Vector3::CreateAxisY());
+
+            settings.mSwingType = JPH::ESwingType::Cone;
+            settings.mNormalHalfConeAngle = AZ::DegToRad(configuration.m_normalHalfConeAngle);
+            settings.mPlaneHalfConeAngle = AZ::DegToRad(configuration.m_planeHalfConeAngle);
+            settings.mTwistMinAngle = AZ::DegToRad(configuration.m_twistLower);
+            settings.mTwistMaxAngle = AZ::DegToRad(configuration.m_twistUpper);
+            return settings.Create(parentBody, childBody);
+        }
     } // namespace
 
     JPH::Constraint* CreateJoltConstraint(
@@ -219,6 +272,18 @@ namespace JoltPhysics
         if (const auto* hingeConfig = azrtti_cast<const JoltHingeJointConfiguration*>(&configuration))
         {
             return CreateHingeConstraint(*hingeConfig, parentBody, childBody);
+        }
+        if (const auto* distanceConfig = azrtti_cast<const JoltDistanceJointConfiguration*>(&configuration))
+        {
+            return CreateDistanceConstraint(*distanceConfig, parentBody, childBody);
+        }
+        if (const auto* coneConfig = azrtti_cast<const JoltConeJointConfiguration*>(&configuration))
+        {
+            return CreateConeConstraint(*coneConfig, parentBody, childBody);
+        }
+        if (const auto* swingTwistConfig = azrtti_cast<const JoltSwingTwistJointConfiguration*>(&configuration))
+        {
+            return CreateSwingTwistConstraint(*swingTwistConfig, parentBody, childBody);
         }
         if (const auto* ballConfig = azrtti_cast<const JoltBallJointConfiguration*>(&configuration))
         {

@@ -181,4 +181,52 @@ namespace JoltPhysics
                 ;
         }
     }
+
+    void JoltDistanceJointConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        Internal::ReflectOnce<JointGenericProperties>(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltDistanceJointConfiguration, AzPhysics::JointConfiguration>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltDistanceJointConfiguration::m_genericProperties)
+                ->Field("MinDistance", &JoltDistanceJointConfiguration::m_minDistance)
+                ->Field("MaxDistance", &JoltDistanceJointConfiguration::m_maxDistance)
+                ->Field("SpringFrequency", &JoltDistanceJointConfiguration::m_springFrequency)
+                ->Field("SpringDamping", &JoltDistanceJointConfiguration::m_springDamping)
+                ;
+        }
+    }
+
+    void JoltConeJointConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        Internal::ReflectOnce<JointGenericProperties>(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltConeJointConfiguration, AzPhysics::JointConfiguration>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltConeJointConfiguration::m_genericProperties)
+                ->Field("HalfConeAngle", &JoltConeJointConfiguration::m_halfConeAngle)
+                ;
+        }
+    }
+
+    void JoltSwingTwistJointConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        Internal::ReflectOnce<JointGenericProperties>(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltSwingTwistJointConfiguration, AzPhysics::JointConfiguration>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltSwingTwistJointConfiguration::m_genericProperties)
+                ->Field("NormalHalfConeAngle", &JoltSwingTwistJointConfiguration::m_normalHalfConeAngle)
+                ->Field("PlaneHalfConeAngle", &JoltSwingTwistJointConfiguration::m_planeHalfConeAngle)
+                ->Field("TwistLower", &JoltSwingTwistJointConfiguration::m_twistLower)
+                ->Field("TwistUpper", &JoltSwingTwistJointConfiguration::m_twistUpper)
+                ;
+        }
+    }
 } // namespace JoltPhysics

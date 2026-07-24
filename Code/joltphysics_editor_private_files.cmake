@@ -40,4 +40,10 @@ set(FILES
     Source/Editor/Components/EditorJoltPrismaticJointComponent.h
     Source/Editor/Components/EditorJoltD6JointComponent.cpp
     Source/Editor/Components/EditorJoltD6JointComponent.h
+    Source/Editor/Components/EditorJoltDistanceJointComponent.cpp
+    Source/Editor/Components/EditorJoltDistanceJointComponent.h
+    Source/Editor/Components/EditorJoltConeJointComponent.cpp
+    Source/Editor/Components/EditorJoltConeJointComponent.h
+    Source/Editor/Components/EditorJoltSwingTwistJointComponent.cpp
+    Source/Editor/Components/EditorJoltSwingTwistJointComponent.h
 )

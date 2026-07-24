@@ -121,4 +121,47 @@ namespace JoltPhysics
         float m_twistLimitLower = -45.0f; //!< Lower limit in degrees for rotation about the joint-frame X axis.
         float m_twistLimitUpper = 45.0f; //!< Upper limit in degrees for rotation about the joint-frame X axis.
     };
+
+    //! Distance joint: keeps the two attachment points within [m_minDistance, m_maxDistance]
+    //! metres of each other. A non-zero spring frequency turns the limits into a soft spring.
+    struct JoltDistanceJointConfiguration : public AzPhysics::JointConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltDistanceJointConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltDistanceJointConfiguration, "{9A0B1C2D-3E4F-5061-7283-94A5B6C7D8E9}", AzPhysics::JointConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JointGenericProperties m_genericProperties;
+        float m_minDistance = 0.0f; //!< Minimum separation (m).
+        float m_maxDistance = 1.0f; //!< Maximum separation (m).
+        float m_springFrequency = 0.0f; //!< Spring oscillation frequency (Hz); 0 = hard limits.
+        float m_springDamping = 0.0f;   //!< Spring damping ratio (used when frequency > 0).
+    };
+
+    //! Cone joint: locks position and limits the swing away from the joint-frame X axis
+    //! to m_halfConeAngle degrees; twist about X stays free.
+    struct JoltConeJointConfiguration : public AzPhysics::JointConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltConeJointConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltConeJointConfiguration, "{A1B2C3D4-E5F6-4071-8293-A4B5C6D7E8F1}", AzPhysics::JointConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JointGenericProperties m_genericProperties;
+        float m_halfConeAngle = 45.0f; //!< Swing half-cone angle from the joint-frame X axis (degrees).
+    };
+
+    //! Swing-twist joint (e.g. a humanoid shoulder): twist about joint X limited to
+    //! [m_twistLower, m_twistUpper] degrees, swing limited by separate half-cone angles
+    //! about the joint-frame Y (normal) and Z (plane) axes.
+    struct JoltSwingTwistJointConfiguration : public AzPhysics::JointConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltSwingTwistJointConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltSwingTwistJointConfiguration, "{B2C3D4E5-F6A7-4182-93A4-B5C6D7E8F1A2}", AzPhysics::JointConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JointGenericProperties m_genericProperties;
+        float m_normalHalfConeAngle = 45.0f; //!< Swing half-angle about joint-frame Y (degrees).
+        float m_planeHalfConeAngle = 45.0f;  //!< Swing half-angle about joint-frame Z (degrees).
+        float m_twistLower = -45.0f; //!< Lower twist limit about joint-frame X (degrees).
+        float m_twistUpper = 45.0f;  //!< Upper twist limit about joint-frame X (degrees).
+    };
 } // namespace JoltPhysics
