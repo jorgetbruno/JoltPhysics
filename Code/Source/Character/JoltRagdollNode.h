@@ -2,6 +2,9 @@
 
 #include <AzFramework/Physics/Ragdoll.h>
 
+#include <AzCore/std/smart_ptr/unique_ptr.h>
+
+#include <Joint/JoltJoint.h>
 #include <RigidBody/JoltRigidBody.h>
 
 #include <Jolt/Physics/Body/BodyID.h>
@@ -25,9 +28,14 @@ namespace JoltPhysics
         //! ragdoll's "is simulated" flag so IsSimulating() reflects the ragdoll state.
         void Setup(JoltScene* scene, const JPH::BodyID& bodyId, AZ::EntityId entityId, const bool* simulatedFlag);
 
+        //! Wraps the ragdoll-owned constraint that attaches this node to its parent (null
+        //! for the root). The JoltJoint does not own the constraint - the ragdoll does - so
+        //! its RemoveFromJoltWorld is never called here.
+        void SetJoint(AZStd::unique_ptr<JoltJoint> joint) { m_joint = AZStd::move(joint); }
+
         // Physics::RagdollNode
         AzPhysics::RigidBody& GetRigidBody() override { return m_rigidBody; }
-        AzPhysics::Joint* GetJoint() override { return nullptr; } // constraint access is a follow-up slice
+        AzPhysics::Joint* GetJoint() override { return m_joint.get(); }
         bool IsSimulating() const override { return m_simulatedFlag != nullptr && *m_simulatedFlag; }
 
         // AzPhysics::SimulatedBody (delegated to the wrapped body)
@@ -43,6 +51,7 @@ namespace JoltPhysics
 
     private:
         JoltRigidBody m_rigidBody;
+        AZStd::unique_ptr<JoltJoint> m_joint;
         const bool* m_simulatedFlag = nullptr;
     };
 } // namespace JoltPhysics

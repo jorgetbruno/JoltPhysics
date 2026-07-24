@@ -176,4 +176,57 @@ namespace JoltPhysics
         EXPECT_NEAR(separation, 0.5f, 0.25f);
     }
 
+    TEST_F(JoltRagdollTests, NodeJointIsAccessible)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto jointConfig = AZStd::make_shared<JoltSwingTwistJointConfiguration>();
+        jointConfig->m_parentLocalPosition = AZ::Vector3(0.0f, 0.0f, -0.25f);
+        jointConfig->m_childLocalPosition = AZ::Vector3(0.0f, 0.0f, 0.25f);
+        config.m_nodes[1].m_jointConfig = jointConfig;
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+
+        EXPECT_EQ(ragdoll->GetNode(0)->GetJoint(), nullptr); // the root has no joint to a parent
+        AzPhysics::Joint* childJoint = ragdoll->GetNode(1)->GetJoint();
+        ASSERT_NE(childJoint, nullptr); // the child's joint to the root
+        EXPECT_NE(childJoint->GetNativePointer(), nullptr);
+    }
+
+    TEST_F(JoltRagdollTests, DriveToPoseUsingKinematicsFollowsTarget)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Target pose: both nodes shifted +1 m in x, holding their heights.
+        Physics::RagdollState target;
+        Physics::RagdollNodeState rootTarget;
+        rootTarget.m_position = AZ::Vector3(1.0f, 0.0f, 5.0f);
+        target.push_back(rootTarget);
+        Physics::RagdollNodeState childTarget;
+        childTarget.m_position = AZ::Vector3(1.0f, 0.0f, 4.5f);
+        target.push_back(childTarget);
+
+        const float dt = 1.0f / 60.0f;
+        for (int i = 0; i < 30; ++i)
+        {
+            ragdoll->DriveToPoseUsingKinematics(target, dt);
+            m_scene->StartSimulation(dt);
+            m_scene->FinishSimulation();
+        }
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        // The kinematic drive follows the target in x and holds height against gravity.
+        EXPECT_NEAR(state[0].m_position.GetX(), 1.0f, 0.1f);
+        EXPECT_NEAR(state[0].m_position.GetZ(), 5.0f, 0.2f);
+        EXPECT_NEAR(state[1].m_position.GetX(), 1.0f, 0.1f);
+    }
+
 } // namespace JoltPhysics

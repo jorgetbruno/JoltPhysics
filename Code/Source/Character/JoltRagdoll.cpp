@@ -203,14 +203,46 @@ namespace JoltPhysics
         m_ragdoll = m_settings->CreateRagdoll(/*collisionGroup*/ 0, /*userData*/ 0, m_scene->GetJoltPhysicsSystem());
         m_numNodes = m_configuration.m_nodes.size();
 
-        // Wrap each ragdoll-owned body as a RagdollNode for per-node access.
+        // Wrap each ragdoll-owned body as a RagdollNode for per-node access, and wrap the
+        // constraint attaching it to its parent (if any) as its joint.
         m_nodes.reserve(m_numNodes);
         for (size_t i = 0; i < m_numNodes; ++i)
         {
             auto node = AZStd::make_unique<JoltRagdollNode>();
             node->Setup(m_scene, m_ragdoll->GetBodyID(static_cast<int>(i)), m_entityId, &m_simulated);
+
+            const int constraintIndex = m_settings->GetConstraintIndexForBodyIndex(static_cast<int>(i));
+            if (constraintIndex >= 0)
+            {
+                if (JPH::TwoBodyConstraint* constraint = m_ragdoll->GetConstraint(constraintIndex))
+                {
+                    node->SetJoint(AZStd::make_unique<JoltJoint>(
+                        m_scene, AzPhysics::InvalidSimulatedBodyHandle, AzPhysics::InvalidSimulatedBodyHandle, constraint));
+                }
+            }
             m_nodes.push_back(AZStd::move(node));
         }
+    }
+
+    void JoltRagdoll::DriveToPoseUsingKinematics(const Physics::RagdollState& targetPose, float deltaTime)
+    {
+        if (!m_ragdoll || !m_simulated || targetPose.empty() || deltaTime <= 0.0f)
+        {
+            return;
+        }
+
+        // World-space joint matrices are expressed relative to a root offset (kept close to
+        // the origin for float precision), matching Jolt's lower-level pose API.
+        const JPH::RVec3 rootOffset = Conversions::ToJoltR(targetPose[0].m_position);
+        JPH::Array<JPH::Mat44> jointMatrices(m_numNodes); // JPH::Array respects Mat44's SIMD alignment
+        for (size_t i = 0; i < m_numNodes; ++i)
+        {
+            const Physics::RagdollNodeState& nodeState = (i < targetPose.size()) ? targetPose[i] : targetPose.back();
+            const JPH::Vec3 relativePosition = JPH::Vec3(Conversions::ToJoltR(nodeState.m_position) - rootOffset);
+            jointMatrices[i] = JPH::Mat44::sRotationTranslation(Conversions::ToJolt(nodeState.m_orientation), relativePosition);
+        }
+
+        m_ragdoll->DriveToPoseUsingKinematics(rootOffset, jointMatrices.data(), deltaTime);
     }
 
     void JoltRagdoll::RemoveFromScene()

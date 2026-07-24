@@ -35,6 +35,11 @@ namespace JoltPhysics
         //! Removes the ragdoll's bodies from the physics world (if simulating).
         void RemoveFromScene();
 
+        //! Hard-keys the ragdoll toward the target pose: drives every body kinematically so
+        //! it reaches the corresponding node state within deltaTime (the bodies follow the
+        //! animation and push dynamic objects). Jolt-specific animation-driving entry point.
+        void DriveToPoseUsingKinematics(const Physics::RagdollState& targetPose, float deltaTime);
+
         // Physics::Ragdoll
         void EnableSimulation(const Physics::RagdollState& initialState) override;
         void EnableSimulationQueued(const Physics::RagdollState& initialState) override;
