@@ -6,6 +6,7 @@
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <Shape/JoltMeshUtils.h>
+#include <Shape/JoltShapeUtils.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
@@ -168,6 +169,27 @@ namespace JoltPhysics
         ASSERT_FALSE(blob.empty());
         JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateMeshShapeFromCookedData(blob);
         EXPECT_NE(shape, nullptr);
+
+        system->Shutdown();
+    }
+
+    TEST(JoltCapsuleShape, UnderHeightCapsuleDegradesToSphereWithoutError)
+    {
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+        JoltSystemConfiguration systemConfig;
+        system->Initialize(&systemConfig);
+
+        // Height (0.5) < 2*radius (0.6): an invalid capsule. Must not error; it degrades
+        // to a valid sphere shape instead of producing a negative-half-height capsule.
+        Physics::CapsuleShapeConfiguration capsule(0.5f, 0.3f);
+        JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(capsule);
+        ASSERT_NE(shape, nullptr);
+        EXPECT_EQ(shape->GetType(), JPH::EShapeType::Convex);
+
+        // A normal capsule (height 1.8 > 2*0.3) still builds fine.
+        Physics::CapsuleShapeConfiguration validCapsule(1.8f, 0.3f);
+        EXPECT_NE(JoltShapeUtils::CreateJoltShapeFromConfig(validCapsule), nullptr);
 
         system->Shutdown();
     }

@@ -263,7 +263,19 @@ namespace JoltPhysics
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCapsuleShape(const Physics::CapsuleShapeConfiguration& config)
     {
+        // A capsule is two hemispheres joined by a cylinder, so its total height must be at
+        // least 2*radius. Below that the cylinder half-height would be negative (an invalid
+        // Jolt capsule); degrade to a sphere sized to the requested height instead.
         const float halfHeight = config.m_height * 0.5f - config.m_radius;
+        if (halfHeight <= 0.0f)
+        {
+            const float sphereRadius = AZStd::max(config.m_height * 0.5f, 0.001f);
+            AZ_WarningOnce("JoltPhysics", false,
+                "Capsule height (%.3f) is less than twice its radius (%.3f); using a sphere of "
+                "radius %.3f instead. Increase the height or reduce the radius for a capsule.",
+                config.m_height, 2.0f * config.m_radius, sphereRadius);
+            return new JPH::SphereShape(sphereRadius);
+        }
 
         // Jolt capsules are Y-axis aligned, O3DE (like PhysX) capsules are Z-axis
         // aligned: wrap the capsule rotated +90 degrees around X.
