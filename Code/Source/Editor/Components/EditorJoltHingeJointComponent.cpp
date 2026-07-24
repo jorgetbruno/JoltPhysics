@@ -1,0 +1,49 @@
+#include <Editor/Components/EditorJoltHingeJointComponent.h>
+
+#include <AzCore/Serialization/EditContext.h>
+#include <AzCore/Serialization/SerializeContext.h>
+
+#include <Clients/Components/JoltJointComponents.h>
+#include <Joint/JoltJointConfiguration.h>
+
+namespace JoltPhysics
+{
+    void EditorJoltHingeJointComponent::Reflect(AZ::ReflectContext* context)
+    {
+        EditorJoltJointComponentBase::Reflect(context);
+        JoltHingeJointConfiguration::Reflect(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<EditorJoltHingeJointComponent, EditorJoltJointComponentBase>()
+                ->Version(1)
+                ->Field("GenericProperties", &EditorJoltHingeJointComponent::m_genericProperties)
+                ->Field("LimitProperties", &EditorJoltHingeJointComponent::m_limitProperties)
+                ->Field("MotorProperties", &EditorJoltHingeJointComponent::m_motorProperties)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<EditorJoltHingeJointComponent>(
+                    "Jolt Hinge Joint", "Hinge joint simulated by the Jolt physics backend (editor)")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ;
+            }
+        }
+    }
+
+    void EditorJoltHingeJointComponent::BuildGameEntity(AZ::Entity* gameEntity)
+    {
+        if (auto* component = gameEntity->CreateComponent<JoltHingeJointComponent>())
+        {
+            component->GetConfiguration() = m_configuration;
+            component->GetGenericProperties() = m_genericProperties;
+            component->GetLimitProperties() = m_limitProperties;
+            component->GetMotorProperties() = m_motorProperties;
+        }
+    }
+
+} // namespace JoltPhysics

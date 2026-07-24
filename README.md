@@ -19,7 +19,11 @@ A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/J
   (limits + motor) and 6-DOF (swing/twist limits) components mapped to Jolt constraints
 - Wheeled vehicles (`JoltVehicleComponent` over `JPH::VehicleConstraint`): engine,
   automatic transmission, steering, brakes, suspension, ramp driving
-- Editor components: Jolt Box/Sphere/Capsule Collider, Jolt Rigid Body, Jolt Static Rigid Body
+- Editor components for every feature (PhysX-style editor/runtime split): the
+  `EditorJolt*` components are what the Add Component menu offers; they draw
+  collider wireframes in the Edit viewport and spawn the runtime components via
+  `BuildGameEntity` (colliders, rigid bodies, heightfield, compounds, character,
+  vehicle, joints). Prefabs saved before the split keep working unchanged.
 - Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
 - Scene queries: raycast, shapecast and overlap through O3DE's physics query API
 - Physics materials (friction/restitution) on colliders

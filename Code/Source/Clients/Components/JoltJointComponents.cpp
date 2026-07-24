@@ -34,7 +34,9 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltFixedJointComponent>("Jolt Fixed Joint", "Fixed joint simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the corresponding editor joint component
+                        // owns the menu entry (PhysX-style editor/runtime split). The runtime
+                        // component stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
@@ -68,7 +70,9 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltBallJointComponent>("Jolt Ball Joint", "Ball-and-socket joint simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the corresponding editor joint component
+                        // owns the menu entry (PhysX-style editor/runtime split). The runtime
+                        // component stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
@@ -112,7 +116,9 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltHingeJointComponent>("Jolt Hinge Joint", "Hinge joint simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the corresponding editor joint component
+                        // owns the menu entry (PhysX-style editor/runtime split). The runtime
+                        // component stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
@@ -194,7 +200,9 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltPrismaticJointComponent>("Jolt Prismatic Joint", "Prismatic joint simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the corresponding editor joint component
+                        // owns the menu entry (PhysX-style editor/runtime split). The runtime
+                        // component stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
@@ -274,7 +282,9 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltD6JointComponent>("Jolt D6 Joint", "6-DOF joint simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: the corresponding editor joint component
+                        // owns the menu entry (PhysX-style editor/runtime split). The runtime
+                        // component stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;

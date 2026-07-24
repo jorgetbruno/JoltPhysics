@@ -10,6 +10,11 @@
 #include <Editor/Components/EditorJoltMutableCompoundColliderComponent.h>
 #include <Editor/Components/EditorJoltCharacterControllerComponent.h>
 #include <Editor/Components/EditorJoltVehicleComponent.h>
+#include <Editor/Components/EditorJoltFixedJointComponent.h>
+#include <Editor/Components/EditorJoltBallJointComponent.h>
+#include <Editor/Components/EditorJoltHingeJointComponent.h>
+#include <Editor/Components/EditorJoltPrismaticJointComponent.h>
+#include <Editor/Components/EditorJoltD6JointComponent.h>
 
 namespace JoltPhysics
 {
@@ -28,6 +33,11 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltMutableCompoundColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltCharacterControllerComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltVehicleComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltFixedJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltBallJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltHingeJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltPrismaticJointComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltD6JointComponent::CreateDescriptor());
 
         return descriptors;
     }

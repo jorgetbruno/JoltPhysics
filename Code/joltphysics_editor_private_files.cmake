@@ -28,4 +28,16 @@ set(FILES
     Source/Editor/Components/EditorJoltCharacterControllerComponent.h
     Source/Editor/Components/EditorJoltVehicleComponent.cpp
     Source/Editor/Components/EditorJoltVehicleComponent.h
+    Source/Editor/Components/EditorJoltJointComponentBase.cpp
+    Source/Editor/Components/EditorJoltJointComponentBase.h
+    Source/Editor/Components/EditorJoltFixedJointComponent.cpp
+    Source/Editor/Components/EditorJoltFixedJointComponent.h
+    Source/Editor/Components/EditorJoltBallJointComponent.cpp
+    Source/Editor/Components/EditorJoltBallJointComponent.h
+    Source/Editor/Components/EditorJoltHingeJointComponent.cpp
+    Source/Editor/Components/EditorJoltHingeJointComponent.h
+    Source/Editor/Components/EditorJoltPrismaticJointComponent.cpp
+    Source/Editor/Components/EditorJoltPrismaticJointComponent.h
+    Source/Editor/Components/EditorJoltD6JointComponent.cpp
+    Source/Editor/Components/EditorJoltD6JointComponent.h
 )

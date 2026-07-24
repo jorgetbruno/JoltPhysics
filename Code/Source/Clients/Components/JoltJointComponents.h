@@ -16,6 +16,11 @@ namespace JoltPhysics
 
         JoltFixedJointComponent() = default;
 
+        JointGenericProperties& GetGenericProperties()
+        {
+            return m_genericProperties;
+        }
+
     protected:
         AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
 
@@ -32,6 +37,15 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         JoltBallJointComponent() = default;
+
+        JointGenericProperties& GetGenericProperties()
+        {
+            return m_genericProperties;
+        }
+        JointLimitProperties& GetLimitProperties()
+        {
+            return m_limitProperties;
+        }
 
     protected:
         AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
@@ -51,6 +65,19 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         JoltHingeJointComponent() = default;
+
+        JointGenericProperties& GetGenericProperties()
+        {
+            return m_genericProperties;
+        }
+        JointLimitProperties& GetLimitProperties()
+        {
+            return m_limitProperties;
+        }
+        JointMotorProperties& GetMotorProperties()
+        {
+            return m_motorProperties;
+        }
 
     protected:
         AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
@@ -78,6 +105,19 @@ namespace JoltPhysics
 
         JoltPrismaticJointComponent() = default;
 
+        JointGenericProperties& GetGenericProperties()
+        {
+            return m_genericProperties;
+        }
+        JointLimitProperties& GetLimitProperties()
+        {
+            return m_limitProperties;
+        }
+        JointMotorProperties& GetMotorProperties()
+        {
+            return m_motorProperties;
+        }
+
     protected:
         AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
 
@@ -103,6 +143,14 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         JoltD6JointComponent() = default;
+
+        void SetD6Limits(float swingLimitY, float swingLimitZ, float twistLimitLower, float twistLimitUpper)
+        {
+            m_swingLimitY = swingLimitY;
+            m_swingLimitZ = swingLimitZ;
+            m_twistLimitLower = twistLimitLower;
+            m_twistLimitUpper = twistLimitUpper;
+        }
 
     protected:
         AZStd::unique_ptr<AzPhysics::JointConfiguration> BuildJointConfiguration() const override;
