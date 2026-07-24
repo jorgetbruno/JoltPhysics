@@ -106,6 +106,60 @@ namespace JoltPhysics
         EXPECT_EQ(exitCount, 1);
     }
 
+    TEST_F(JoltTriggerTests, RemovingBodyInsideTriggerFiresExit)
+    {
+        // A body removed while overlapping a sensor must still produce OnTriggerExit on the
+        // sensor -- Jolt's own OnContactRemoved for the overlap only arrives a step later,
+        // after the removed body's id->handle mapping is gone.
+        auto triggerCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triggerCollider->m_isTrigger = true;
+        auto triggerShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        triggerShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 2.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration triggerConfig;
+        triggerConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(triggerCollider, triggerShape);
+        auto triggerHandle = m_scene->AddSimulatedBody(&triggerConfig);
+        ASSERT_NE(triggerHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // Dynamic box starting inside the volume (z in [-0.5, 0.5], sensor spans [-1, 1]).
+        auto boxCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration boxConfig;
+        boxConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+        boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(boxCollider, boxShape);
+        auto boxHandle = m_scene->AddSimulatedBody(&boxConfig);
+        ASSERT_NE(boxHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const AzPhysics::SimulatedBodyHandle boxHandleValue = boxHandle;
+
+        int enterCount = 0;
+        int exitCount = 0;
+        AzPhysics::SimulatedBodyHandle exitOther = AzPhysics::InvalidSimulatedBodyHandle;
+
+        auto* triggerBody = m_scene->GetSimulatedBodyFromHandle(triggerHandle);
+        ASSERT_NE(triggerBody, nullptr);
+
+        AzPhysics::SimulatedBodyEvents::OnTriggerEnter::Handler enterHandler(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent&) { ++enterCount; });
+        AzPhysics::SimulatedBodyEvents::OnTriggerExit::Handler exitHandler(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent& triggerEvent)
+            {
+                ++exitCount;
+                exitOther = triggerEvent.m_otherBodyHandle;
+            });
+        triggerBody->RegisterOnTriggerEnterHandler(enterHandler);
+        triggerBody->RegisterOnTriggerExitHandler(exitHandler);
+
+        SimulateSeconds(0.2f); // box is inside -> Enter fires, no Exit yet
+        ASSERT_GE(enterCount, 1);
+        EXPECT_EQ(exitCount, 0);
+
+        m_scene->RemoveSimulatedBody(boxHandle);
+        SimulateSeconds(0.1f); // one flush is enough
+
+        EXPECT_GE(exitCount, 1);
+        EXPECT_EQ(exitOther, boxHandleValue); // Exit correctly identifies the removed body
+    }
+
     TEST_F(JoltTriggerTests, NonTriggerBodyDoesNotFireTriggerEvents)
     {
         // Same setup but the static volume is NOT a trigger: no events, box rests on it.

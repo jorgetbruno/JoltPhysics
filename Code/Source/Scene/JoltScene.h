@@ -137,6 +137,13 @@ namespace JoltPhysics
         bool TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
         bool TrackContactRemoved(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
 
+        //! Records the first/last overlapping sub-shape of a (sensor, other) pair so trigger
+        //! Enter/Exit fire once per pair. TrackTriggerOverlapAdded returns true on the first
+        //! overlap; TrackTriggerOverlapRemoved returns true when the last overlap ends
+        //! (false if the pair was already cleared because a body was removed while overlapping).
+        bool TrackTriggerOverlapAdded(JPH::BodyID sensorId, JPH::BodyID otherId);
+        bool TrackTriggerOverlapRemoved(JPH::BodyID sensorId, JPH::BodyID otherId);
+
         //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
         //! safe to call from the contact listener.
         bool IsSensorBody(JPH::BodyID bodyId) const
@@ -181,6 +188,9 @@ namespace JoltPhysics
         //! the body being removed (Jolt's own OnContactRemoved for these pairs would arrive
         //! a step too late, after the removed body's id->handle mapping is gone).
         void FlushCollisionEndsForRemovedBody(JPH::BodyID removedBodyId, AzPhysics::SimulatedBodyHandle removedHandle);
+        //! Queues trigger Exit events to every sensor the body being removed is overlapping
+        //! (Jolt's own OnContactRemoved for these overlaps would arrive a step too late).
+        void FlushTriggerExitsForRemovedBody(JPH::BodyID removedBodyId);
         //! Normalized, order-independent key for a pair of Jolt bodies.
         static AZ::u64 MakeContactPairKey(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
 
@@ -214,6 +224,12 @@ namespace JoltPhysics
         //! events for its partners. Touched from Jolt's contact callbacks (job threads).
         AZStd::mutex m_activeContactsMutex;
         AZStd::unordered_map<AZ::u64, int> m_activeContacts;
+
+        //! Live overlapping sub-shape count per directed (sensor, other) pair. Lets trigger
+        //! Enter/Exit fire once per pair and lets a body removed while inside a sensor
+        //! synthesize the matching Exit. Touched from Jolt's contact callbacks (job threads).
+        AZStd::mutex m_triggerOverlapsMutex;
+        AZStd::unordered_map<AZ::u64, int> m_activeTriggerOverlaps;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

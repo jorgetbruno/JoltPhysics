@@ -414,6 +414,7 @@ namespace JoltPhysics
             if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
             {
                 FlushCollisionEndsForRemovedBody(rigidBody->GetBodyId(), bodyHandle);
+                FlushTriggerExitsForRemovedBody(rigidBody->GetBodyId());
                 const AZ::u32 joltIdKey = rigidBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
@@ -422,6 +423,7 @@ namespace JoltPhysics
             else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
             {
                 FlushCollisionEndsForRemovedBody(staticBody->GetBodyId(), bodyHandle);
+                FlushTriggerExitsForRemovedBody(staticBody->GetBodyId());
                 const AZ::u32 joltIdKey = staticBody->GetBodyId().GetIndexAndSequenceNumber();
                 m_bodyHandleByJoltId.erase(joltIdKey);
                 m_sensorBodyIds.erase(joltIdKey);
@@ -686,8 +688,13 @@ namespace JoltPhysics
             triggerEvents.swap(m_queuedTriggerEvents);
         }
 
-        for (const AzPhysics::TriggerEvent& triggerEvent : triggerEvents)
+        for (AzPhysics::TriggerEvent& triggerEvent : triggerEvents)
         {
+            // Re-resolve the bodies on the main thread: an event may have been queued for a
+            // body that has since been removed (its slot is now null), so this avoids
+            // dispatching through a dangling pointer.
+            triggerEvent.m_triggerBody = GetSimulatedBodyFromHandle(triggerEvent.m_triggerBodyHandle);
+            triggerEvent.m_otherBody = GetSimulatedBodyFromHandle(triggerEvent.m_otherBodyHandle);
             if (triggerEvent.m_triggerBody)
             {
                 triggerEvent.m_triggerBody->ProcessTriggerEvent(triggerEvent);
@@ -886,6 +893,72 @@ namespace JoltPhysics
         }
     }
 
+    bool JoltScene::TrackTriggerOverlapAdded(JPH::BodyID sensorId, JPH::BodyID otherId)
+    {
+        // Directed key: only the sensor is notified, so (sensor, other) and (other, sensor)
+        // are distinct overlaps.
+        const AZ::u64 key = (static_cast<AZ::u64>(sensorId.GetIndexAndSequenceNumber()) << 32)
+            | otherId.GetIndexAndSequenceNumber();
+        AZStd::lock_guard lock(m_triggerOverlapsMutex);
+        int& count = m_activeTriggerOverlaps[key];
+        return (count++ == 0); // true only on the first overlapping sub-shape of the pair
+    }
+
+    bool JoltScene::TrackTriggerOverlapRemoved(JPH::BodyID sensorId, JPH::BodyID otherId)
+    {
+        const AZ::u64 key = (static_cast<AZ::u64>(sensorId.GetIndexAndSequenceNumber()) << 32)
+            | otherId.GetIndexAndSequenceNumber();
+        AZStd::lock_guard lock(m_triggerOverlapsMutex);
+        auto it = m_activeTriggerOverlaps.find(key);
+        if (it == m_activeTriggerOverlaps.end())
+        {
+            return false; // already cleared (e.g. a body was removed while overlapping)
+        }
+        if (--it->second <= 0)
+        {
+            m_activeTriggerOverlaps.erase(it);
+            return true;
+        }
+        return false;
+    }
+
+    void JoltScene::FlushTriggerExitsForRemovedBody(JPH::BodyID removedBodyId)
+    {
+        const AZ::u32 removedKey = removedBodyId.GetIndexAndSequenceNumber();
+
+        AZStd::vector<JPH::BodyID> sensorsToExit; // sensors that must be told the removed body left
+        {
+            AZStd::lock_guard lock(m_triggerOverlapsMutex);
+            for (auto it = m_activeTriggerOverlaps.begin(); it != m_activeTriggerOverlaps.end();)
+            {
+                const AZ::u32 sensorKey = static_cast<AZ::u32>(it->first >> 32);
+                const AZ::u32 otherKey = static_cast<AZ::u32>(it->first & 0xFFFFFFFF);
+                if (sensorKey == removedKey || otherKey == removedKey)
+                {
+                    // Only the sensor is notified of trigger events. If the removed body is
+                    // the overlapping "other", synthesize Exit to the surviving sensor; if
+                    // the removed body IS the sensor, there is no listener left to notify.
+                    if (otherKey == removedKey && sensorKey != removedKey)
+                    {
+                        sensorsToExit.push_back(JPH::BodyID(sensorKey));
+                    }
+                    it = m_activeTriggerOverlaps.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+
+        // Queued before RemoveSimulatedBody erases the removed body's id->handle mapping,
+        // so the Exit still carries the correct "other" body handle.
+        for (const JPH::BodyID sensorId : sensorsToExit)
+        {
+            QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, sensorId, removedBodyId);
+        }
+    }
+
     void JoltScene::SyncActiveBodyTransform(
         [[maybe_unused]] const AzPhysics::SimulatedBodyHandleList& activeBodyHandles)
     {
@@ -940,11 +1013,15 @@ namespace JoltPhysics
         const bool sensor1 = inBody1.IsSensor();
         const bool sensor2 = inBody2.IsSensor();
 
-        if (sensor1)
+        // Trigger Enter fires once per (sensor, other) pair on the first overlapping
+        // sub-shape, matching PhysX. The overlap is tracked so a body removed while inside
+        // the sensor can still synthesize the matching Exit (see OnContactRemoved /
+        // FlushTriggerExitsForRemovedBody).
+        if (sensor1 && m_scene->TrackTriggerOverlapAdded(inBody1.GetID(), inBody2.GetID()))
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Enter, inBody1.GetID(), inBody2.GetID());
         }
-        if (sensor2)
+        if (sensor2 && m_scene->TrackTriggerOverlapAdded(inBody2.GetID(), inBody1.GetID()))
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Enter, inBody2.GetID(), inBody1.GetID());
         }
@@ -1001,11 +1078,15 @@ namespace JoltPhysics
         const bool sensor1 = m_scene->IsSensorBody(bodyId1);
         const bool sensor2 = m_scene->IsSensorBody(bodyId2);
 
-        if (sensor1)
+        // Trigger Exit fires once per (sensor, other) pair when the last overlapping
+        // sub-shape separates. If the overlap is already untracked (a body was removed
+        // while inside the sensor, handled in FlushTriggerExitsForRemovedBody),
+        // TrackTriggerOverlapRemoved returns false and we skip.
+        if (sensor1 && m_scene->TrackTriggerOverlapRemoved(bodyId1, bodyId2))
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId1, bodyId2);
         }
-        if (sensor2)
+        if (sensor2 && m_scene->TrackTriggerOverlapRemoved(bodyId2, bodyId1))
         {
             m_scene->QueueTriggerEvent(AzPhysics::TriggerEvent::Type::Exit, bodyId2, bodyId1);
         }
