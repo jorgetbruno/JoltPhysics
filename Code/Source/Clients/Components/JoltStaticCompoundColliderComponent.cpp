@@ -22,7 +22,9 @@ namespace JoltPhysics
                     "Jolt Static Compound Collider",
                     "Combines the colliders of all child entities into a single compound collider")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: EditorJoltStaticCompoundColliderComponent owns
+                        // the menu entry (PhysX-style editor/runtime split). The runtime component
+                        // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;
@@ -109,7 +111,9 @@ namespace JoltPhysics
                     "Jolt Mutable Compound Collider",
                     "Compound collider that supports adding and removing child collider entities at runtime")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: EditorJoltMutableCompoundColliderComponent owns
+                        // the menu entry (PhysX-style editor/runtime split). The runtime component
+                        // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;

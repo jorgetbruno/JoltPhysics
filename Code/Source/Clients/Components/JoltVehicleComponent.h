@@ -35,6 +35,15 @@ namespace JoltPhysics
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
+        JoltVehicleConfiguration& GetConfiguration()
+        {
+            return m_configuration;
+        }
+        const JoltVehicleConfiguration& GetConfiguration() const
+        {
+            return m_configuration;
+        }
+
     protected:
         // AZ::Component
         void OnAfterEntitySet() override;

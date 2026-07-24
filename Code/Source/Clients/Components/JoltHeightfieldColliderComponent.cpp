@@ -36,7 +36,9 @@ namespace JoltPhysics
                     "Jolt Heightfield Collider",
                     "Heightfield collider fed by a Physics::HeightfieldProviderBus implementation (e.g. a terrain gem)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                        // No AppearsInAddComponentMenu: EditorJoltHeightfieldColliderComponent owns the
+                        // menu entry (PhysX-style editor/runtime split). The runtime component
+                        // stays registered for old prefabs and BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ;

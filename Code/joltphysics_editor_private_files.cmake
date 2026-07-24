@@ -18,4 +18,14 @@ set(FILES
     Source/Editor/Components/EditorJoltRigidBodyComponent.h
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.cpp
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.h
+    Source/Editor/Components/EditorJoltHeightfieldColliderComponent.cpp
+    Source/Editor/Components/EditorJoltHeightfieldColliderComponent.h
+    Source/Editor/Components/EditorJoltStaticCompoundColliderComponent.cpp
+    Source/Editor/Components/EditorJoltStaticCompoundColliderComponent.h
+    Source/Editor/Components/EditorJoltMutableCompoundColliderComponent.cpp
+    Source/Editor/Components/EditorJoltMutableCompoundColliderComponent.h
+    Source/Editor/Components/EditorJoltCharacterControllerComponent.cpp
+    Source/Editor/Components/EditorJoltCharacterControllerComponent.h
+    Source/Editor/Components/EditorJoltVehicleComponent.cpp
+    Source/Editor/Components/EditorJoltVehicleComponent.h
 )

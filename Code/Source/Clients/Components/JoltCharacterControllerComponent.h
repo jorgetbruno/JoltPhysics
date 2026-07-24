@@ -40,6 +40,23 @@ namespace JoltPhysics
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
+        Physics::CharacterConfiguration& GetCharacterConfiguration()
+        {
+            return m_characterConfig;
+        }
+        const Physics::CharacterConfiguration& GetCharacterConfiguration() const
+        {
+            return m_characterConfig;
+        }
+        AZStd::shared_ptr<Physics::ShapeConfiguration>& GetShapeConfiguration()
+        {
+            return m_shapeConfig;
+        }
+        const AZStd::shared_ptr<Physics::ShapeConfiguration>& GetShapeConfiguration() const
+        {
+            return m_shapeConfig;
+        }
+
     protected:
         // AZ::Component
         void OnAfterEntitySet() override;
