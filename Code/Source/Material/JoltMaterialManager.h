@@ -4,6 +4,7 @@
 #include <AzCore/Memory/SystemAllocator.h>
 
 #include <AzFramework/Physics/Material/PhysicsMaterialManager.h>
+#include <AzFramework/Physics/Shape.h>
 
 namespace Physics
 {
@@ -12,6 +13,21 @@ namespace Physics
 
 namespace JoltPhysics
 {
+    //! One collider's material as tracked on a body, in compound sub-shape order.
+    //! When m_shape is set (the body was built from, or had attached, a prebuilt
+    //! Physics::Shape) the material is read through it, so Physics::Shape::SetMaterial
+    //! applies to the live body; otherwise the resolved material is used directly.
+    struct JoltColliderMaterial
+    {
+        AZStd::shared_ptr<Physics::Shape> m_shape;
+        AZStd::shared_ptr<Physics::Material> m_material;
+
+        AZStd::shared_ptr<Physics::Material> Get() const
+        {
+            return m_shape ? m_shape->GetMaterial() : m_material;
+        }
+    };
+
     //! Physics::MaterialManager implementation for the Jolt backend.
     //! Self-registers on AZ::Interface<Physics::MaterialManager> (mirrors PhysX::MaterialManager).
     class JoltMaterialManager : public AZ::Interface<Physics::MaterialManager>::Registrar

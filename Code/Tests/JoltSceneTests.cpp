@@ -15,6 +15,7 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Physics/SimulatedBodies/StaticRigidBody.h>
 
 namespace JoltPhysics
 {
@@ -228,6 +229,58 @@ namespace JoltPhysics
 
         m_scene->EnableSimulationOfBody(handle);
         EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+    }
+
+    TEST_F(JoltSceneTests, ShapeAttachedToStaticBodyIsCollidableAndQueryable)
+    {
+        // Slab spanning x in [-5, 5] with its top at z=0.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(10.0f, 10.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        auto slabHandle = m_scene->AddSimulatedBody(&slabConfig);
+
+        auto* slabBody = azdynamic_cast<AzPhysics::StaticRigidBody*>(m_scene->GetSimulatedBodyFromHandle(slabHandle));
+        ASSERT_NE(slabBody, nullptr);
+
+        // A wall 8m out along x is beyond the slab: nothing there yet.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(8.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 100.0f;
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+
+        Physics::ColliderConfiguration attachedCollider;
+        attachedCollider.m_position = AZ::Vector3(8.0f, 0.0f, -0.5f);
+        Physics::BoxShapeConfiguration attachedShapeConfig(AZ::Vector3(2.0f, 2.0f, 1.0f));
+        AZStd::shared_ptr<Physics::Shape> attachedShape =
+            JoltShapeUtils::CreateShape(attachedCollider, attachedShapeConfig);
+        ASSERT_NE(attachedShape, nullptr);
+
+        slabBody->AddShape(attachedShape);
+
+        // The attached geometry is picked up by scene queries...
+        auto hits = m_scene->QueryScene(&request);
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 0.0f, 0.01f);
+
+        // ...and collides: a sphere dropped above it comes to rest on top.
+        auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
+        AzPhysics::RigidBodyConfiguration sphereConfig;
+        sphereConfig.m_position = AZ::Vector3(8.0f, 0.0f, 4.0f);
+        sphereConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), sphereShape);
+        auto sphereHandle = m_scene->AddSimulatedBody(&sphereConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 300; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+
+        EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ(), 0.5f, 0.05f);
     }
 
 } // namespace JoltPhysics

@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 
 namespace JoltPhysics
 {
@@ -354,6 +355,38 @@ namespace JoltPhysics
         }
 
         return {};
+    }
+
+    JPH::Ref<JPH::MutableCompoundShape> JoltShapeUtils::MakeMutableCompound(const JPH::Shape* shape)
+    {
+        JPH::Ref<JPH::MutableCompoundShape> mutableCompound = new JPH::MutableCompoundShape();
+        if (!shape)
+        {
+            return mutableCompound;
+        }
+
+        const JPH::EShapeSubType subType = shape->GetSubType();
+        if (subType == JPH::EShapeSubType::StaticCompound || subType == JPH::EShapeSubType::MutableCompound)
+        {
+            const auto* compound = static_cast<const JPH::CompoundShape*>(shape);
+            // Sub-shape positions are stored relative to the compound's center of mass,
+            // while AddShape takes them in the compound's local space; convert back by
+            // adding the source compound's center of mass.
+            const JPH::Vec3 sourceCenterOfMass = compound->GetCenterOfMass();
+            for (const JPH::CompoundShape::SubShape& subShape : compound->GetSubShapes())
+            {
+                mutableCompound->AddShape(
+                    subShape.GetPositionCOM() + sourceCenterOfMass, subShape.GetRotation(), subShape.mShape,
+                    subShape.mUserData);
+            }
+        }
+        else
+        {
+            mutableCompound->AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), shape);
+        }
+
+        mutableCompound->AdjustCenterOfMass();
+        return mutableCompound;
     }
 
 } // namespace JoltPhysics

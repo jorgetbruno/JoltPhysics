@@ -3,7 +3,10 @@
 #include <AzFramework/Physics/SimulatedBodies/StaticRigidBody.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 
+#include <Material/JoltMaterialManager.h>
+
 #include <Jolt/Jolt.h>
+#include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyID.h>
 
 namespace JPH
@@ -75,11 +78,14 @@ namespace JoltPhysics
         AZ::EntityId m_entityId;
         bool m_isSensor = false;
         bool m_removedFromWorld = false;
-        //! Per-collider (or per heightfield material slot) materials resolved at creation.
-        AZStd::vector<AZStd::shared_ptr<Physics::Material>> m_colliderMaterials;
-        //! When built from prebuilt Physics::Shape objects, the shapes are kept so
-        //! GetColliderMaterial reflects later Shape::SetMaterial calls.
-        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_prebuiltShapes;
+        //! Per-collider (or per heightfield material slot) materials, in compound
+        //! sub-shape order (see JoltColliderMaterial).
+        AZStd::vector<JoltColliderMaterial> m_colliderMaterials;
+        //! Shapes attached after creation via AddShape, in the order they occupy in the
+        //! mutable compound (i.e. after the colliders the body was created with).
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_attachedShapes;
+        //! The body's geometry; replaced by a MutableCompoundShape once shapes are attached.
+        JPH::RefConst<JPH::Shape> m_baseShape;
         AZStd::vector<AZ::u8> m_heightfieldMaterialIndices;
 
         void ResolveHeightfieldMaterialData(const JPH::HeightFieldShape* heightFieldShape);

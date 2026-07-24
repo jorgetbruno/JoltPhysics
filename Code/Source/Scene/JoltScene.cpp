@@ -359,7 +359,10 @@ namespace JoltPhysics
         }
 
         // Compound bodies: material of the collider the touching sub-shape belongs to.
-        if (shape && shape->GetSubType() == JPH::EShapeSubType::StaticCompound)
+        // Mutable compounds appear once shapes are attached at runtime (AddShape).
+        if (shape &&
+            (shape->GetSubType() == JPH::EShapeSubType::StaticCompound ||
+             shape->GetSubType() == JPH::EShapeSubType::MutableCompound))
         {
             JPH::SubShapeID remainder;
             const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);

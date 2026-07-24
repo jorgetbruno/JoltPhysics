@@ -19,6 +19,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 
 namespace JoltPhysics
 {
@@ -96,6 +97,7 @@ namespace JoltPhysics
         {
             shape = new JPH::BoxShape(JPH::Vec3(0.5f, 0.5f, 0.5f));
         }
+        m_baseShape = shape;
 
         JPH::BodyCreationSettings bodySettings(
             shape,
@@ -107,16 +109,17 @@ namespace JoltPhysics
 
         const AzPhysics::ShapeColliderPairList colliderPairs =
             JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
-        m_prebuiltShapes = JoltShapeUtils::GetPrebuiltShapes(m_configuration.m_colliderAndShapeData);
+        const AZStd::vector<AZStd::shared_ptr<Physics::Shape>> prebuiltShapes =
+            JoltShapeUtils::GetPrebuiltShapes(m_configuration.m_colliderAndShapeData);
 
         const Physics::ColliderConfiguration* firstCollider = nullptr;
         if (!colliderPairs.empty())
         {
             firstCollider = colliderPairs.front().first.get();
         }
-        else if (!m_prebuiltShapes.empty())
+        else if (!prebuiltShapes.empty())
         {
-            if (const auto* joltShape = azrtti_cast<const JoltShape*>(m_prebuiltShapes.front().get()))
+            if (const auto* joltShape = azrtti_cast<const JoltShape*>(prebuiltShapes.front().get()))
             {
                 firstCollider = joltShape->GetColliderConfiguration();
             }
@@ -129,11 +132,15 @@ namespace JoltPhysics
             m_isSensor = firstCollider->m_isTrigger;
         }
 
-        m_colliderMaterials.reserve(colliderPairs.size());
+        m_colliderMaterials.reserve(colliderPairs.size() + prebuiltShapes.size());
         for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
         {
             m_colliderMaterials.push_back(
-                colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr);
+                { nullptr, colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr });
+        }
+        for (const AZStd::shared_ptr<Physics::Shape>& prebuiltShape : prebuiltShapes)
+        {
+            m_colliderMaterials.push_back({ prebuiltShape, nullptr });
         }
 
         const auto [initialFriction, initialRestitution] =
@@ -155,22 +162,12 @@ namespace JoltPhysics
 
     size_t JoltStaticRigidBody::GetColliderCount() const
     {
-        return AZStd::max(m_colliderMaterials.size(), m_prebuiltShapes.size());
+        return m_colliderMaterials.size();
     }
 
     AZStd::shared_ptr<Physics::Material> JoltStaticRigidBody::GetColliderMaterial(size_t colliderIndex) const
     {
-        // Prebuilt shapes own their material and may be given a new one at any time
-        // (Physics::Shape::SetMaterial), so read through the shape.
-        if (colliderIndex < m_prebuiltShapes.size())
-        {
-            return m_prebuiltShapes[colliderIndex]->GetMaterial();
-        }
-        if (colliderIndex < m_colliderMaterials.size())
-        {
-            return m_colliderMaterials[colliderIndex];
-        }
-        return nullptr;
+        return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].Get() : nullptr;
     }
 
     void JoltStaticRigidBody::ResolveHeightfieldMaterialData(const JPH::HeightFieldShape* heightFieldShape)
@@ -182,8 +179,9 @@ namespace JoltPhysics
         m_colliderMaterials.clear();
         for (const auto& materialAsset : providerMaterials)
         {
-            m_colliderMaterials.push_back(AZ::Interface<Physics::MaterialManager>::Get()->FindOrCreateMaterial(
-                Physics::MaterialId::CreateFromAssetId(materialAsset.GetId()), materialAsset));
+            m_colliderMaterials.push_back({ nullptr,
+                AZ::Interface<Physics::MaterialManager>::Get()->FindOrCreateMaterial(
+                    Physics::MaterialId::CreateFromAssetId(materialAsset.GetId()), materialAsset) });
         }
 
         size_t numColumns = 0;
@@ -282,9 +280,36 @@ namespace JoltPhysics
         }
     }
 
-    void JoltStaticRigidBody::AddShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    void JoltStaticRigidBody::AddShape(AZStd::shared_ptr<Physics::Shape> shape)
     {
-        // TODO: Implement adding shapes to a created body
+        auto* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!shape || !bodyInterface || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        auto* nativeShape = static_cast<JPH::Shape*>(shape->GetNativePointer());
+        if (!nativeShape)
+        {
+            return;
+        }
+
+        // Copy the geometry into a fresh mutable compound (sub-shape order is preserved,
+        // so the per-collider material indices stay valid) and append to it. A fresh copy
+        // each time: the live body still references the current shape, and mutating a
+        // shape in use leaves the body's cached bounds stale.
+        JPH::Ref<JPH::MutableCompoundShape> compound = JoltShapeUtils::MakeMutableCompound(m_baseShape);
+
+        const auto [localPosition, localRotation] = shape->GetLocalPose();
+        compound->AddShape(Conversions::ToJolt(localPosition), Conversions::ToJolt(localRotation), nativeShape);
+        compound->AdjustCenterOfMass();
+
+        m_baseShape = compound;
+        m_attachedShapes.push_back(shape);
+        m_colliderMaterials.push_back({ shape, nullptr });
+
+        // Static bodies have no mass properties to recompute and must not be woken.
+        bodyInterface->SetShape(m_bodyId, compound, /*updateMassProperties*/ false, JPH::EActivation::DontActivate);
     }
 
     AZ::Crc32 JoltStaticRigidBody::GetNativeType() const

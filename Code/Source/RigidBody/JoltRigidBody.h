@@ -3,6 +3,8 @@
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 
+#include <Material/JoltMaterialManager.h>
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyID.h>
@@ -10,6 +12,7 @@
 namespace JPH
 {
     class Shape;
+    class MutableCompoundShape;
 }
 
 namespace Physics
@@ -128,11 +131,19 @@ namespace JoltPhysics
         bool m_simulationEnabled = true;
         bool m_removedFromWorld = false;
         bool m_adopted = false; //!< True when wrapping a body owned elsewhere (see AdoptBody).
-        //! Per-collider materials resolved from the collider configurations at creation.
-        AZStd::vector<AZStd::shared_ptr<Physics::Material>> m_colliderMaterials;
-        //! When built from prebuilt Physics::Shape objects, the shapes are kept so
-        //! GetColliderMaterial reflects later Shape::SetMaterial calls.
-        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_prebuiltShapes;
+        //! Per-collider materials in compound sub-shape order (see JoltColliderMaterial).
+        AZStd::vector<JoltColliderMaterial> m_colliderMaterials;
+        //! Shapes attached after creation via AddShape, in the order they occupy in the
+        //! mutable compound (i.e. after the colliders the body was created with).
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_attachedShapes;
+
+        //! Copies m_baseShape into a fresh MutableCompoundShape (preserving sub-shape
+        //! order, so collider material indices stay valid) that shapes can be
+        //! attached to / detached from before it replaces the body's shape.
+        JPH::Ref<JPH::MutableCompoundShape> CloneBaseShapeAsMutableCompound() const;
+        //! Pushes m_baseShape onto the live Jolt body, re-applying the center of mass
+        //! offset wrap and preserving an explicitly configured mass.
+        void ApplyBaseShapeToBody();
     };
 
 } // namespace JoltPhysics

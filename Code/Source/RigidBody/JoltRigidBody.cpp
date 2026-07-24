@@ -8,6 +8,7 @@
 #include <System/CollisionLayerFilters.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
+#include <AzCore/std/algorithm.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -15,6 +16,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -122,16 +124,17 @@ namespace JoltPhysics
 
         const AzPhysics::ShapeColliderPairList colliderPairs =
             JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
-        m_prebuiltShapes = JoltShapeUtils::GetPrebuiltShapes(m_configuration.m_colliderAndShapeData);
+        const AZStd::vector<AZStd::shared_ptr<Physics::Shape>> prebuiltShapes =
+            JoltShapeUtils::GetPrebuiltShapes(m_configuration.m_colliderAndShapeData);
 
         const Physics::ColliderConfiguration* firstCollider = nullptr;
         if (!colliderPairs.empty())
         {
             firstCollider = colliderPairs.front().first.get();
         }
-        else if (!m_prebuiltShapes.empty())
+        else if (!prebuiltShapes.empty())
         {
-            if (const auto* joltShape = azrtti_cast<const JoltShape*>(m_prebuiltShapes.front().get()))
+            if (const auto* joltShape = azrtti_cast<const JoltShape*>(prebuiltShapes.front().get()))
             {
                 firstCollider = joltShape->GetColliderConfiguration();
             }
@@ -144,11 +147,15 @@ namespace JoltPhysics
             m_isSensor = firstCollider->m_isTrigger;
         }
 
-        m_colliderMaterials.reserve(colliderPairs.size());
+        m_colliderMaterials.reserve(colliderPairs.size() + prebuiltShapes.size());
         for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
         {
             m_colliderMaterials.push_back(
-                colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr);
+                { nullptr, colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr });
+        }
+        for (const AZStd::shared_ptr<Physics::Shape>& prebuiltShape : prebuiltShapes)
+        {
+            m_colliderMaterials.push_back({ prebuiltShape, nullptr });
         }
 
         const auto [initialFriction, initialRestitution] =
@@ -169,22 +176,12 @@ namespace JoltPhysics
 
     size_t JoltRigidBody::GetColliderCount() const
     {
-        return AZStd::max(m_colliderMaterials.size(), m_prebuiltShapes.size());
+        return m_colliderMaterials.size();
     }
 
     AZStd::shared_ptr<Physics::Material> JoltRigidBody::GetColliderMaterial(size_t colliderIndex) const
     {
-        // Prebuilt shapes own their material and may be given a new one at any time
-        // (Physics::Shape::SetMaterial), so read through the shape.
-        if (colliderIndex < m_prebuiltShapes.size())
-        {
-            return m_prebuiltShapes[colliderIndex]->GetMaterial();
-        }
-        if (colliderIndex < m_colliderMaterials.size())
-        {
-            return m_colliderMaterials[colliderIndex];
-        }
-        return nullptr;
+        return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].Get() : nullptr;
     }
 
     AZ::Vector3 JoltRigidBody::GetPosition() const
@@ -525,17 +522,7 @@ namespace JoltPhysics
         // the body pivot (which is also the center of mass Jolt integrates around).
         // NOTE: Jolt cannot express PhysX's "geometry fixed, mass frame moved" model;
         // see DIVERGENCES.md.
-        JPH::RefConst<JPH::Shape> shiftedShape = m_baseShape;
-        if (!comOffset.IsZero())
-        {
-            shiftedShape = new JPH::RotatedTranslatedShape(
-                Conversions::ToJolt(-comOffset), JPH::Quat::sIdentity(), m_baseShape);
-        }
-
-        if (auto* bodyInterface = m_scene->GetBodyInterface())
-        {
-            bodyInterface->SetShape(m_bodyId, shiftedShape, true /* update mass properties */, JPH::EActivation::Activate);
-        }
+        ApplyBaseShapeToBody();
     }
 
     AZ::Matrix3x3 JoltRigidBody::GetInertiaLocal() const
@@ -752,14 +739,100 @@ namespace JoltPhysics
         return m_configuration.m_centerOfMassOffset;
     }
 
-    void JoltRigidBody::AddShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    JPH::Ref<JPH::MutableCompoundShape> JoltRigidBody::CloneBaseShapeAsMutableCompound() const
     {
-        // TODO: Implement adding shapes to a created body
+        // A fresh copy every time: the live body still references the current shape, and
+        // mutating a shape in use leaves the body's cached bounds and mass properties stale.
+        return JoltShapeUtils::MakeMutableCompound(m_baseShape);
     }
 
-    void JoltRigidBody::RemoveShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    void JoltRigidBody::ApplyBaseShapeToBody()
     {
-        // TODO: Implement removing shapes from a created body
+        auto* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!bodyInterface || m_bodyId.IsInvalid() || !m_baseShape)
+        {
+            return;
+        }
+
+        JPH::RefConst<JPH::Shape> shape = m_baseShape;
+        if (!m_configuration.m_centerOfMassOffset.IsZero())
+        {
+            shape = new JPH::RotatedTranslatedShape(
+                Conversions::ToJolt(-m_configuration.m_centerOfMassOffset), JPH::Quat::sIdentity(), m_baseShape);
+        }
+
+        // Recompute the inertia for the new geometry, then restore an explicitly
+        // configured mass (which the recompute would otherwise overwrite with the
+        // density-derived mass).
+        bodyInterface->SetShape(m_bodyId, shape, /*updateMassProperties*/ true, JPH::EActivation::Activate);
+        if (m_configuration.m_mass > 0.0f)
+        {
+            SetMass(m_configuration.m_mass);
+        }
+    }
+
+    void JoltRigidBody::AddShape(AZStd::shared_ptr<Physics::Shape> shape)
+    {
+        if (!shape || !m_scene || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        auto* nativeShape = static_cast<JPH::Shape*>(shape->GetNativePointer());
+        if (!nativeShape)
+        {
+            return;
+        }
+
+        JPH::Ref<JPH::MutableCompoundShape> compound = CloneBaseShapeAsMutableCompound();
+        const auto [localPosition, localRotation] = shape->GetLocalPose();
+        compound->AddShape(Conversions::ToJolt(localPosition), Conversions::ToJolt(localRotation), nativeShape);
+        compound->AdjustCenterOfMass();
+        m_baseShape = compound;
+
+        // The new sub-shape lands at the end, so the material entry does too.
+        m_attachedShapes.push_back(shape);
+        m_colliderMaterials.push_back({ shape, nullptr });
+
+        ApplyBaseShapeToBody();
+    }
+
+    void JoltRigidBody::RemoveShape(AZStd::shared_ptr<Physics::Shape> shape)
+    {
+        if (!shape || !m_scene || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        auto attachedIt = AZStd::find(m_attachedShapes.begin(), m_attachedShapes.end(), shape);
+        if (attachedIt == m_attachedShapes.end())
+        {
+            AZ_Warning("JoltPhysics", false,
+                "JoltRigidBody::RemoveShape: the shape is not attached to this body. Only shapes added "
+                "with AddShape can be removed; colliders the body was created with are part of its geometry.");
+            return;
+        }
+
+        // Attached shapes occupy the sub-shapes after the colliders the body was created
+        // with, in attachment order.
+        const size_t attachedIndex = static_cast<size_t>(AZStd::distance(m_attachedShapes.begin(), attachedIt));
+        const size_t createdColliderCount = m_colliderMaterials.size() - m_attachedShapes.size();
+        const size_t subShapeIndex = createdColliderCount + attachedIndex;
+
+        JPH::Ref<JPH::MutableCompoundShape> compound = CloneBaseShapeAsMutableCompound();
+        if (subShapeIndex >= compound->GetNumSubShapes())
+        {
+            return;
+        }
+
+        compound->RemoveShape(static_cast<JPH::uint>(subShapeIndex));
+        compound->AdjustCenterOfMass();
+        m_baseShape = compound;
+
+        m_attachedShapes.erase(attachedIt);
+        m_colliderMaterials.erase(m_colliderMaterials.begin() + subShapeIndex);
+
+        ApplyBaseShapeToBody();
     }
 
     void JoltRigidBody::UpdateMassProperties(

@@ -4,9 +4,11 @@
 
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
+#include <Shape/JoltShapeUtils.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
+#include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
@@ -175,6 +177,104 @@ namespace JoltPhysics
         request.m_start = AZ::Vector3(5.0f, 0.0f, 5.0f);
         AzPhysics::SceneQueryHit miss = body->RayCast(request);
         EXPECT_EQ(miss.m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+    }
+
+    TEST_F(JoltRigidBodyTests, AttachedShapeExtendsBodyGeometryAndDetachRemovesIt)
+    {
+        auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
+        ASSERT_NE(body, nullptr);
+
+        // A ray 2m out along x misses the unit box the body was created with.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(2.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 20.0f;
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // Attach a second box offset 2m along x; the ray now hits the attached geometry.
+        Physics::ColliderConfiguration attachedCollider;
+        attachedCollider.m_position = AZ::Vector3(2.0f, 0.0f, 0.0f);
+        Physics::BoxShapeConfiguration attachedShapeConfig;
+        AZStd::shared_ptr<Physics::Shape> attachedShape =
+            JoltShapeUtils::CreateShape(attachedCollider, attachedShapeConfig);
+        ASSERT_NE(attachedShape, nullptr);
+
+        body->AddShape(attachedShape);
+        AzPhysics::SceneQueryHit hit = body->RayCast(request);
+        EXPECT_EQ(hit.m_bodyHandle, body->m_bodyHandle);
+        EXPECT_NEAR(hit.m_position.GetZ(), 0.5f, 0.01f);
+
+        // The original geometry is still there.
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, body->m_bodyHandle);
+
+        // Detaching removes only the attached geometry.
+        body->RemoveShape(attachedShape);
+        request.m_start = AZ::Vector3(2.0f, 0.0f, 5.0f);
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, body->m_bodyHandle);
+    }
+
+    TEST_F(JoltRigidBodyTests, AttachedShapeCollidesAndPreservesConfiguredMass)
+    {
+        // Static slab with its top surface at z=0.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        // Dynamic body with an explicit mass, dropped from a height.
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        config.m_mass = 7.0f;
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* body = static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(body, nullptr);
+        ASSERT_NEAR(body->GetMass(), 7.0f, 0.01f);
+
+        // Attach a box below the body, extending its geometry downwards by one unit.
+        Physics::ColliderConfiguration attachedCollider;
+        attachedCollider.m_position = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        Physics::BoxShapeConfiguration attachedShapeConfig;
+        AZStd::shared_ptr<Physics::Shape> attachedShape =
+            JoltShapeUtils::CreateShape(attachedCollider, attachedShapeConfig);
+        ASSERT_NE(attachedShape, nullptr);
+        body->AddShape(attachedShape);
+
+        // The configured mass survives the shape swap (which recomputes inertia).
+        EXPECT_NEAR(body->GetMass(), 7.0f, 0.01f);
+
+        SimulateSeconds(2.0f);
+
+        // The attached box is what lands on the slab, so the body's origin rests one
+        // unit higher than a lone box would (which would settle at z=0.5).
+        EXPECT_NEAR(body->GetPosition().GetZ(), 1.5f, 0.1f);
+    }
+
+    TEST_F(JoltRigidBodyTests, RemoveShapeIgnoresShapesNotAttached)
+    {
+        auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
+        ASSERT_NE(body, nullptr);
+
+        Physics::ColliderConfiguration colliderConfig;
+        Physics::BoxShapeConfiguration shapeConfig;
+        AZStd::shared_ptr<Physics::Shape> strangerShape = JoltShapeUtils::CreateShape(colliderConfig, shapeConfig);
+        ASSERT_NE(strangerShape, nullptr);
+
+        // Removing a shape that was never attached warns and leaves the body intact.
+        body->RemoveShape(strangerShape);
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 20.0f;
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, body->m_bodyHandle);
     }
 
 } // namespace JoltPhysics

@@ -9,6 +9,11 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
+namespace JPH
+{
+    class MutableCompoundShape;
+}
+
 namespace JoltPhysics
 {
     class JoltShapeUtils
@@ -41,6 +46,12 @@ namespace JoltPhysics
         //! the variant holds shape configurations instead), in compound sub-shape order.
         static AZStd::vector<AZStd::shared_ptr<Physics::Shape>> GetPrebuiltShapes(
             const AzPhysics::ShapeVariantData& colliderAndShapeData);
+
+        //! Returns a MutableCompoundShape equivalent to the given shape, so sub-shapes can
+        //! be attached/detached on a live body. A compound shape has its sub-shapes copied
+        //! across in order (keeping sub-shape indices, and the per-collider material indices
+        //! that follow them, valid); any other shape becomes sub-shape 0.
+        static JPH::Ref<JPH::MutableCompoundShape> MakeMutableCompound(const JPH::Shape* shape);
 
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);
