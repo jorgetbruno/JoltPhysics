@@ -717,9 +717,44 @@ namespace JoltPhysics
         return m_configuration.m_sleepMinEnergy;
     }
 
-    void JoltRigidBody::SetSleepThreshold([[maybe_unused]] float threshold)
+    void JoltRigidBody::SetSleepThreshold(float threshold)
     {
-        // TODO: Implement sleep threshold
+        m_configuration.m_sleepMinEnergy = threshold;
+
+        // Jolt has no per-body sleep threshold: the velocity below which a body may sleep
+        // is a scene-wide setting (PhysicsSettings::mPointVelocitySleepThreshold). What is
+        // per-body is whether sleeping is allowed at all, so a threshold of zero (or less)
+        // is honoured as "never sleep" and any positive value as "may sleep". The magnitude
+        // itself is not applied; see DIVERGENCES.md.
+        AZ_WarningOnce("JoltPhysics", threshold <= 0.0f,
+            "JoltRigidBody::SetSleepThreshold: Jolt's sleep velocity threshold is scene-wide, so the value "
+            "%.3f only toggles whether this body may sleep. Configure the threshold on the scene instead.",
+            threshold);
+
+        if (!m_scene || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
+        {
+            JPH::BodyLockWrite bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (!bodyLock.Succeeded())
+            {
+                return;
+            }
+            bodyLock.GetBody().SetAllowSleeping(threshold > 0.0f);
+        }
+
+        // A body that may no longer sleep should not be left asleep either. Activating
+        // takes body locks of its own, so it has to happen after the lock above is released.
+        if (threshold <= 0.0f)
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                bodyInterface->ActivateBody(m_bodyId);
+            }
+        }
     }
 
     AZ::Vector3 JoltRigidBody::GetCenterOfMassWorld() const

@@ -148,6 +148,22 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
 - **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
   for rendering are read from the native constraint by user code.
 
+## Scene queries and rigid body details
+
+- **Async scene queries complete on the next `FinishSimulation`**, not on a worker
+  thread. `QuerySceneAsync`/`QuerySceneAsyncBatch` queue the request and return
+  immediately (non-blocking, as the contract requires); the query runs and its callback
+  fires during the scene's next simulation finish, so results reflect the state that
+  step produced. A scene that is never stepped never delivers its callbacks. The single
+  request form is copied on queueing, since only a borrowed pointer is passed in.
+- **`RigidBody::SetSleepThreshold` only toggles whether the body may sleep.** Jolt has
+  no per-body sleep threshold — the velocity below which bodies may sleep is scene-wide
+  (`PhysicsSettings::mPointVelocitySleepThreshold`), and what is per-body is a plain
+  allow-sleeping flag. A threshold of zero or less is honoured exactly ("never sleep",
+  and the body is woken if it was asleep); any positive value means "may sleep" but its
+  magnitude is ignored, with a warning. PhysX's threshold is an energy value, so it
+  would not have transferred numerically anyway.
+
 ## Ragdolls
 
 - **Nodes are connected by swing-twist constraints**, built from the node's joint

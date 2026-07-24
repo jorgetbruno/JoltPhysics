@@ -166,4 +166,93 @@ namespace JoltPhysics
         EXPECT_EQ(hits.m_hits[0].m_bodyHandle, inside);
     }
 
+    TEST_F(JoltSceneQueryTests, AsyncRaycastDeliversHitsOnSimulationFinish)
+    {
+        auto boxHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(2.0f, 2.0f, 2.0f));
+
+        int callbackCount = 0;
+        AzPhysics::SceneQuery::AsyncRequestId reportedId = 0;
+        AzPhysics::SceneQueryHits reportedHits;
+
+        AzPhysics::RayCastRequest request = CreateRayDown(AZ::Vector3(0.0f, 0.0f, 10.0f));
+        const bool queued = m_scene->QuerySceneAsync(
+            42, &request,
+            [&](AzPhysics::SceneQuery::AsyncRequestId requestId, AzPhysics::SceneQueryHits hits)
+            {
+                ++callbackCount;
+                reportedId = requestId;
+                reportedHits = AZStd::move(hits);
+            });
+        EXPECT_TRUE(queued);
+
+        // Non-blocking: nothing has run yet.
+        EXPECT_EQ(callbackCount, 0);
+
+        // The request is copied on queueing, so the caller's request going out of scope
+        // (or being reused) cannot affect the queued query.
+        request.m_start = AZ::Vector3(100.0f, 100.0f, 100.0f);
+
+        m_scene->StartSimulation(1.0f / 60.0f);
+        m_scene->FinishSimulation();
+
+        EXPECT_EQ(callbackCount, 1);
+        EXPECT_EQ(reportedId, 42);
+        ASSERT_EQ(reportedHits.m_hits.size(), 1u);
+        EXPECT_EQ(reportedHits.m_hits[0].m_bodyHandle, boxHandle);
+        EXPECT_NEAR(reportedHits.m_hits[0].m_position.GetZ(), 1.0f, 0.05f);
+
+        // The queue is drained: a further step does not re-deliver.
+        m_scene->StartSimulation(1.0f / 60.0f);
+        m_scene->FinishSimulation();
+        EXPECT_EQ(callbackCount, 1);
+    }
+
+    TEST_F(JoltSceneQueryTests, AsyncBatchDeliversAllResultsInOrder)
+    {
+        auto nearBox = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(2.0f, 2.0f, 2.0f));
+        auto farBox = CreateStaticBox(AZ::Vector3(10.0f, 0.0f, 0.0f), AZ::Vector3(2.0f, 2.0f, 2.0f));
+
+        AzPhysics::SceneQueryRequests requests;
+        requests.push_back(AZStd::make_shared<AzPhysics::RayCastRequest>(CreateRayDown(AZ::Vector3(0.0f, 0.0f, 10.0f))));
+        requests.push_back(AZStd::make_shared<AzPhysics::RayCastRequest>(CreateRayDown(AZ::Vector3(10.0f, 0.0f, 10.0f))));
+        // A ray into empty space still produces an (empty) entry, keeping the results
+        // aligned with the requests.
+        requests.push_back(AZStd::make_shared<AzPhysics::RayCastRequest>(CreateRayDown(AZ::Vector3(50.0f, 0.0f, 10.0f))));
+
+        int callbackCount = 0;
+        AzPhysics::SceneQueryHitsList reportedHits;
+        const bool queued = m_scene->QuerySceneAsyncBatch(
+            7, requests,
+            [&](AzPhysics::SceneQuery::AsyncRequestId, AzPhysics::SceneQueryHitsList hits)
+            {
+                ++callbackCount;
+                reportedHits = AZStd::move(hits);
+            });
+        EXPECT_TRUE(queued);
+        EXPECT_EQ(callbackCount, 0);
+
+        m_scene->StartSimulation(1.0f / 60.0f);
+        m_scene->FinishSimulation();
+
+        EXPECT_EQ(callbackCount, 1);
+        ASSERT_EQ(reportedHits.size(), 3u);
+        ASSERT_EQ(reportedHits[0].m_hits.size(), 1u);
+        EXPECT_EQ(reportedHits[0].m_hits[0].m_bodyHandle, nearBox);
+        ASSERT_EQ(reportedHits[1].m_hits.size(), 1u);
+        EXPECT_EQ(reportedHits[1].m_hits[0].m_bodyHandle, farBox);
+        EXPECT_TRUE(reportedHits[2].m_hits.empty());
+    }
+
+    TEST_F(JoltSceneQueryTests, AsyncQueryRejectsNullRequestAndEmptyBatch)
+    {
+        auto callback = [](AzPhysics::SceneQuery::AsyncRequestId, AzPhysics::SceneQueryHits) {};
+        EXPECT_FALSE(m_scene->QuerySceneAsync(1, nullptr, callback));
+
+        AzPhysics::RayCastRequest request = CreateRayDown(AZ::Vector3::CreateZero());
+        EXPECT_FALSE(m_scene->QuerySceneAsync(1, &request, nullptr));
+
+        auto batchCallback = [](AzPhysics::SceneQuery::AsyncRequestId, AzPhysics::SceneQueryHitsList) {};
+        EXPECT_FALSE(m_scene->QuerySceneAsyncBatch(1, {}, batchCallback));
+    }
+
 } // namespace JoltPhysics

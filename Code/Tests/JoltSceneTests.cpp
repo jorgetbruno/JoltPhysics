@@ -283,6 +283,37 @@ namespace JoltPhysics
         EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ(), 0.5f, 0.05f);
     }
 
+    TEST_F(JoltSceneTests, StaticBodyPerBodyRayCastHitsAndMisses)
+    {
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(4.0f, 4.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_entityId = AZ::EntityId(4321);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        auto handle = m_scene->AddSimulatedBody(&slabConfig);
+
+        auto* body = azdynamic_cast<AzPhysics::StaticRigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(body, nullptr);
+
+        // The 4x4x1 slab is offset -0.5 in z, so its top surface is at z=0.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 20.0f;
+
+        AzPhysics::SceneQueryHit hit = body->RayCast(request);
+        EXPECT_EQ(hit.m_bodyHandle, handle);
+        EXPECT_EQ(hit.m_entityId, AZ::EntityId(4321));
+        EXPECT_NEAR(hit.m_position.GetZ(), 0.0f, 0.01f);
+        EXPECT_NEAR(hit.m_distance, 5.0f, 0.01f);
+        EXPECT_NEAR(hit.m_normal.GetZ(), 1.0f, 0.01f);
+
+        // A ray beyond the slab misses.
+        request.m_start = AZ::Vector3(10.0f, 0.0f, 5.0f);
+        EXPECT_EQ(body->RayCast(request).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+    }
+
 } // namespace JoltPhysics
 
 namespace JoltPhysics

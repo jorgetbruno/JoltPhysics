@@ -177,6 +177,11 @@ namespace JoltPhysics
         void EnableSimulationOfBodyInternal(AzPhysics::SimulatedBody& body);
         void DisableSimulationOfBodyInternal(AzPhysics::SimulatedBody& body);
 
+        //! Runs the scene queries queued by QuerySceneAsync/QuerySceneAsyncBatch and
+        //! invokes their callbacks. Called once per FinishSimulation, so results reflect
+        //! the state the step just produced.
+        void FlushAsyncSceneQueries();
+
         void FlushQueuedEvents();
         void ClearDeferredDeletions();
         void ProcessTriggerEvents();
@@ -237,6 +242,18 @@ namespace JoltPhysics
         //! synthesize the matching Exit. Touched from Jolt's contact callbacks (job threads).
         AZStd::mutex m_triggerOverlapsMutex;
         AZStd::unordered_map<AZ::u64, int> m_activeTriggerOverlaps;
+
+        //! A scene query queued by QuerySceneAsync/QuerySceneAsyncBatch. Exactly one of
+        //! the two callbacks is set, which is what distinguishes a single from a batch
+        //! request (a single request is held as a one-entry list).
+        struct QueuedAsyncQuery
+        {
+            AzPhysics::SceneQuery::AsyncRequestId m_requestId = 0;
+            AzPhysics::SceneQueryRequests m_requests;
+            AzPhysics::SceneQuery::AsyncCallback m_callback;
+            AzPhysics::SceneQuery::AsyncBatchCallback m_batchCallback;
+        };
+        AZStd::vector<QueuedAsyncQuery> m_queuedAsyncQueries;
 
         //! Body pairs whose collision events are suppressed (normalized handle-pair keys).
         //! The bodies still collide; only the event dispatch is filtered, matching the

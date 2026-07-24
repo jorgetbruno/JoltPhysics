@@ -30,6 +30,29 @@
 
 namespace JoltPhysics
 {
+    namespace
+    {
+        //! Copies a scene query request so it can outlive the QuerySceneAsync call that
+        //! borrowed it. Returns null for an unrecognized request type.
+        AZStd::shared_ptr<AzPhysics::SceneQueryRequest> CloneSceneQueryRequest(
+            const AzPhysics::SceneQueryRequest& request)
+        {
+            if (const auto* rayCast = azrtti_cast<const AzPhysics::RayCastRequest*>(&request))
+            {
+                return AZStd::make_shared<AzPhysics::RayCastRequest>(*rayCast);
+            }
+            if (const auto* shapeCast = azrtti_cast<const AzPhysics::ShapeCastRequest*>(&request))
+            {
+                return AZStd::make_shared<AzPhysics::ShapeCastRequest>(*shapeCast);
+            }
+            if (const auto* overlap = azrtti_cast<const AzPhysics::OverlapRequest*>(&request))
+            {
+                return AZStd::make_shared<AzPhysics::OverlapRequest>(*overlap);
+            }
+            return nullptr;
+        }
+    }
+
     AZ_CLASS_ALLOCATOR_IMPL(JoltScene, AZ::SystemAllocator);
 
     JoltScene::JoltScene(const AzPhysics::SceneConfiguration& config,
@@ -125,7 +148,17 @@ namespace JoltPhysics
 
     void JoltScene::FinishSimulation()
     {
-        if (!m_isEnabled || !m_physicsSystem)
+        if (!m_physicsSystem)
+        {
+            return;
+        }
+
+        // Queued async queries complete even while the scene is disabled: the world is
+        // still there to query, and a caller waiting on a callback should not be stranded
+        // because the scene was paused after the request was made.
+        FlushAsyncSceneQueries();
+
+        if (!m_isEnabled)
         {
             return;
         }
@@ -684,21 +717,74 @@ namespace JoltPhysics
     }
 
     bool JoltScene::QuerySceneAsync(
-        [[maybe_unused]] AzPhysics::SceneQuery::AsyncRequestId requestId,
-        [[maybe_unused]] const AzPhysics::SceneQueryRequest* request,
-        [[maybe_unused]] AzPhysics::SceneQuery::AsyncCallback callback)
+        AzPhysics::SceneQuery::AsyncRequestId requestId,
+        const AzPhysics::SceneQueryRequest* request,
+        AzPhysics::SceneQuery::AsyncCallback callback)
     {
-        // TODO: Implement async scene queries
-        return false;
+        if (!request || !callback)
+        {
+            return false;
+        }
+
+        // The request is only borrowed for this call, so it has to be copied to outlive it.
+        AZStd::shared_ptr<AzPhysics::SceneQueryRequest> ownedRequest = CloneSceneQueryRequest(*request);
+        if (!ownedRequest)
+        {
+            AZ_Warning("JoltPhysics", false,
+                "QuerySceneAsync: unrecognized scene query request type; the request was not queued.");
+            return false;
+        }
+
+        QueuedAsyncQuery query;
+        query.m_requestId = requestId;
+        query.m_requests.push_back(AZStd::move(ownedRequest));
+        query.m_callback = AZStd::move(callback);
+        m_queuedAsyncQueries.push_back(AZStd::move(query));
+        return true;
     }
 
     bool JoltScene::QuerySceneAsyncBatch(
-        [[maybe_unused]] AzPhysics::SceneQuery::AsyncRequestId requestId,
-        [[maybe_unused]] const AzPhysics::SceneQueryRequests& requests,
-        [[maybe_unused]] AzPhysics::SceneQuery::AsyncBatchCallback callback)
+        AzPhysics::SceneQuery::AsyncRequestId requestId,
+        const AzPhysics::SceneQueryRequests& requests,
+        AzPhysics::SceneQuery::AsyncBatchCallback callback)
     {
-        // TODO: Implement async batch scene queries
-        return false;
+        if (requests.empty() || !callback)
+        {
+            return false;
+        }
+
+        // Batch requests are already shared, so ownership is shared rather than copied.
+        QueuedAsyncQuery query;
+        query.m_requestId = requestId;
+        query.m_requests = requests;
+        query.m_batchCallback = AZStd::move(callback);
+        m_queuedAsyncQueries.push_back(AZStd::move(query));
+        return true;
+    }
+
+    void JoltScene::FlushAsyncSceneQueries()
+    {
+        if (m_queuedAsyncQueries.empty())
+        {
+            return;
+        }
+
+        // Swap the queue out first: a callback is free to queue further queries, and those
+        // belong to the next flush rather than this one (which would otherwise never end).
+        AZStd::vector<QueuedAsyncQuery> queries;
+        queries.swap(m_queuedAsyncQueries);
+
+        for (QueuedAsyncQuery& query : queries)
+        {
+            if (query.m_batchCallback)
+            {
+                query.m_batchCallback(query.m_requestId, QuerySceneBatch(query.m_requests));
+            }
+            else if (query.m_callback && !query.m_requests.empty())
+            {
+                query.m_callback(query.m_requestId, QueryScene(query.m_requests.front().get()));
+            }
+        }
     }
 
     void JoltScene::SuppressCollisionEvents(

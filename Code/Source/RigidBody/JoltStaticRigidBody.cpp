@@ -20,6 +20,8 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 
 namespace JoltPhysics
 {
@@ -322,10 +324,51 @@ namespace JoltPhysics
         return const_cast<JPH::BodyID*>(&m_bodyId);
     }
 
-    AzPhysics::SceneQueryHit JoltStaticRigidBody::RayCast([[maybe_unused]] const AzPhysics::RayCastRequest& request)
+    AzPhysics::SceneQueryHit JoltStaticRigidBody::RayCast(const AzPhysics::RayCastRequest& request)
     {
-        // TODO: Implement per-body raycast
-        return AzPhysics::SceneQueryHit();
+        AzPhysics::SceneQueryHit queryHit;
+
+        if (!m_scene || m_bodyId.IsInvalid())
+        {
+            return queryHit;
+        }
+
+        auto* physicsSystem = m_scene->GetJoltPhysicsSystem();
+        if (!physicsSystem)
+        {
+            return queryHit;
+        }
+
+        JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded())
+        {
+            return queryHit;
+        }
+        const JPH::Body& body = bodyLock.GetBody();
+
+        // Cast in body-local space (the shape is expressed relative to the center of mass).
+        const JPH::Mat44 worldToLocal = body.GetInverseCenterOfMassTransform();
+        const JPH::Vec3 localStart = worldToLocal * Conversions::ToJolt(request.m_start);
+        const JPH::Vec3 localDirection =
+            worldToLocal.Multiply3x3(Conversions::ToJolt(request.m_direction * request.m_distance));
+
+        JPH::RayCast ray(localStart, localDirection);
+        JPH::RayCastResult hit;
+        if (!body.GetShape()->CastRay(ray, JPH::SubShapeIDCreator(), hit))
+        {
+            return queryHit;
+        }
+
+        queryHit.m_distance = hit.mFraction * request.m_distance;
+        queryHit.m_position = request.m_start + request.m_direction * (hit.mFraction * request.m_distance);
+        queryHit.m_normal = Conversions::FromJolt(
+            body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, Conversions::ToJolt(queryHit.m_position)));
+        queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
+            AzPhysics::SceneQuery::ResultFlags::Position | AzPhysics::SceneQuery::ResultFlags::Normal |
+            AzPhysics::SceneQuery::ResultFlags::BodyHandle | AzPhysics::SceneQuery::ResultFlags::EntityId;
+        queryHit.m_bodyHandle = m_bodyHandle;
+        queryHit.m_entityId = m_entityId;
+        return queryHit;
     }
 
 } // namespace JoltPhysics

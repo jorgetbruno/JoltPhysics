@@ -257,6 +257,53 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetPosition().GetZ(), 1.5f, 0.1f);
     }
 
+    TEST_F(JoltRigidBodyTests, ZeroSleepThresholdKeepsTheBodyAwake)
+    {
+        // Slab with its top at z=0 for the body to settle on.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto* sleeper = CreateDynamicBox(AZ::Vector3(-3.0f, 0.0f, 0.5f));
+        auto* insomniac = CreateDynamicBox(AZ::Vector3(3.0f, 0.0f, 0.5f));
+        ASSERT_NE(sleeper, nullptr);
+        ASSERT_NE(insomniac, nullptr);
+
+        // Zero means "never sleep" (Jolt has no per-body threshold magnitude, so this maps
+        // to the body's allow-sleeping flag).
+        insomniac->SetSleepThreshold(0.0f);
+        EXPECT_FLOAT_EQ(insomniac->GetSleepThreshold(), 0.0f);
+
+        // Long enough for a resting body to fall asleep (Jolt's default is 0.5s).
+        SimulateSeconds(3.0f);
+
+        EXPECT_FALSE(sleeper->IsAwake());
+        EXPECT_TRUE(insomniac->IsAwake());
+    }
+
+    TEST_F(JoltRigidBodyTests, ZeroSleepThresholdWakesASleepingBody)
+    {
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto* body = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 0.5f));
+        ASSERT_NE(body, nullptr);
+
+        SimulateSeconds(3.0f);
+        ASSERT_FALSE(body->IsAwake());
+
+        // Disallowing sleep on an already sleeping body wakes it back up.
+        body->SetSleepThreshold(0.0f);
+        EXPECT_TRUE(body->IsAwake());
+    }
+
     TEST_F(JoltRigidBodyTests, RemoveShapeIgnoresShapesNotAttached)
     {
         auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
@@ -269,6 +316,7 @@ namespace JoltPhysics
 
         // Removing a shape that was never attached warns and leaves the body intact.
         body->RemoveShape(strangerShape);
+
 
         AzPhysics::RayCastRequest request;
         request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
