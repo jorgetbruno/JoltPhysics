@@ -36,6 +36,15 @@ namespace JoltPhysics
         m_stepHeight = configuration.m_stepHeight;
         m_slopeLimitDegrees = configuration.m_maximumSlopeAngle;
         m_maximumSpeed = configuration.m_maximumSpeed;
+        if (const auto* joltConfig = azrtti_cast<const JoltCharacterConfiguration*>(&configuration))
+        {
+            m_rigidBodyCharacter = joltConfig->m_rigidBodyCharacter;
+        }
+    }
+
+    JoltCharacter::~JoltCharacter()
+    {
+        RemoveFromScene();
     }
 
     void JoltCharacter::CreateInScene(JoltScene* scene)
@@ -60,6 +69,31 @@ namespace JoltPhysics
             return;
         }
 
+        if (m_rigidBodyCharacter)
+        {
+            JPH::CharacterSettings settings;
+            settings.mUp = Conversions::ToJolt(m_configuration.m_upDirection);
+            settings.mMaxSlopeAngle = AZ::DegToRad(m_slopeLimitDegrees);
+            settings.mShape = m_shape;
+            settings.mLayer = ObjectLayers::Moving;
+            // The character is driven entirely by the requested velocity (same contract as
+            // the virtual backend), so Jolt's own gravity is disabled. The supporting
+            // volume accepts contacts below the centre; steep contacts are still rejected
+            // as ground by the slope check.
+            settings.mGravityFactor = 0.0f;
+            settings.mSupportingVolume = JPH::Plane(settings.mUp, -1.0e10f);
+
+            m_rigidBody = new JPH::Character(
+                &settings,
+                Conversions::ToJoltR(m_configuration.m_position),
+                Conversions::ToJolt(m_configuration.m_orientation),
+                /*userData*/ 0,
+                m_scene->GetJoltPhysicsSystem());
+            m_rigidBody->AddToPhysicsSystem();
+            m_orientation = m_configuration.m_orientation;
+            return;
+        }
+
         JPH::CharacterVirtualSettings settings;
         settings.mUp = Conversions::ToJolt(m_configuration.m_upDirection);
         settings.mMaxSlopeAngle = AZ::DegToRad(m_slopeLimitDegrees);
@@ -78,8 +112,32 @@ namespace JoltPhysics
         m_orientation = m_configuration.m_orientation;
     }
 
+    void JoltCharacter::RemoveFromScene()
+    {
+        if (m_rigidBody)
+        {
+            m_rigidBody->RemoveFromPhysicsSystem();
+            m_rigidBody = nullptr;
+        }
+    }
+
+    void JoltCharacter::PostSimulation()
+    {
+        if (m_rigidBody)
+        {
+            // Snap to and detect ground within a small separation distance, then read back
+            // the velocity the solver actually produced this step.
+            m_rigidBody->PostSimulation(0.05f);
+            m_observedVelocity = Conversions::FromJolt(m_rigidBody->GetLinearVelocity());
+        }
+    }
+
     JPH::BodyID JoltCharacter::GetInnerBodyId() const
     {
+        if (m_rigidBody)
+        {
+            return m_rigidBody->GetBodyID();
+        }
         return m_character ? m_character->GetInnerBodyID() : JPH::BodyID();
     }
 
@@ -96,17 +154,26 @@ namespace JoltPhysics
 
     void JoltCharacter::SetBasePosition(const AZ::Vector3& position)
     {
-        if (!m_character)
+        const AZ::Vector3 center = position - m_configuration.m_upDirection * GetBottomOffset();
+        if (m_rigidBody)
         {
+            m_rigidBody->SetPosition(Conversions::ToJoltR(center));
             return;
         }
-        const AZ::Vector3 center = position - m_configuration.m_upDirection * GetBottomOffset();
-        m_character->SetPosition(Conversions::ToJoltR(center));
+        if (m_character)
+        {
+            m_character->SetPosition(Conversions::ToJoltR(center));
+        }
     }
 
     void JoltCharacter::SetRotation(const AZ::Quaternion& rotation)
     {
         m_orientation = rotation;
+        if (m_rigidBody)
+        {
+            m_rigidBody->SetPositionAndRotation(m_rigidBody->GetPosition(), Conversions::ToJolt(rotation));
+            return;
+        }
         if (m_character)
         {
             m_character->SetRotation(Conversions::ToJolt(rotation));
@@ -115,6 +182,10 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltCharacter::GetCenterPosition() const
     {
+        if (m_rigidBody)
+        {
+            return Conversions::FromJolt(m_rigidBody->GetPosition());
+        }
         if (!m_character)
         {
             return m_configuration.m_position;
@@ -148,6 +219,10 @@ namespace JoltPhysics
         {
             m_character->SetUp(Conversions::ToJolt(upDirection));
         }
+        if (m_rigidBody)
+        {
+            m_rigidBody->SetUp(Conversions::ToJolt(upDirection));
+        }
     }
 
     float JoltCharacter::GetSlopeLimitDegrees() const
@@ -161,6 +236,10 @@ namespace JoltPhysics
         if (m_character)
         {
             m_character->SetMaxSlopeAngle(AZ::DegToRad(slopeLimitDegrees));
+        }
+        if (m_rigidBody)
+        {
+            m_rigidBody->SetMaxSlopeAngle(AZ::DegToRad(slopeLimitDegrees));
         }
     }
 
@@ -222,7 +301,19 @@ namespace JoltPhysics
         {
             velocity *= m_maximumSpeed / speed;
         }
-        Move(velocity * deltaTime, deltaTime);
+        if (m_rigidBodyCharacter)
+        {
+            // The physics step integrates the motion; PostSimulation (after the step)
+            // refreshes ground state and the observed velocity.
+            if (m_rigidBody)
+            {
+                m_rigidBody->SetLinearVelocity(Conversions::ToJolt(velocity));
+            }
+        }
+        else
+        {
+            Move(velocity * deltaTime, deltaTime);
+        }
         ResetRequestedVelocityForPhysicsTimestep();
     }
 
@@ -289,6 +380,11 @@ namespace JoltPhysics
     void JoltCharacter::SetTransform(const AZ::Transform& transform)
     {
         SetRotation(transform.GetRotation());
+        if (m_rigidBody)
+        {
+            m_rigidBody->SetPosition(Conversions::ToJoltR(transform.GetTranslation()));
+            return;
+        }
         if (m_character)
         {
             m_character->SetPosition(Conversions::ToJoltR(transform.GetTranslation()));
@@ -307,6 +403,14 @@ namespace JoltPhysics
 
     AZ::Aabb JoltCharacter::GetAabb() const
     {
+        if (m_rigidBody)
+        {
+            // Approximate: the shape's local bounds translated to the character centre.
+            const AZ::Vector3 center = GetCenterPosition();
+            const JPH::AABox local = m_shape->GetLocalBounds();
+            return AZ::Aabb::CreateFromMinMax(
+                center + Conversions::FromJolt(local.mMin), center + Conversions::FromJolt(local.mMax));
+        }
         if (!m_character)
         {
             return AZ::Aabb::CreateNull();
@@ -330,16 +434,24 @@ namespace JoltPhysics
 
     void* JoltCharacter::GetNativePointer() const
     {
-        return m_character.get();
+        return m_rigidBody ? static_cast<void*>(m_rigidBody.GetPtr()) : static_cast<void*>(m_character.get());
     }
 
     bool JoltCharacter::IsOnGround() const
     {
+        if (m_rigidBody)
+        {
+            return m_rigidBody->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+        }
         return m_character && m_character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
     }
 
     AZ::Vector3 JoltCharacter::GetGroundNormal() const
     {
+        if (m_rigidBody)
+        {
+            return Conversions::FromJolt(m_rigidBody->GetGroundNormal());
+        }
         if (!m_character)
         {
             return m_configuration.m_upDirection;

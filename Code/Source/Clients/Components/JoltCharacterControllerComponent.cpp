@@ -39,6 +39,7 @@ namespace JoltPhysics
                 ->Field("ShapeConfiguration", &JoltCharacterControllerComponent::m_shapeConfig)
                 ->Field("Height", &JoltCharacterControllerComponent::m_height)
                 ->Field("Radius", &JoltCharacterControllerComponent::m_radius)
+                ->Field("RigidBodyCharacter", &JoltCharacterControllerComponent::m_rigidBodyCharacter)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -61,6 +62,10 @@ namespace JoltPhysics
                         "Radius", "Capsule radius.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
                         ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_rigidBodyCharacter,
+                        "Rigid body character",
+                        "When set, the character is a real rigid body in the simulation (cheaper, most "
+                        "accurate response with dynamic bodies). When clear, it is a virtual character.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_characterConfig,
                         "Character Configuration", "Configuration of the character controller")
                     ;
@@ -192,11 +197,16 @@ namespace JoltPhysics
             ? m_shapeConfig
             : AZStd::make_shared<Physics::CapsuleShapeConfiguration>(m_height, m_radius);
 
+        // Pass the backend choice through to JoltCharacter via a Jolt-specific config.
+        JoltCharacterConfiguration joltConfig;
+        static_cast<Physics::CharacterConfiguration&>(joltConfig) = m_characterConfig;
+        joltConfig.m_rigidBodyCharacter = m_rigidBodyCharacter;
+
         if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
         {
             if (AzPhysics::Scene* scene = physicsSystem->GetScene(m_attachedSceneHandle))
             {
-                m_bodyHandle = scene->AddSimulatedBody(&m_characterConfig);
+                m_bodyHandle = scene->AddSimulatedBody(&joltConfig);
             }
         }
     }

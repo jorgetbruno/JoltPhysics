@@ -33,5 +33,8 @@ namespace JoltPhysics
         // runtime fallback capsule of 1.8 m height / 0.3 m radius.
         float m_height = 1.8f;
         float m_radius = 0.3f;
+
+        //! false = virtual character (default); true = rigid-body character.
+        bool m_rigidBodyCharacter = false;
     };
 } // namespace JoltPhysics

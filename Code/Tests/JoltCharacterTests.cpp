@@ -82,6 +82,21 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&config);
         }
 
+        //! Creates a rigid-body-backed capsule character (JPH::Character) of the same size.
+        AzPhysics::SimulatedBodyHandle CreateRigidBodyCharacter(
+            const AZ::Vector3& position, float slopeLimitDegrees = 30.0f, float stepHeight = 0.5f)
+        {
+            JoltCharacterConfiguration config;
+            config.m_position = position;
+            config.m_entityId = AZ::EntityId(0xCAFE);
+            config.m_debugName = "TestRigidBodyCharacter";
+            config.m_maximumSlopeAngle = slopeLimitDegrees;
+            config.m_stepHeight = stepHeight;
+            config.m_shapeConfig = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+            config.m_rigidBodyCharacter = true;
+            return m_scene->AddSimulatedBody(&config);
+        }
+
         JoltCharacter* GetCharacter(AzPhysics::SimulatedBodyHandle handle)
         {
             return azdynamic_cast<JoltCharacter*>(m_scene->GetSimulatedBodyFromHandle(handle));
@@ -288,6 +303,52 @@ namespace JoltPhysics
 
         EXPECT_GE(enterCount, 1);
         EXPECT_GE(exitCount, 1);
+    }
+
+    TEST_F(JoltCharacterTests, RigidBodyCharacterFallsAndLandsOnGround)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 3.0f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+        ASSERT_TRUE(character->IsRigidBodyCharacter());
+
+        // Same gameplay driver as the virtual character: accumulate gravity while airborne,
+        // clamp to a small stick velocity while grounded.
+        AZ::Vector3 velocity = AZ::Vector3::CreateZero();
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 240; ++i)
+        {
+            if (character->IsOnGround())
+            {
+                velocity.SetZ(-0.5f);
+            }
+            else
+            {
+                velocity += AZ::Vector3(0.0f, 0.0f, -9.81f) * fixedDeltaTime;
+            }
+            character->AddVelocityForTick(velocity);
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+
+        EXPECT_TRUE(character->IsOnGround());
+        EXPECT_NEAR(character->GetCenterPosition().GetZ(), 0.9f, 0.1f); // capsule half-height above z=0
+        EXPECT_NEAR(character->GetGroundNormal().GetZ(), 1.0f, 0.05f);
+    }
+
+    TEST_F(JoltCharacterTests, RigidBodyCharacterWalksForward)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f)); // start resting on the floor
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // Walk +x at 2 m/s (with a small downward stick) for 2 s.
+        WalkCharacter(character, AZ::Vector3(2.0f, 0.0f, -0.5f), 2.0f);
+
+        EXPECT_GT(character->GetPosition().GetX(), 2.0f);              // advanced along +x
+        EXPECT_NEAR(character->GetCenterPosition().GetZ(), 0.9f, 0.15f); // stayed on the floor
     }
 
 } // namespace JoltPhysics

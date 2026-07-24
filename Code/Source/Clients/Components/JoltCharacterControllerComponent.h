@@ -60,6 +60,8 @@ namespace JoltPhysics
         float GetHeight() const { return m_height; }
         float& GetRadius() { return m_radius; }
         float GetRadius() const { return m_radius; }
+        bool& GetRigidBodyCharacter() { return m_rigidBodyCharacter; }
+        bool GetRigidBodyCharacter() const { return m_rigidBodyCharacter; }
 
     protected:
         // AZ::Component
@@ -121,6 +123,9 @@ namespace JoltPhysics
         // programmatically, takes precedence over these.
         float m_height = 1.8f;
         float m_radius = 0.3f;
+
+        //! false = virtual character (default); true = rigid-body character.
+        bool m_rigidBodyCharacter = false;
 
         AZStd::string m_serializedIdentifier;
 

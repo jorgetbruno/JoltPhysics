@@ -128,6 +128,16 @@ namespace JoltPhysics
             return;
         }
 
+        // Rigid-body characters move during the physics step; refresh their ground state
+        // now that the step has completed (virtual characters do this inside Move()).
+        for (auto& [crc, body] : m_simulatedBodies)
+        {
+            if (auto* character = azdynamic_cast<JoltCharacter*>(body); character && character->IsRigidBodyCharacter())
+            {
+                character->PostSimulation();
+            }
+        }
+
         FlushTransformSync();
         FlushQueuedEvents();
         ClearDeferredDeletions();
@@ -431,11 +441,13 @@ namespace JoltPhysics
             }
             else if (auto* character = azrtti_cast<JoltCharacter*>(body))
             {
-                // CharacterVirtual's destructor removes its inner body from the physics system.
+                // CharacterVirtual's destructor removes its inner body; the rigid-body
+                // character must be removed from the physics system explicitly.
                 if (const JPH::BodyID innerBodyId = character->GetInnerBodyId(); !innerBodyId.IsInvalid())
                 {
                     m_bodyHandleByJoltId.erase(innerBodyId.GetIndexAndSequenceNumber());
                 }
+                character->RemoveFromScene();
             }
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };
