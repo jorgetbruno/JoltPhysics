@@ -90,6 +90,10 @@ namespace JoltPhysics
             config.m_nodes[1].m_jointConfig = jointConfig;
         }
 
+        //! Drives a ragdoll into a static wall with the given keying mode; returns the
+        //! root node's final x position.
+        float DriveIntoWallAndMeasureTravel(bool useHardKeying);
+
         //! The angle of the child's orientation relative to the root, in degrees.
         static float GetChildAngleRelativeToRootDegrees(const Physics::RagdollState& state)
         {
@@ -135,6 +139,35 @@ namespace JoltPhysics
         // ...and the point constraint kept the two nodes attached (roughly the original 0.5 m).
         const float separation = state[0].m_position.GetDistance(state[1].m_position);
         EXPECT_NEAR(separation, 0.5f, 0.2f);
+    }
+
+    TEST_F(JoltRagdollTests, RagdollCollidesWithStaticWorldGeometry)
+    {
+        // Regression: ragdoll parts carry Jolt's own GroupFilterTable (installed to
+        // disable parent/child collisions), and the gem's group filter used to read that
+        // foreign filter as if it were its own, so ragdolls fell through the world.
+        auto floorCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        floorCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto floorShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration floorConfig;
+        floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(floorCollider, floorShape);
+        m_scene->AddSimulatedBody(&floorConfig);
+
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 3.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        SimulateSeconds(3.0f);
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        // Both 0.15 m spheres come to rest on the floor instead of falling through it.
+        EXPECT_GT(state[0].m_position.GetZ(), 0.0f);
+        EXPECT_GT(state[1].m_position.GetZ(), 0.0f);
+        EXPECT_NEAR(state[1].m_position.GetZ(), 0.15f, 0.1f);
     }
 
     TEST_F(JoltRagdollTests, DisableSimulationStopsTheRagdoll)
@@ -389,6 +422,103 @@ namespace JoltPhysics
         // A ray that misses every node reports no hit.
         request.m_start = AZ::Vector3(3.0f, 0.0f, 8.0f);
         EXPECT_FALSE(static_cast<bool>(ragdoll->RayCast(request)));
+    }
+
+    //! Drives a two-node ragdoll sideways into a static wall and reports how far the root
+    //! got. Hard keying should drive through it; soft keying should be stopped by it.
+    float JoltRagdollTests::DriveIntoWallAndMeasureTravel(bool useHardKeying)
+    {
+        // Wall spanning x = [1.5, 2.0], tall and wide enough that the ragdoll cannot pass.
+        auto wallCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto wallShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(0.5f, 10.0f, 10.0f));
+        AzPhysics::StaticRigidBodyConfiguration wallConfig;
+        wallConfig.m_position = AZ::Vector3(1.75f, 0.0f, 5.0f);
+        wallConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(wallCollider, wallShape);
+        m_scene->AddSimulatedBody(&wallConfig);
+
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        EXPECT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Target well beyond the wall, at the ragdoll's starting height.
+        Physics::RagdollState target = config.m_initialState;
+        for (Physics::RagdollNodeState& nodeState : target)
+        {
+            nodeState.m_position += AZ::Vector3(4.0f, 0.0f, 0.0f);
+        }
+
+        const float dt = 1.0f / 60.0f;
+        for (int i = 0; i < 120; ++i)
+        {
+            if (useHardKeying)
+            {
+                ragdoll->DriveToPoseUsingKinematics(target, dt);
+            }
+            else
+            {
+                ragdoll->DriveToPoseUsingVelocities(target, dt);
+            }
+            m_scene->StartSimulation(dt);
+            m_scene->FinishSimulation();
+        }
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        return state[0].m_position.GetX();
+    }
+
+    TEST_F(JoltRagdollTests, HardKeyingDrivesThroughObstaclesButSoftKeyingIsStoppedByThem)
+    {
+        // Same target, same velocities: only the bodies' motion type differs.
+        const float hardKeyedX = DriveIntoWallAndMeasureTravel(/*useHardKeying*/ true);
+
+        // A kinematic body is not affected by the solver, so it reaches the target.
+        EXPECT_NEAR(hardKeyedX, 4.0f, 0.2f);
+    }
+
+    TEST_F(JoltRagdollTests, SoftKeyingLetsThePhysicsOverruleTheAnimatedPose)
+    {
+        const float softKeyedX = DriveIntoWallAndMeasureTravel(/*useHardKeying*/ false);
+
+        // The dynamic body is stopped at the wall (its near face is at x = 1.5, and the
+        // node is a 0.15 m sphere) instead of reaching the target at x = 4.
+        EXPECT_LT(softKeyedX, 1.5f);
+        // ...but it did travel towards the target rather than just falling.
+        EXPECT_GT(softKeyedX, 0.5f);
+    }
+
+    TEST_F(JoltRagdollTests, ReleaseToPhysicsLetsAHardKeyedRagdollFallAgain)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        // Hard keying holds the ragdoll in place against gravity.
+        const float dt = 1.0f / 60.0f;
+        for (int i = 0; i < 60; ++i)
+        {
+            ragdoll->DriveToPoseUsingKinematics(config.m_initialState, dt);
+            m_scene->StartSimulation(dt);
+            m_scene->FinishSimulation();
+        }
+
+        Physics::RagdollState heldState;
+        ragdoll->GetState(heldState);
+        EXPECT_NEAR(heldState[0].m_position.GetZ(), 5.0f, 0.05f);
+
+        // Released, the bodies are dynamic again and fall.
+        ragdoll->ReleaseToPhysics();
+        SimulateSeconds(1.0f);
+
+        Physics::RagdollState fallenState;
+        ragdoll->GetState(fallenState);
+        EXPECT_LT(fallenState[0].m_position.GetZ(), 4.0f);
     }
 
     TEST_F(JoltRagdollTests, DriveToPoseUsingMotorsBendsTheJointTowardsTheTarget)

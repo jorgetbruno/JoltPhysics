@@ -86,10 +86,11 @@ namespace JoltPhysics
             layerMask = static_cast<AZ::u32>(group.GetMask());
         }
 
+        // The filter is stateless: the mask and layer travel in the group itself.
         return JPH::CollisionGroup(
-            new AzPhysicsGroupFilter(layerMask),
-            0 /* group id, unused */,
-            colliderConfiguration.m_collisionLayer.GetIndex());
+            AzPhysicsGroupFilter::Get(),
+            layerMask /* group id */,
+            colliderConfiguration.m_collisionLayer.GetIndex() /* subgroup id */);
     }
 
 } // namespace JoltPhysics

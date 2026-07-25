@@ -226,6 +226,84 @@ namespace JoltPhysics
 
     void JoltRagdoll::DriveToPoseUsingKinematics(const Physics::RagdollState& targetPose, float deltaTime)
     {
+        // Kinematic bodies are not affected by the solver, so the pose is followed exactly.
+        SetBodiesMotionType(JPH::EMotionType::Kinematic);
+        DriveToPose(targetPose, deltaTime);
+    }
+
+    void JoltRagdoll::DriveToPoseUsingVelocities(
+        const Physics::RagdollState& targetPose, float deltaTime, float maxLinearSpeed, float maxAngularSpeed)
+    {
+        JPH::BodyInterface* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!m_ragdoll || !m_simulated || targetPose.empty() || deltaTime <= 0.0f || !bodyInterface)
+        {
+            return;
+        }
+
+        // The pose is a target the solver is free to overrule when the ragdoll hits
+        // something, so the bodies must stay dynamic.
+        SetBodiesMotionType(JPH::EMotionType::Dynamic);
+
+        for (size_t i = 0; i < m_numNodes; ++i)
+        {
+            const Physics::RagdollNodeState& nodeState = (i < targetPose.size()) ? targetPose[i] : targetPose.back();
+            const JPH::BodyID bodyId = m_ragdoll->GetBodyID(static_cast<int>(i));
+
+            JPH::RVec3 currentPosition;
+            JPH::Quat currentRotation;
+            bodyInterface->GetPositionAndRotation(bodyId, currentPosition, currentRotation);
+
+            // Velocity that closes the whole gap this step, capped so contacts can win.
+            JPH::Vec3 linearVelocity =
+                JPH::Vec3(Conversions::ToJoltR(nodeState.m_position) - currentPosition) / deltaTime;
+            if (linearVelocity.Length() > maxLinearSpeed)
+            {
+                linearVelocity = linearVelocity.Normalized() * maxLinearSpeed;
+            }
+
+            const JPH::Quat deltaRotation =
+                Conversions::ToJolt(nodeState.m_orientation) * currentRotation.Conjugated();
+            JPH::Vec3 rotationAxis;
+            float rotationAngle = 0.0f;
+            deltaRotation.GetAxisAngle(rotationAxis, rotationAngle);
+            JPH::Vec3 angularVelocity = rotationAxis * (rotationAngle / deltaTime);
+            if (angularVelocity.Length() > maxAngularSpeed)
+            {
+                angularVelocity = angularVelocity.Normalized() * maxAngularSpeed;
+            }
+
+            bodyInterface->SetLinearAndAngularVelocity(bodyId, linearVelocity, angularVelocity);
+        }
+    }
+
+    void JoltRagdoll::ReleaseToPhysics()
+    {
+        SetBodiesMotionType(JPH::EMotionType::Dynamic);
+    }
+
+    void JoltRagdoll::SetBodiesMotionType(JPH::EMotionType motionType)
+    {
+        if (m_bodyMotionType == motionType)
+        {
+            return;
+        }
+
+        JPH::BodyInterface* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!m_ragdoll || !bodyInterface)
+        {
+            return;
+        }
+
+        for (size_t i = 0; i < m_numNodes; ++i)
+        {
+            bodyInterface->SetMotionType(
+                m_ragdoll->GetBodyID(static_cast<int>(i)), motionType, JPH::EActivation::Activate);
+        }
+        m_bodyMotionType = motionType;
+    }
+
+    void JoltRagdoll::DriveToPose(const Physics::RagdollState& targetPose, float deltaTime)
+    {
         if (!m_ragdoll || !m_simulated || targetPose.empty() || deltaTime <= 0.0f)
         {
             return;
@@ -331,6 +409,7 @@ namespace JoltPhysics
         m_ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
         m_simulated = true;
         m_simulating = true; // keep the SimulatedBody-level flag in sync
+        m_bodyMotionType = JPH::EMotionType::Dynamic; // the parts are built dynamic
         if (!initialState.empty())
         {
             SetState(initialState);

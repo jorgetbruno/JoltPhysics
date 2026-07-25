@@ -42,10 +42,30 @@ namespace JoltPhysics
         //! Removes the ragdoll's bodies from the physics world (if simulating).
         void RemoveFromScene();
 
-        //! Hard-keys the ragdoll toward the target pose: drives every body kinematically so
-        //! it reaches the corresponding node state within deltaTime (the bodies follow the
-        //! animation and push dynamic objects). Jolt-specific animation-driving entry point.
+        //! Hard-keys the ragdoll to the target pose: the bodies are switched to kinematic
+        //! and given the velocity that reaches the corresponding node state within
+        //! deltaTime. Nothing can push a kinematic body off the animation - it drives
+        //! through obstacles and shoves dynamic objects out of the way.
+        //! The bodies stay kinematic until another drive mode or ReleaseToPhysics is used.
         void DriveToPoseUsingKinematics(const Physics::RagdollState& targetPose, float deltaTime);
+
+        //! Soft-keys the ragdoll toward the target pose: the bodies stay dynamic and are
+        //! given the velocity that would reach the pose, capped so the drive has finite
+        //! authority. The ragdoll follows the animation in open space yet is stopped by
+        //! walls and pushed by impacts.
+        //!
+        //! The caps are what make this soft: an uncapped velocity is recomputed from the
+        //! full remaining distance every step, which overrides whatever the solver did and
+        //! makes the ragdoll drive through obstacles exactly like hard keying.
+        void DriveToPoseUsingVelocities(
+            const Physics::RagdollState& targetPose,
+            float deltaTime,
+            float maxLinearSpeed = 10.0f,
+            float maxAngularSpeed = 10.0f);
+
+        //! Returns the bodies to dynamic, ending any hard keying so the ragdoll goes limp
+        //! and falls under gravity again.
+        void ReleaseToPhysics();
 
         //! Soft-keys the ragdoll toward the target pose ("powered ragdoll"): each joint's
         //! motor is driven towards the target orientation of its node relative to its
@@ -85,6 +105,12 @@ namespace JoltPhysics
         void* GetNativePointer() const override;
 
     private:
+        //! Applies the target pose as velocities on the bodies (Jolt's kinematic drive).
+        //! Whether that is hard or soft keying is decided by the bodies' motion type.
+        void DriveToPose(const Physics::RagdollState& targetPose, float deltaTime);
+        //! Switches every ragdoll body to the given motion type; a no-op when unchanged.
+        void SetBodiesMotionType(JPH::EMotionType motionType);
+
         //! Reads one node's world-space state from its Jolt body.
         void ReadNodeState(size_t nodeIndex, Physics::RagdollNodeState& nodeState) const;
         //! Writes one node's world-space state onto its Jolt body.
@@ -100,5 +126,8 @@ namespace JoltPhysics
         AZ::EntityId m_entityId;
         size_t m_numNodes = 0;
         bool m_simulated = false;
+        //! Motion type the bodies currently have; they are created dynamic and only become
+        //! kinematic while hard keying.
+        JPH::EMotionType m_bodyMotionType = JPH::EMotionType::Dynamic;
     };
 } // namespace JoltPhysics

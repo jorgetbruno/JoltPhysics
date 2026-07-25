@@ -218,6 +218,20 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   release, so callers cast to `JoltPhysics::JoltRagdoll`.
 - **`SetTransform` on the ragdoll is a no-op** — it is driven per node, so moving it
   as a whole means writing a repositioned pose through `SetState`.
+- **All three of Jolt's driving modes are available**: `DriveToPoseUsingKinematics`
+  (hard keying - the bodies become kinematic and follow the pose through anything),
+  `DriveToPoseUsingVelocities` (soft keying - the bodies stay dynamic and are given a
+  *capped* velocity towards the pose, so walls and impacts can overrule it) and
+  `DriveToPoseUsingMotors` (joint motors). `ReleaseToPhysics` returns hard-keyed bodies
+  to dynamic. The velocity caps are what make soft keying soft: an uncapped velocity is
+  recomputed from the full remaining distance every step, which discards the solver's
+  correction and drives through obstacles exactly like hard keying.
+- **Ragdoll parts do not carry AzPhysics collision layers.** Jolt installs its own
+  `GroupFilterTable` on them to disable parent/child collisions, which uses the
+  collision group's subgroup id for the joint index - the same field the gem's layer
+  filtering uses for the collision layer. Ragdolls therefore collide with everything by
+  default, and a body whose collision group mask excludes some layers can filter a
+  ragdoll part out by coincidence of its joint index.
 - **Skeleton mapping is exposed through `JoltSkeletonMapper`** (wrapping
   `JPH::SkeletonMapper`), which maps between the ragdoll's low-detail skeleton and a
   high-detail animation skeleton in both directions. O3DE has no engine-level interface

@@ -65,36 +65,51 @@ namespace JoltPhysics
         bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override;
     };
 
-    //! JPH::GroupFilter carrying an AzPhysics collision-group layer mask.
-    //! The owning body's collision layer index travels in JPH::CollisionGroup's subgroup id.
+    //! Group filter implementing AzPhysics layer/group filtering.
+    //!
+    //! Both values it needs travel in JPH::CollisionGroup itself - the body's collision
+    //! group mask as the group id and its collision layer index as the subgroup id - so
+    //! the filter is stateless and never has to inspect the other body's filter object.
+    //! That matters because Jolt installs its own GroupFilterTable on bodies it builds
+    //! itself (ragdolls use one to disable parent/child collisions), and reading such a
+    //! filter as if it were this one is undefined behaviour.
+    //!
+    //! A body carrying a foreign filter has no group id of ours, which reads as
+    //! cInvalidGroup (all bits set) and therefore collides with every layer. Its subgroup
+    //! id means something else entirely to its own filter - a ragdoll part stores its
+    //! joint index there - so a body whose collision group mask excludes some layers can
+    //! still filter such a part out by coincidence. Ragdoll parts do not carry collision
+    //! layers yet; see DIVERGENCES.md.
     class AzPhysicsGroupFilter final : public JPH::GroupFilter
     {
     public:
-        explicit AzPhysicsGroupFilter(AZ::u32 layerMask)
-            : m_layerMask(layerMask)
+        AzPhysicsGroupFilter()
         {
+            // The single instance lives in static storage; mark it embedded so Jolt's
+            // reference counting never tries to delete it.
+            SetEmbedded();
         }
 
         bool CanCollide(const JPH::CollisionGroup& inGroup1, const JPH::CollisionGroup& inGroup2) const override
         {
-            const auto* filter1 = static_cast<const AzPhysicsGroupFilter*>(inGroup1.GetGroupFilter());
-            const auto* filter2 = static_cast<const AzPhysicsGroupFilter*>(inGroup2.GetGroupFilter());
-            const AZ::u32 layerMask1 = filter1 ? filter1->m_layerMask : AZStd::numeric_limits<AZ::u32>::max();
-            const AZ::u32 layerMask2 = filter2 ? filter2->m_layerMask : AZStd::numeric_limits<AZ::u32>::max();
-            const AZ::u32 layer1 = inGroup1.GetSubGroupID();
-            const AZ::u32 layer2 = inGroup2.GetSubGroupID();
+            const AZ::u32 layerMask1 = inGroup1.GetGroupID();
+            const AZ::u32 layerMask2 = inGroup2.GetGroupID();
+            // A foreign filter's subgroup id is not a layer index at all, so keep the
+            // shift in range rather than letting it run off the end of the mask.
+            const AZ::u32 layerBit1 = 1u << (inGroup1.GetSubGroupID() & 31u);
+            const AZ::u32 layerBit2 = 1u << (inGroup2.GetSubGroupID() & 31u);
             // AzPhysics semantics: two bodies collide only if each one's group mask
-            // contains the other one's layer. A body without a filter collides with everything.
-            return (layerMask1 & (1u << layer2)) != 0 && (layerMask2 & (1u << layer1)) != 0;
+            // contains the other one's layer.
+            return (layerMask1 & layerBit2) != 0 && (layerMask2 & layerBit1) != 0;
         }
 
-        AZ::u32 GetLayerMask() const
+        //! The single shared instance; the filter holds no per-body state, so one serves
+        //! every body and nothing is allocated per collider.
+        static AzPhysicsGroupFilter* Get()
         {
-            return m_layerMask;
+            static AzPhysicsGroupFilter s_instance;
+            return &s_instance;
         }
-
-    private:
-        AZ::u32 m_layerMask = 0;
     };
 
     //! Builds the JPH collision group for a body from an AzPhysics collider configuration.
