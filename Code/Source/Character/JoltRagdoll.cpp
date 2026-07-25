@@ -120,11 +120,13 @@ namespace JoltPhysics
                 // Shape from the matching collider node (first shape); fall back to a small
                 // capsule so a missing collider does not abort creation of the whole ragdoll.
                 JPH::RefConst<JPH::Shape> shape;
+                const Physics::ColliderConfiguration* nodeColliderConfig = nullptr;
                 if (const Physics::CharacterColliderNodeConfiguration* colliderNode =
                         config.m_colliders.FindNodeConfigByName(nodeConfig.m_debugName);
                     colliderNode != nullptr && !colliderNode->m_shapes.empty() && colliderNode->m_shapes.front().second)
                 {
                     shape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderNode->m_shapes.front().second);
+                    nodeColliderConfig = colliderNode->m_shapes.front().first.get();
                 }
                 if (!shape)
                 {
@@ -134,7 +136,10 @@ namespace JoltPhysics
                 part.SetShape(shape);
 
                 part.mMotionType = JPH::EMotionType::Dynamic;
-                part.mObjectLayer = ObjectLayers::Moving;
+                // Each part filters by its own collider's layer and group. The collision
+                // group is left to Jolt, which uses it below to disable parent/child
+                // collisions within the ragdoll.
+                part.mObjectLayer = AcquireObjectLayer(nodeColliderConfig, /*isMoving*/ true);
                 if (i < config.m_initialState.size())
                 {
                     part.mPosition = Conversions::ToJoltR(config.m_initialState[i].m_position);

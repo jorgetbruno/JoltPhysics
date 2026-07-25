@@ -97,9 +97,12 @@ namespace JoltPhysics
             numThreads
         );
 
-        m_broadPhaseInterface.Initialize();
-        m_objectVsBroadPhaseLayerFilter.Initialize();
-        m_objectLayerPairFilter.Initialize();
+        // The registry hands out the object layers the three filters interpret, so it has
+        // to be ready before any body is created.
+        m_objectLayerRegistry.Initialize();
+        m_broadPhaseInterface.Initialize(&m_objectLayerRegistry);
+        m_objectVsBroadPhaseLayerFilter.Initialize(&m_objectLayerRegistry);
+        m_objectLayerPairFilter.Initialize(&m_objectLayerRegistry);
 
         m_sceneInterface.Initialize(this);
 
@@ -446,6 +449,11 @@ namespace JoltPhysics
     ObjectLayerPairFilterImpl& JoltSystem::GetObjectLayerPairFilter()
     {
         return m_objectLayerPairFilter;
+    }
+
+    JoltObjectLayerRegistry& JoltSystem::GetObjectLayerRegistry()
+    {
+        return m_objectLayerRegistry;
     }
 
     JoltSystem* GetJoltSystem()

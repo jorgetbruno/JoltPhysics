@@ -95,33 +95,8 @@ namespace JoltPhysics
             ? JPH::EMotionType::Kinematic
             : JPH::EMotionType::Dynamic;
 
-        JPH::ObjectLayer objectLayer = m_isKinematic
-            ? ObjectLayers::Moving
-            : ObjectLayers::Moving;
-
-        JPH::BodyCreationSettings bodySettings(
-            shape,
-            Conversions::ToJolt(m_configuration.m_position),
-            Conversions::ToJolt(m_configuration.m_orientation),
-            motionType,
-            objectLayer
-        );
-
-        bodySettings.mLinearVelocity = Conversions::ToJolt(m_configuration.m_initialLinearVelocity);
-        bodySettings.mAngularVelocity = Conversions::ToJolt(m_configuration.m_initialAngularVelocity);
-        bodySettings.mLinearDamping = m_configuration.m_linearDamping;
-        bodySettings.mAngularDamping = m_configuration.m_angularDamping;
-        bodySettings.mMaxAngularVelocity = m_configuration.m_maxAngularVelocity;
-        bodySettings.mGravityFactor = m_configuration.m_gravityEnabled ? 1.0f : 0.0f;
-
-        if (m_configuration.m_mass > 0.0f)
-        {
-            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            bodySettings.mMassPropertiesOverride.mMass = m_configuration.m_mass;
-        }
-
-        bodySettings.mAllowSleeping = m_configuration.m_sleepMinEnergy > 0.0f;
-
+        // The collider's layer and group decide the body's object layer, so they have to
+        // be resolved before the creation settings are built.
         const AzPhysics::ShapeColliderPairList colliderPairs =
             JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
         const AZStd::vector<AZStd::shared_ptr<Physics::Shape>> prebuiltShapes =
@@ -140,9 +115,31 @@ namespace JoltPhysics
             }
         }
 
+        JPH::BodyCreationSettings bodySettings(
+            shape,
+            Conversions::ToJolt(m_configuration.m_position),
+            Conversions::ToJolt(m_configuration.m_orientation),
+            motionType,
+            AcquireObjectLayer(firstCollider, /*isMoving*/ true)
+        );
+
+        bodySettings.mLinearVelocity = Conversions::ToJolt(m_configuration.m_initialLinearVelocity);
+        bodySettings.mAngularVelocity = Conversions::ToJolt(m_configuration.m_initialAngularVelocity);
+        bodySettings.mLinearDamping = m_configuration.m_linearDamping;
+        bodySettings.mAngularDamping = m_configuration.m_angularDamping;
+        bodySettings.mMaxAngularVelocity = m_configuration.m_maxAngularVelocity;
+        bodySettings.mGravityFactor = m_configuration.m_gravityEnabled ? 1.0f : 0.0f;
+
+        if (m_configuration.m_mass > 0.0f)
+        {
+            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+            bodySettings.mMassPropertiesOverride.mMass = m_configuration.m_mass;
+        }
+
+        bodySettings.mAllowSleeping = m_configuration.m_sleepMinEnergy > 0.0f;
+
         if (firstCollider)
         {
-            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*firstCollider);
             bodySettings.mIsSensor = firstCollider->m_isTrigger;
             m_isSensor = firstCollider->m_isTrigger;
         }

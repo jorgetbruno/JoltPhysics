@@ -79,6 +79,7 @@ namespace JoltPhysics
         BroadPhaseLayerInterfaceImpl& GetBroadPhaseLayerInterface();
         ObjectVsBroadPhaseLayerFilterImpl& GetObjectVsBroadPhaseLayerFilter();
         ObjectLayerPairFilterImpl& GetObjectLayerPairFilter();
+        JoltObjectLayerRegistry& GetObjectLayerRegistry();
 
     private:
         AZStd::vector<AZ::u64> m_collisionGroupMasks;
@@ -106,6 +107,7 @@ namespace JoltPhysics
 
         AZStd::unique_ptr<JoltMaterialManager> m_materialManager;
 
+        JoltObjectLayerRegistry m_objectLayerRegistry;
         BroadPhaseLayerInterfaceImpl m_broadPhaseInterface;
         ObjectVsBroadPhaseLayerFilterImpl m_objectVsBroadPhaseLayerFilter;
         ObjectLayerPairFilterImpl m_objectLayerPairFilter;

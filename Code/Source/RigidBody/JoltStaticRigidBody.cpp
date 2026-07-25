@@ -101,14 +101,8 @@ namespace JoltPhysics
         }
         m_baseShape = shape;
 
-        JPH::BodyCreationSettings bodySettings(
-            shape,
-            Conversions::ToJolt(m_configuration.m_position),
-            Conversions::ToJolt(m_configuration.m_orientation),
-            JPH::EMotionType::Static,
-            ObjectLayers::NonMoving
-        );
-
+        // The collider's layer and group decide the body's object layer, so they have to
+        // be resolved before the creation settings are built.
         const AzPhysics::ShapeColliderPairList colliderPairs =
             JoltShapeUtils::GetColliderPairList(m_configuration.m_colliderAndShapeData);
         const AZStd::vector<AZStd::shared_ptr<Physics::Shape>> prebuiltShapes =
@@ -127,9 +121,16 @@ namespace JoltPhysics
             }
         }
 
+        JPH::BodyCreationSettings bodySettings(
+            shape,
+            Conversions::ToJolt(m_configuration.m_position),
+            Conversions::ToJolt(m_configuration.m_orientation),
+            JPH::EMotionType::Static,
+            AcquireObjectLayer(firstCollider, /*isMoving*/ false)
+        );
+
         if (firstCollider)
         {
-            bodySettings.mCollisionGroup = CreateCollisionGroupFromConfig(*firstCollider);
             bodySettings.mIsSensor = firstCollider->m_isTrigger;
             m_isSensor = firstCollider->m_isTrigger;
         }

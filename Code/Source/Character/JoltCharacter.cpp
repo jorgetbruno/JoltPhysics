@@ -78,7 +78,8 @@ namespace JoltPhysics
             settings.mUp = Conversions::ToJolt(m_configuration.m_upDirection);
             settings.mMaxSlopeAngle = AZ::DegToRad(m_slopeLimitDegrees);
             settings.mShape = m_shape;
-            settings.mLayer = ObjectLayers::Moving;
+            settings.mLayer =
+                AcquireObjectLayer(m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true);
             // The character is driven entirely by the requested velocity (same contract as
             // the virtual backend), so Jolt's own gravity is disabled. The supporting
             // volume accepts contacts below the centre; steep contacts are still rejected
@@ -104,7 +105,8 @@ namespace JoltPhysics
         // The inner body makes the character visible to the simulation: dynamic bodies
         // are blocked/pushed by it and sensors fire trigger events for it.
         settings.mInnerBodyShape = m_shape;
-        settings.mInnerBodyLayer = ObjectLayers::Moving;
+        settings.mInnerBodyLayer =
+            AcquireObjectLayer(m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true);
 
         m_character = AZStd::make_unique<JPH::CharacterVirtual>(
             &settings,

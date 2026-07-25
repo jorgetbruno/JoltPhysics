@@ -182,6 +182,26 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   have no `Physics::ShapeType` counterpart, so they would each need a gem-specific
   configuration in the same way as the cylinder.
 
+## Collision filtering
+
+- **AzPhysics layer/group filtering is carried by Jolt's object layers.** AzPhysics
+  filtering is per body - two bodies collide only if each one's group mask contains the
+  other one's layer - which cannot be expressed as a function of two layer indices, so
+  the gem registers one Jolt object layer per distinct combination of collision layer,
+  collision group and motion class (`JoltObjectLayerRegistry`) and evaluates the rule in
+  `ObjectLayerPairFilter`. Broadphase layers keep only the moving/non-moving split.
+- **`JPH::CollisionGroup` is left to Jolt.** It is what Jolt's own subsystems use for
+  their internal filtering (ragdolls install a `GroupFilterTable` there to disable
+  parent/child collisions), so the gem stores nothing in it. An earlier design put the
+  layer and mask in the collision group, which both collided with those subsystems and
+  meant reading another filter's fields.
+- **Scene queries filter by object layer** rather than inspecting each candidate body,
+  so a query's collision group mask applies uniformly to every body in the scene,
+  including ones Jolt creates itself.
+- **Combinations are capped at 512.** Beyond that, further bodies fall back to
+  colliding with everything and a warning is emitted. The count is per distinct
+  (layer, group, moving) triple actually used, not per body.
+
 ## Scene queries and rigid body details
 
 - **Async scene queries complete on the next `FinishSimulation`**, not on a worker
@@ -226,12 +246,10 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   to dynamic. The velocity caps are what make soft keying soft: an uncapped velocity is
   recomputed from the full remaining distance every step, which discards the solver's
   correction and drives through obstacles exactly like hard keying.
-- **Ragdoll parts do not carry AzPhysics collision layers.** Jolt installs its own
-  `GroupFilterTable` on them to disable parent/child collisions, which uses the
-  collision group's subgroup id for the joint index - the same field the gem's layer
-  filtering uses for the collision layer. Ragdolls therefore collide with everything by
-  default, and a body whose collision group mask excludes some layers can filter a
-  ragdoll part out by coincidence of its joint index.
+- **Ragdoll parts carry their own collision layer and group**, taken from each node's
+  collider configuration, and Jolt's `GroupFilterTable` still disables parent/child
+  collisions within the ragdoll. The two coexist because layer filtering lives in the
+  object layer, not the collision group (see below).
 - **Skeleton mapping is exposed through `JoltSkeletonMapper`** (wrapping
   `JPH::SkeletonMapper`), which maps between the ragdoll's low-detail skeleton and a
   high-detail animation skeleton in both directions. O3DE has no engine-level interface
