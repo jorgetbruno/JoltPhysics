@@ -105,6 +105,7 @@ namespace JoltPhysics
         Physics::SystemRequestBus::Handler::BusConnect();
         Physics::CollisionRequestBus::Handler::BusConnect();
         Physics::SystemDebugRequestBus::Handler::BusConnect();
+        JoltPhysicsSystemRequestBus::Handler::BusConnect();
         AZ::TickBus::Handler::BusConnect();
 
         // Physics::System and Physics::SystemRequests are the same type (see SystemBus.h:
@@ -120,6 +121,7 @@ namespace JoltPhysics
         AZ::Interface<Physics::System>::Unregister(this);
 
         AZ::TickBus::Handler::BusDisconnect();
+        JoltPhysicsSystemRequestBus::Handler::BusDisconnect();
         Physics::SystemDebugRequestBus::Handler::BusDisconnect();
         Physics::CollisionRequestBus::Handler::BusDisconnect();
         Physics::SystemRequestBus::Handler::BusDisconnect();
@@ -444,6 +446,20 @@ namespace JoltPhysics
             float m_drawDistanceSq = 0.0f;
             bool m_enabled = false;
         };
+    }
+
+    JPH::PhysicsSystem* JoltPhysicsSystemComponent::GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle)
+    {
+        auto* systemInterface = AZ::Interface<AzPhysics::SystemInterface>::Get();
+        if (!systemInterface || sceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return nullptr;
+        }
+
+        // The cast is safe here because this gem owns the scene type; an extension gem
+        // asking through this bus gets null rather than a foreign backend's pointer.
+        auto* joltScene = azrtti_cast<JoltScene*>(systemInterface->GetScene(sceneHandle));
+        return joltScene ? joltScene->GetJoltPhysicsSystem() : nullptr;
     }
 
     void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)

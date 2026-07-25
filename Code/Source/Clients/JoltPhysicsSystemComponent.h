@@ -26,6 +26,7 @@ namespace JoltPhysics
         , protected Physics::SystemRequestBus::Handler
         , protected Physics::CollisionRequestBus::Handler
         , protected Physics::SystemDebugRequestBus::Handler
+        , protected JoltPhysicsSystemRequestBus::Handler
         , public AZ::TickBus::Handler
     {
     public:
@@ -98,6 +99,9 @@ namespace JoltPhysics
 
         // Physics::SystemDebugRequestBus
         void DebugDrawPhysics(const Physics::DebugDrawSettings& settings) override;
+
+        // JoltPhysicsSystemRequestBus
+        JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) override;
 
     private:
         void EnablePhysics();

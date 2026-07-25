@@ -6,6 +6,13 @@
 #include <AzCore/Math/Transform.h>
 #include <AzCore/std/utility/pair.h>
 
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
+
+namespace JPH
+{
+    class PhysicsSystem;
+}
+
 namespace JoltPhysics
 {
     class JoltPhysicsRequests
@@ -71,5 +78,30 @@ namespace JoltPhysics
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;
+
+    //! System-level access to the Jolt backend, for gems that extend it with features
+    //! Jolt provides but this gem does not wrap (buoyancy, soft bodies and so on).
+    //!
+    //! Going through this bus rather than casting a scene's native pointer is what makes
+    //! that safe: the pointer is only handed out when the scene really is a Jolt scene,
+    //! so an extension gem does no harm in a project running a different physics backend.
+    class JoltPhysicsSystemRequests
+        : public AZ::EBusTraits
+    {
+    public:
+        AZ_RTTI(JoltPhysicsSystemRequests, "{F1E2D3C4-B5A6-4978-8A9B-0C1D2E3F4A5B}");
+
+        static constexpr AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
+        static constexpr AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+
+        virtual ~JoltPhysicsSystemRequests() = default;
+
+        //! The JPH::PhysicsSystem backing the given scene, or null when that scene is not
+        //! one of this gem's. The returned system is owned by the scene: it stays valid
+        //! until the scene is removed.
+        virtual JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) = 0;
+    };
+
+    using JoltPhysicsSystemRequestBus = AZ::EBus<JoltPhysicsSystemRequests>;
 
 } // namespace JoltPhysics
