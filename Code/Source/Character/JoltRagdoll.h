@@ -32,6 +32,13 @@ namespace JoltPhysics
 
         //! Builds the JPH ragdoll (bodies + constraints); does not add it to the world yet.
         void CreateInScene(JoltScene* scene);
+
+        //! The native settings, which carry the ragdoll's skeleton and the neutral pose
+        //! of its parts. Used by JoltSkeletonMapper to map against an animation skeleton.
+        const JPH::RagdollSettings* GetNativeSettings() const
+        {
+            return m_settings;
+        }
         //! Removes the ragdoll's bodies from the physics world (if simulating).
         void RemoveFromScene();
 

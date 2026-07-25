@@ -3,6 +3,7 @@
 #include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <Character/JoltRagdoll.h>
+#include <Character/JoltSkeletonMapper.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <Joint/JoltJointConfiguration.h>
 #include <Scene/JoltScene.h>
@@ -248,6 +249,120 @@ namespace JoltPhysics
         EXPECT_NEAR(state[0].m_position.GetX(), 1.0f, 0.1f);
         EXPECT_NEAR(state[0].m_position.GetZ(), 5.0f, 0.2f);
         EXPECT_NEAR(state[1].m_position.GetX(), 1.0f, 0.1f);
+    }
+
+    //! Animation skeleton matching the two-node ragdoll ("root", "child") but with an
+    //! extra joint between them and a leaf the ragdoll does not have - the shape a real
+    //! animation skeleton has relative to its ragdoll.
+    static JoltAnimationSkeleton MakeAnimationSkeleton(float rootZ)
+    {
+        JoltAnimationSkeleton skeleton;
+        auto addJoint = [&skeleton](const char* name, int parentIndex, const AZ::Vector3& position)
+        {
+            skeleton.m_jointNames.push_back(name);
+            skeleton.m_parentIndices.push_back(parentIndex);
+            skeleton.m_neutralPoseModelSpace.push_back(AZ::Transform::CreateTranslation(position));
+        };
+
+        addJoint("root", -1, AZ::Vector3(0.0f, 0.0f, rootZ));           // mapped
+        addJoint("spine", 0, AZ::Vector3(0.0f, 0.0f, rootZ - 0.25f));   // between the two
+        addJoint("child", 1, AZ::Vector3(0.0f, 0.0f, rootZ - 0.5f));    // mapped
+        addJoint("toe", 2, AZ::Vector3(0.0f, 0.0f, rootZ - 0.75f));     // leaf beyond
+        return skeleton;
+    }
+
+    TEST_F(JoltRagdollTests, SkeletonMapperMapsRagdollPoseOntoTheAnimationSkeleton)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+
+        JoltSkeletonMapper mapper;
+        ASSERT_TRUE(mapper.Initialize(*ragdoll, MakeAnimationSkeleton(5.0f)));
+        EXPECT_TRUE(mapper.IsInitialized());
+        // "root" and "child" match by name; "spine" and "toe" have no ragdoll counterpart.
+        EXPECT_EQ(mapper.GetMappedJointCount(), 2u);
+
+        ragdoll->EnableSimulation(config.m_initialState);
+        SimulateSeconds(1.0f);
+
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+
+        AZStd::vector<AZ::Transform> animationPose;
+        ASSERT_TRUE(mapper.MapRagdollStateToAnimationPose(state, animationPose));
+        ASSERT_EQ(animationPose.size(), 4u);
+
+        // The mapped joints follow the simulated bodies exactly...
+        EXPECT_TRUE(animationPose[0].GetTranslation().IsClose(state[0].m_position, 0.01f));
+        EXPECT_TRUE(animationPose[2].GetTranslation().IsClose(state[1].m_position, 0.01f));
+        // ...and the ragdoll has fallen, so the whole mapped pose came down with it.
+        EXPECT_LT(animationPose[0].GetTranslation().GetZ(), 4.0f);
+        // The in-between joint is carried along, staying between its neighbours.
+        const float spineZ = animationPose[1].GetTranslation().GetZ();
+        EXPECT_LE(spineZ, animationPose[0].GetTranslation().GetZ() + 0.01f);
+        EXPECT_GE(spineZ, animationPose[2].GetTranslation().GetZ() - 0.01f);
+    }
+
+    TEST_F(JoltRagdollTests, SkeletonMapperMapsAnimationPoseBackOntoTheRagdoll)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+
+        JoltSkeletonMapper mapper;
+        ASSERT_TRUE(mapper.Initialize(*ragdoll, MakeAnimationSkeleton(5.0f)));
+
+        // An animated pose displaced 2 m along x from the neutral pose.
+        JoltAnimationSkeleton animated = MakeAnimationSkeleton(5.0f);
+        AZStd::vector<AZ::Transform> animationPose = animated.m_neutralPoseModelSpace;
+        for (AZ::Transform& jointTransform : animationPose)
+        {
+            jointTransform.SetTranslation(jointTransform.GetTranslation() + AZ::Vector3(2.0f, 0.0f, 0.0f));
+        }
+
+        Physics::RagdollState ragdollPose;
+        ASSERT_TRUE(mapper.MapAnimationPoseToRagdollState(animationPose, ragdollPose));
+        ASSERT_EQ(ragdollPose.size(), 2u);
+
+        // The ragdoll nodes land on their animation counterparts.
+        EXPECT_TRUE(ragdollPose[0].m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 5.0f), 0.01f));
+        EXPECT_TRUE(ragdollPose[1].m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 4.5f), 0.01f));
+
+        // The mapped pose is usable as a ragdoll pose: keying to it moves the bodies there.
+        ragdoll->EnableSimulation(ragdollPose);
+        Physics::RagdollState state;
+        ragdoll->GetState(state);
+        EXPECT_TRUE(state[0].m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 5.0f), 0.05f));
+    }
+
+    TEST_F(JoltRagdollTests, SkeletonMapperRejectsASkeletonThatSharesNoJointNames)
+    {
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+
+        JoltAnimationSkeleton unrelated = MakeAnimationSkeleton(5.0f);
+        for (AZStd::string& jointName : unrelated.m_jointNames)
+        {
+            jointName = "other_" + jointName;
+        }
+
+        // Joints are matched by name, so nothing maps and initialization fails rather
+        // than silently producing an identity mapping.
+        JoltSkeletonMapper mapper;
+        EXPECT_FALSE(mapper.Initialize(*ragdoll, unrelated));
+        EXPECT_FALSE(mapper.IsInitialized());
+
+        Physics::RagdollState state;
+        AZStd::vector<AZ::Transform> pose;
+        EXPECT_FALSE(mapper.MapRagdollStateToAnimationPose(state, pose));
     }
 
     TEST_F(JoltRagdollTests, PerBodyRayCastHitsNodesAndReportsTheRagdoll)

@@ -39,6 +39,8 @@ set(FILES
     Source/Character/JoltRagdoll.h
     Source/Character/JoltRagdollNode.cpp
     Source/Character/JoltRagdollNode.h
+    Source/Character/JoltSkeletonMapper.cpp
+    Source/Character/JoltSkeletonMapper.h
     Source/Joint/JoltJoint.cpp
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp

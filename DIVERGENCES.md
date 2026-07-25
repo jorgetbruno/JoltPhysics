@@ -218,6 +218,16 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   release, so callers cast to `JoltPhysics::JoltRagdoll`.
 - **`SetTransform` on the ragdoll is a no-op** — it is driven per node, so moving it
   as a whole means writing a repositioned pose through `SetState`.
+- **Skeleton mapping is exposed through `JoltSkeletonMapper`** (wrapping
+  `JPH::SkeletonMapper`), which maps between the ragdoll's low-detail skeleton and a
+  high-detail animation skeleton in both directions. O3DE has no engine-level interface
+  for this, so it is a gem-specific class rather than something reached through
+  `Physics::Ragdoll`. Joints are matched **by name**: a ragdoll node's name comes from
+  its `RagdollNodeConfiguration::m_debugName`, which therefore has to match the
+  animation joint name. The animation skeleton may add joints between ragdoll joints
+  and at the root or leaves; those are carried along by the mapping, and joints
+  belonging to a chain between two mapped joints are reoriented towards the next
+  mapped joint, so extreme poses can show artifacts (a Jolt limitation).
 
 ## Editor components (PhysX-style editor/runtime split)
 
