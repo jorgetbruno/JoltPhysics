@@ -18,8 +18,19 @@ namespace JoltPhysics
         AZ_RTTI(JoltSystemConfiguration, "{7C8E3D5F-2A4B-4E9C-8D1F-6A3B5C7E9D2F}", AzPhysics::SystemConfiguration);
         static void Reflect(AZ::ReflectContext* context);
 
-        JoltSystemConfiguration() = default;
+        //! Seeds the collision configuration, which AzFramework leaves entirely empty:
+        //! CollisionLayers is 64 blank names and CollisionGroups an empty preset list.
+        //! Without this the layer and group dropdowns have nothing to offer and every
+        //! collider sits on an unnamed layer. PhysX seeds the same "Default" layer and
+        //! "All"/"None" groups from its own configuration.
+        JoltSystemConfiguration();
         ~JoltSystemConfiguration() override = default;
+
+        //! Preset ids for the two groups every project starts with. Fixed rather than
+        //! generated, because a collider stores the group *id* it was authored with - a
+        //! fresh id each run would orphan every collider that referenced it.
+        static const AzPhysics::CollisionGroups::Id AllGroupId;
+        static const AzPhysics::CollisionGroups::Id NoneGroupId;
 
         static constexpr unsigned int DefaultMaxBodies = 65536;
         static constexpr unsigned int DefaultNumBodyMutexes = 128;

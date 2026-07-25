@@ -487,6 +487,35 @@ namespace JoltPhysics
 
 namespace JoltPhysics
 {
+    const AzPhysics::CollisionGroups::Id JoltSystemConfiguration::AllGroupId = []()
+    {
+        AzPhysics::CollisionGroups::Id id;
+        id.m_id = AZ::Uuid::CreateString("{3E1A6F84-9C2D-4B57-8A0E-1D5F7C93B4A2}");
+        return id;
+    }();
+
+    const AzPhysics::CollisionGroups::Id JoltSystemConfiguration::NoneGroupId = []()
+    {
+        AzPhysics::CollisionGroups::Id id;
+        id.m_id = AZ::Uuid::CreateString("{7B4D2E90-58C1-4A63-9F2B-6E0A3D8C15F7}");
+        return id;
+    }();
+
+    JoltSystemConfiguration::JoltSystemConfiguration()
+    {
+        // Layer 0 is AzPhysics::CollisionLayer::Default, the layer every collider gets
+        // when nothing is chosen, so it is the one that has to be named.
+        m_collisionConfig.m_collisionLayers.SetName(AzPhysics::CollisionLayer::Default, "Default");
+
+        // Read-only so the configuration window shows them locked: a project can add
+        // groups but removing "All" would break every collider that never picked one
+        // (an empty group id resolves to All).
+        m_collisionConfig.m_collisionGroups.CreateGroup(
+            "All", AzPhysics::CollisionGroup::All, AllGroupId, /*readOnly*/ true);
+        m_collisionConfig.m_collisionGroups.CreateGroup(
+            "None", AzPhysics::CollisionGroup::None, NoneGroupId, /*readOnly*/ true);
+    }
+
     void JoltSystemConfiguration::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))

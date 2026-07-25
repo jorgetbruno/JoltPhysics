@@ -463,6 +463,19 @@ feature, trust the topic sections below the milestones.**
   with add/remove; read-only presets such as All/None are shown locked). Every
   change is applied to the live physics system and saved immediately — there is
   no separate save button.
+- **The gem seeds the collision defaults itself.** AzFramework ships none:
+  `CollisionLayers` is 64 blank names and `CollisionGroups` an empty preset list
+  (`CollisionGroup::All`/`None` are bitmask constants, not presets). A default
+  `JoltSystemConfiguration` therefore names layer 0 "Default" and creates read-only
+  "All" and "None" groups, matching what PhysX seeds from its own configuration.
+  Without this the Collision Layer and Collides With dropdowns are empty and every
+  collider sits on an unnamed layer.
+- **The two default group ids are fixed, not generated.** A collider serializes the
+  group *id* it was authored with, so a freshly generated id each run would orphan
+  every collider that referenced it.
+- **There are always exactly 64 collision layers.** They are named, not created:
+  the Layers tab edits a fixed array, and an empty name means an unused slot, which
+  is why the dropdowns list only the named ones. This matches PhysX.
 - **Configuration persists to `<project>/Registry/joltphysicsconfiguration.setreg`**
   under `/O3DE/Physics/JoltPhysics/{SystemConfiguration,DefaultSceneConfiguration}`.
   The settings registry merges project .setreg files at boot in every build
