@@ -424,6 +424,34 @@ feature, trust the topic sections below the milestones.**
   wrapped by `GenericComponentWrapper` in the editor and instantiate into the game
   entity as before).
 
+## Collider component modes
+
+- **The primitive colliders use AzToolsFramework's own component modes** rather
+  than the hand-written ones PhysX carries. 26.05 ships `BoxComponentMode`,
+  `SphereComponentMode`, `CapsuleComponentMode` and `CylinderComponentMode` with
+  their manipulators already built; a component joins in by answering the matching
+  request bus (`BoxManipulatorRequests`, `RadiusManipulatorRequests`,
+  `CapsuleManipulatorRequests`, `CylinderManipulatorRequests`) and connecting a
+  `ComponentModeDelegate`. So the Jolt colliders get the same handles, keyboard
+  shortcuts and viewport UI as an engine shape component, and PhysX's separate
+  `ColliderBoxMode`/`ColliderCapsuleMode`/... classes have no counterpart here
+  because none is needed.
+- **The collider's translation offset is editable in every mode**, through
+  `ShapeManipulatorRequests` on the shared editor base. PhysX splits offset and
+  rotation into their own sub-modes; here the offset comes with the shape mode and
+  rotation stays a property-grid field.
+- **Manipulator edits refresh property values only**, not the whole tree:
+  rebuilding the property tree mid-drag destroys and recreates the manipulators
+  under the cursor.
+- **Dimensions are clamped where the shape demands it.** A capsule's height is the
+  total including both caps, so height is held at or above twice the radius and
+  radius at or below half the height — otherwise a drag could produce a capsule
+  the backend has to reject.
+- **Heightfield, mesh and compound colliders have no component mode.** They share
+  the same editor base but leave its shape-bounds hook at its default, so they
+  report no selection bounds and get no Edit button — the same reason they are not
+  drawn in the viewport, their geometry is not cheaply available here.
+
 ## Configuration window and collision property editors
 
 - **A "Jolt Physics Configuration" view pane** (Tools menu) mirrors the PhysX
@@ -488,9 +516,6 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
   constraint additionally needs spline authoring. Wrapped: fixed, point (exposed as
   "ball"), distance, hinge, slider (exposed as "prismatic"), cone, swing-twist,
   six-DOF (exposed as "D6"), gear and rack-and-pinion.
-- **No editor component modes or viewport manipulators.** PhysX ships
-  `ColliderComponentMode` with handles for collider dimensions plus dedicated
-  offset and rotation modes; collider dimensions here are numeric entry only.
 - **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
   visualization and auto-configuration) — also noted under M6.
 - **Jolt's own scene serialization (`PhysicsScene`, `ObjectStream`) is not used.**

@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzToolsFramework/ComponentModes/CapsuleComponentMode.h>
+
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderDrawUtils.h>
 #include <Utils/ReflectionUtils.h>
@@ -37,6 +39,57 @@ namespace JoltPhysics
                     ;
             }
         }
+    }
+
+    void EditorJoltCapsuleColliderComponent::Activate()
+    {
+        EditorJoltColliderComponentBase::Activate();
+
+        const AZ::EntityComponentIdPair entityComponentIdPair(GetEntityId(), GetId());
+        AzToolsFramework::CapsuleManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltCapsuleColliderComponent, AzToolsFramework::CapsuleComponentMode>(entityComponentIdPair, this);
+    }
+
+    void EditorJoltCapsuleColliderComponent::Deactivate()
+    {
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusDisconnect();
+        AzToolsFramework::CapsuleManipulatorRequestBus::Handler::BusDisconnect();
+        EditorJoltColliderComponentBase::Deactivate();
+    }
+
+    float EditorJoltCapsuleColliderComponent::GetHeight() const
+    {
+        return m_shapeConfiguration->m_height;
+    }
+
+    void EditorJoltCapsuleColliderComponent::SetHeight(float height)
+    {
+        // O3DE capsule height is the total including both caps, so it can never be shorter
+        // than the sphere those caps would form. Clamping here rather than letting the
+        // manipulator produce a degenerate capsule the backend would have to reject.
+        m_shapeConfiguration->m_height = AZ::GetMax(height, 2.0f * m_shapeConfiguration->m_radius);
+        OnShapeChangedByManipulator();
+    }
+
+    float EditorJoltCapsuleColliderComponent::GetRadius() const
+    {
+        return m_shapeConfiguration->m_radius;
+    }
+
+    void EditorJoltCapsuleColliderComponent::SetRadius(float radius)
+    {
+        m_shapeConfiguration->m_radius = AZ::GetClamp(radius, 0.0001f, 0.5f * m_shapeConfiguration->m_height);
+        OnShapeChangedByManipulator();
+    }
+
+    AZ::Aabb EditorJoltCapsuleColliderComponent::GetLocalShapeBounds() const
+    {
+        const float radius = m_shapeConfiguration->m_radius;
+        return AZ::Aabb::CreateCenterHalfExtents(
+            AZ::Vector3::CreateZero(), AZ::Vector3(radius, radius, 0.5f * m_shapeConfiguration->m_height));
     }
 
     void EditorJoltCapsuleColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)

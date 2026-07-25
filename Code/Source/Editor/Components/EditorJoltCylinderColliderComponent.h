@@ -2,6 +2,9 @@
 
 #include <Editor/Components/EditorJoltColliderComponentBase.h>
 
+#include <AzToolsFramework/Manipulators/CylinderManipulatorRequestBus.h>
+#include <AzToolsFramework/Manipulators/RadiusManipulatorRequestBus.h>
+
 #include <Shape/JoltCylinderShapeConfiguration.h>
 
 namespace JoltPhysics
@@ -11,6 +14,8 @@ namespace JoltPhysics
     //! JoltCylinderColliderComponent via BuildGameEntity.
     class EditorJoltCylinderColliderComponent
         : public EditorJoltColliderComponentBase
+        , private AzToolsFramework::CylinderManipulatorRequestBus::Handler
+        , private AzToolsFramework::RadiusManipulatorRequestBus::Handler
     {
     public:
         AZ_COMPONENT(EditorJoltCylinderColliderComponent, "{E5F6A7B8-C9D0-4314-C7D8-E9F0A1B2C3D4}", EditorJoltColliderComponentBase);
@@ -21,8 +26,21 @@ namespace JoltPhysics
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     protected:
+        // AZ::Component
+        void Activate() override;
+        void Deactivate() override;
+
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
+        AZ::Aabb GetLocalShapeBounds() const override;
+
+        // AzToolsFramework::CylinderManipulatorRequestBus
+        float GetHeight() const override;
+        void SetHeight(float height) override;
+
+        // AzToolsFramework::RadiusManipulatorRequestBus
+        float GetRadius() const override;
+        void SetRadius(float radius) override;
 
     private:
         AZStd::shared_ptr<JoltCylinderShapeConfiguration> m_shapeConfiguration =

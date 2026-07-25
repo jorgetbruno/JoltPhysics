@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzToolsFramework/ComponentModes/SphereComponentMode.h>
+
 #include <Clients/Components/JoltSphereColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderDrawUtils.h>
 #include <Utils/ReflectionUtils.h>
@@ -37,6 +39,39 @@ namespace JoltPhysics
                     ;
             }
         }
+    }
+
+    void EditorJoltSphereColliderComponent::Activate()
+    {
+        EditorJoltColliderComponentBase::Activate();
+
+        const AZ::EntityComponentIdPair entityComponentIdPair(GetEntityId(), GetId());
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltSphereColliderComponent, AzToolsFramework::SphereComponentMode>(entityComponentIdPair, this);
+    }
+
+    void EditorJoltSphereColliderComponent::Deactivate()
+    {
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusDisconnect();
+        EditorJoltColliderComponentBase::Deactivate();
+    }
+
+    float EditorJoltSphereColliderComponent::GetRadius() const
+    {
+        return m_shapeConfiguration->m_radius;
+    }
+
+    void EditorJoltSphereColliderComponent::SetRadius(float radius)
+    {
+        m_shapeConfiguration->m_radius = AZ::GetMax(radius, 0.0001f);
+        OnShapeChangedByManipulator();
+    }
+
+    AZ::Aabb EditorJoltSphereColliderComponent::GetLocalShapeBounds() const
+    {
+        return AZ::Aabb::CreateCenterRadius(AZ::Vector3::CreateZero(), m_shapeConfiguration->m_radius);
     }
 
     void EditorJoltSphereColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)

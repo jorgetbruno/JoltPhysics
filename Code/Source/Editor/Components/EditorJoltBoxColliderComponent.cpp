@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzToolsFramework/ComponentModes/BoxComponentMode.h>
+
 #include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Utils/ReflectionUtils.h>
 
@@ -54,6 +56,47 @@ namespace JoltPhysics
                     ;
             }
         }
+    }
+
+    void EditorJoltBoxColliderComponent::Activate()
+    {
+        EditorJoltColliderComponentBase::Activate();
+
+        const AZ::EntityComponentIdPair entityComponentIdPair(GetEntityId(), GetId());
+        AzToolsFramework::BoxManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+
+        // AzToolsFramework ships the box mode and its manipulators; all this component
+        // supplies is the dimensions bus above, so the collider behaves like the engine's
+        // own box shape in the viewport.
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltBoxColliderComponent, AzToolsFramework::BoxComponentMode>(entityComponentIdPair, this);
+    }
+
+    void EditorJoltBoxColliderComponent::Deactivate()
+    {
+        AzToolsFramework::BoxManipulatorRequestBus::Handler::BusDisconnect();
+        EditorJoltColliderComponentBase::Deactivate();
+    }
+
+    AZ::Vector3 EditorJoltBoxColliderComponent::GetDimensions() const
+    {
+        return m_shapeConfiguration->m_dimensions;
+    }
+
+    void EditorJoltBoxColliderComponent::SetDimensions(const AZ::Vector3& dimensions)
+    {
+        m_shapeConfiguration->m_dimensions = dimensions;
+        OnShapeChangedByManipulator();
+    }
+
+    AZ::Transform EditorJoltBoxColliderComponent::GetCurrentLocalTransform() const
+    {
+        return GetColliderLocalTransform();
+    }
+
+    AZ::Aabb EditorJoltBoxColliderComponent::GetLocalShapeBounds() const
+    {
+        return AZ::Aabb::CreateCenterHalfExtents(AZ::Vector3::CreateZero(), m_shapeConfiguration->m_dimensions * 0.5f);
     }
 
     void EditorJoltBoxColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)

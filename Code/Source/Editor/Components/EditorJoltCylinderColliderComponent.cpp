@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzToolsFramework/ComponentModes/CylinderComponentMode.h>
+
 #include <Clients/Components/JoltCylinderColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderDrawUtils.h>
 #include <Utils/ReflectionUtils.h>
@@ -37,6 +39,54 @@ namespace JoltPhysics
                     ;
             }
         }
+    }
+
+    void EditorJoltCylinderColliderComponent::Activate()
+    {
+        EditorJoltColliderComponentBase::Activate();
+
+        const AZ::EntityComponentIdPair entityComponentIdPair(GetEntityId(), GetId());
+        AzToolsFramework::CylinderManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusConnect(entityComponentIdPair);
+
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltCylinderColliderComponent, AzToolsFramework::CylinderComponentMode>(entityComponentIdPair, this);
+    }
+
+    void EditorJoltCylinderColliderComponent::Deactivate()
+    {
+        AzToolsFramework::RadiusManipulatorRequestBus::Handler::BusDisconnect();
+        AzToolsFramework::CylinderManipulatorRequestBus::Handler::BusDisconnect();
+        EditorJoltColliderComponentBase::Deactivate();
+    }
+
+    float EditorJoltCylinderColliderComponent::GetHeight() const
+    {
+        return m_shapeConfiguration->m_height;
+    }
+
+    void EditorJoltCylinderColliderComponent::SetHeight(float height)
+    {
+        m_shapeConfiguration->m_height = AZ::GetMax(height, 0.0001f);
+        OnShapeChangedByManipulator();
+    }
+
+    float EditorJoltCylinderColliderComponent::GetRadius() const
+    {
+        return m_shapeConfiguration->m_radius;
+    }
+
+    void EditorJoltCylinderColliderComponent::SetRadius(float radius)
+    {
+        m_shapeConfiguration->m_radius = AZ::GetMax(radius, 0.0001f);
+        OnShapeChangedByManipulator();
+    }
+
+    AZ::Aabb EditorJoltCylinderColliderComponent::GetLocalShapeBounds() const
+    {
+        const float radius = m_shapeConfiguration->m_radius;
+        return AZ::Aabb::CreateCenterHalfExtents(
+            AZ::Vector3::CreateZero(), AZ::Vector3(radius, radius, 0.5f * m_shapeConfiguration->m_height));
     }
 
     void EditorJoltCylinderColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
