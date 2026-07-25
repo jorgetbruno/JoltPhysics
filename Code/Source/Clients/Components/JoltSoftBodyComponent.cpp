@@ -37,27 +37,26 @@ namespace JoltPhysics
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
-                editContext->Enum<JoltSoftBodyShape>("Soft Body Shape", "Which geometry the soft body is built from")
-                    ->Value("Cloth", JoltSoftBodyShape::Cloth)
-                    ->Value("Cube", JoltSoftBodyShape::Cube)
-                    ->Value("Balloon", JoltSoftBodyShape::Balloon)
-                    ;
-
-                editContext->Enum<JoltSoftBodyPinning>("Cloth Pinning", "Which cloth particles are held in place")
-                    ->Value("None", JoltSoftBodyPinning::None)
-                    ->Value("Corners", JoltSoftBodyPinning::Corners)
-                    ->Value("Top edge", JoltSoftBodyPinning::TopEdge)
-                    ;
-
+                // Enum values are attached per data element with EnumAttribute, the idiom the
+                // vehicle and joint configurations use. editContext->Enum registers the enum
+                // globally and asserts on a second call, and Reflect runs once per descriptor
+                // registration - this component is registered by the runtime module and the
+                // editor module both.
                 editContext->Class<JoltSoftBodySettings>("Soft Body Settings", "")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_shape,
                         "Shape", "Cloth is a flat sheet, Cube keeps its bulk, Balloon is inflated by pressure. "
                         "Changing this rebuilds the body.")
+                        ->EnumAttribute(JoltSoftBodyShape::Cloth, "Cloth")
+                        ->EnumAttribute(JoltSoftBodyShape::Cube, "Cube")
+                        ->EnumAttribute(JoltSoftBodyShape::Balloon, "Balloon")
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_pinning,
                         "Pinning", "Which cloth particles are fixed in place. A cloth with nothing pinned falls. "
                         "Only applies to the Cloth shape.")
+                        ->EnumAttribute(JoltSoftBodyPinning::None, "None")
+                        ->EnumAttribute(JoltSoftBodyPinning::Corners, "Corners")
+                        ->EnumAttribute(JoltSoftBodyPinning::TopEdge, "Top edge")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_size,
                         "Size", "Extents in metres. Cloth uses X and Y; Cube and Balloon use X alone.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
