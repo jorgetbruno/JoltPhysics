@@ -11,6 +11,7 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
+#include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
@@ -90,6 +91,85 @@ namespace JoltPhysics
     private:
         AZStd::unique_ptr<JoltSystem> m_system;
     };
+
+    TEST_F(JoltCollisionEventTests, SceneLevelCollisionEventDeliversTheWholeBatch)
+    {
+        auto slabHandle = AddStaticSlab();
+        auto boxHandle = AddDynamicBox(3.0f);
+        ASSERT_NE(slabHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        ASSERT_NE(boxHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        int batches = 0;
+        int eventsSeen = 0;
+        bool sawThePair = false;
+        AzPhysics::SceneEvents::OnSceneCollisionsEvent::Handler handler(
+            [&](AzPhysics::SceneHandle sceneHandle, const AzPhysics::CollisionEventList& events)
+            {
+                EXPECT_EQ(sceneHandle, m_sceneHandle);
+                ++batches;
+                eventsSeen += static_cast<int>(events.size());
+                for (const AzPhysics::CollisionEvent& event : events)
+                {
+                    if ((event.m_bodyHandle1 == boxHandle && event.m_bodyHandle2 == slabHandle) ||
+                        (event.m_bodyHandle1 == slabHandle && event.m_bodyHandle2 == boxHandle))
+                    {
+                        sawThePair = true;
+                    }
+                }
+            });
+        m_scene->RegisterSceneCollisionEventHandler(handler);
+
+        SimulateSeconds(2.0f);
+
+        // Registration was always forwarded, but nothing signalled the event, so a
+        // scene-level handler silently never fired for any body type.
+        EXPECT_GT(batches, 0);
+        EXPECT_GT(eventsSeen, 0);
+        EXPECT_TRUE(sawThePair);
+    }
+
+    TEST_F(JoltCollisionEventTests, SceneLevelCollisionEventReportsEachPairOnce)
+    {
+        AddStaticSlab();
+        AddDynamicBox(3.0f);
+
+        // The per-body dispatch sends each event twice, once from each body's
+        // perspective. The scene-level batch must not inherit that doubling.
+        int eventsInFirstNonEmptyBatch = 0;
+        AzPhysics::SceneEvents::OnSceneCollisionsEvent::Handler handler(
+            [&](AzPhysics::SceneHandle, const AzPhysics::CollisionEventList& events)
+            {
+                if (eventsInFirstNonEmptyBatch == 0 && !events.empty())
+                {
+                    eventsInFirstNonEmptyBatch = static_cast<int>(events.size());
+                }
+            });
+        m_scene->RegisterSceneCollisionEventHandler(handler);
+
+        SimulateSeconds(2.0f);
+
+        EXPECT_EQ(eventsInFirstNonEmptyBatch, 1);
+    }
+
+    TEST_F(JoltCollisionEventTests, SceneLevelTriggerEventDeliversTheWholeBatch)
+    {
+        AddStaticSlab(/*isTrigger*/ true);
+        auto boxHandle = AddDynamicBox(3.0f);
+        ASSERT_NE(boxHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        int triggerEventsSeen = 0;
+        AzPhysics::SceneEvents::OnSceneTriggersEvent::Handler handler(
+            [&](AzPhysics::SceneHandle sceneHandle, const AzPhysics::TriggerEventList& events)
+            {
+                EXPECT_EQ(sceneHandle, m_sceneHandle);
+                triggerEventsSeen += static_cast<int>(events.size());
+            });
+        m_scene->RegisterSceneTriggersEventHandler(handler);
+
+        SimulateSeconds(2.0f);
+
+        EXPECT_GT(triggerEventsSeen, 0);
+    }
 
     TEST_F(JoltCollisionEventTests, FallingBodyFiresCollisionBeginAndPersistOnStaticSlab)
     {

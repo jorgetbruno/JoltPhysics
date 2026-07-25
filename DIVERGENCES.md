@@ -62,7 +62,10 @@ feature, trust the topic sections below the milestones.**
 - **[superseded]** *`AzPhysics::SceneInterface` is not implemented yet, so
   scene-level events are unavailable.* `JoltSceneInterface` registers the interface
   and forwards `OnSceneCollisionsEvent`, `OnSceneTriggersEvent` and the
-  simulation start/finish events to the scene.
+  simulation start/finish events to the scene. Note that *registration* was
+  forwarded from the start but nothing ever signalled the collision and trigger
+  events, so handlers registered through them silently never fired until that was
+  fixed — see "Scene-level collision and trigger events" below.
 - **[superseded — see "Shapes"]** *Mesh colliders and `Physics::Shape` objects
   remain unimplemented.* `CreateShape` returns a real `JoltShape`, mesh cooking
   works, and `AddShape`/`RemoveShape` mutate live bodies through
@@ -316,6 +319,20 @@ feature, trust the topic sections below the milestones.**
   belonging to a chain between two mapped joints are reoriented towards the next
   mapped joint, so extreme poses can show artifacts (a Jolt limitation).
 
+## Scene-level collision and trigger events
+
+- **`RegisterSceneCollisionEventHandler` and `RegisterSceneTriggersEventHandler`
+  were registered but never signalled.** `JoltSceneInterface` forwarded
+  registration to `AzPhysics::Scene`, which stored the handler, and nothing ever
+  called `Signal` on `m_sceneCollisionEvent`/`m_sceneTriggerEvent` — so a
+  scene-level handler was silently dead for every body type while per-body
+  `OnCollisionBegin`/`OnTriggerEnter` worked. Both are now signalled once per step
+  with the whole batch.
+- **The scene-level batch reports each pair once**, in its original orientation.
+  The per-body dispatch that follows sends each event twice, once from each body's
+  point of view with the contact normals flipped; the scene batch is signalled
+  before that swapping happens rather than inheriting the doubling.
+
 ## Soft bodies
 
 - **There is no PhysX counterpart at all.** PhysX 5 has soft bodies but the O3DE
@@ -335,11 +352,29 @@ feature, trust the topic sections below the milestones.**
   linear damping, pressure and gravity factor forward straight to Jolt's motion
   properties and can change every frame. The runtime bus only exposes the live
   ones.
-- **Soft bodies are not `AzPhysics::SimulatedBody`s.** They hold a raw
-  `JPH::BodyID` rather than a scene handle, so they do not appear in scene
-  queries, raise no collision or trigger events, and cannot be fetched through
-  `AzPhysics::SceneInterface`. Rigid bodies still collide with them in the
-  solver.
+- **Soft bodies are `AzPhysics::SimulatedBody`s**, created through
+  `SceneInterface::AddSimulatedBody` from a `JoltSoftBodyConfiguration` and owned by
+  the scene like any other body. They appear in scene queries, answer body-level
+  `RayCast` against their *deformed* surface, raise collision events, and are
+  reachable through their scene handle. The component holds a handle rather than
+  the body.
+- **Their world placement is part of the creation configuration**, not something
+  applied afterwards: the particles are generated in world space when the body is
+  built. `GetTransform`/`GetPosition` therefore report where the body was created,
+  while `GetAabb` reports where its particles actually are — a draped cloth can be
+  nowhere near its creation transform.
+- **Soft body collision events come from a separate Jolt listener.**
+  `JPH::ContactListener` never sees soft body contacts; Jolt reports them through
+  `JPH::SoftBodyContactListener`, once per soft body per step, with a per-particle
+  manifold rather than a shape manifold. The gem bridges that onto the same
+  collision events every other body raises, grouping the contacting particles by
+  the body they touch so one event is reported per body pair. The contacts carry
+  particle positions and normals.
+- **Soft body contacts have no removal callback.** Jolt simply stops reporting a
+  pair, so End events are derived by sweeping, after each step, for pairs that were
+  not refreshed. Begin/Persist/End therefore behave as they do for rigid bodies,
+  but End arrives on the step after contact is lost rather than the moment it
+  breaks.
 - **Collision layer and group are live settings, not baked ones.** Jolt can move a
   body between object layers with `BodyInterface::SetObjectLayer`, so changing
   either re-resolves the object layer and moves the existing body rather than

@@ -11,7 +11,9 @@
 
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
+#include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
+#include <AzFramework/Physics/Configuration/SimulatedBodyConfiguration.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
@@ -27,6 +29,8 @@ namespace JPH
 
 namespace JoltPhysics
 {
+    class JoltScene;
+
     //! Everything describing a soft body. The fields split into two kinds, and the split
     //! matters: those marked "baked" go into the particle layout when the body is built
     //! and cannot be changed on a live body, while the rest are forwarded straight to
@@ -70,6 +74,19 @@ namespace JoltPhysics
         AzPhysics::CollisionGroups::Id m_collisionGroupId;
     };
 
+    //! What JoltScene::AddSimulatedBody needs to build a soft body: the settings plus the
+    //! world placement, since a soft body's particles are generated in world space at
+    //! creation rather than following an entity transform afterwards.
+    struct JoltSoftBodyConfiguration : public AzPhysics::SimulatedBodyConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltSoftBodyConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltSoftBodyConfiguration, "{1BFA7A03-9E43-4A2C-A6F0-5D62E7B7A9C4}",
+            AzPhysics::SimulatedBodyConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JoltSoftBodySettings m_settings;
+    };
+
     //! A Jolt soft body - cloth, a wobbling cube or a pressurised balloon - in one of this
     //! gem's scenes.
     //!
@@ -85,16 +102,25 @@ namespace JoltPhysics
     //! *is* a body: it needs object layers, collision filtering and eventually scene handles
     //! and collision events, all of which are this gem's internals. Buoyancy stays outside
     //! because it only perturbs bodies that something else owns.
-    class JoltSoftBody final
+    class JoltSoftBody final : public AzPhysics::SimulatedBody
     {
     public:
         AZ_CLASS_ALLOCATOR(JoltSoftBody, AZ::SystemAllocator);
+        AZ_RTTI(JoltSoftBody, "{2C6B4E18-70D5-49A7-8F31-9E0C5A7B4D62}", AzPhysics::SimulatedBody);
 
         JoltSoftBody() = default;
-        ~JoltSoftBody();
+        explicit JoltSoftBody(const JoltSoftBodyConfiguration& configuration);
+        ~JoltSoftBody() override;
 
         JoltSoftBody(const JoltSoftBody&) = delete;
         JoltSoftBody& operator=(const JoltSoftBody&) = delete;
+
+        //! Builds the body in the scene that owns it. Called by JoltScene::AddSimulatedBody.
+        void CreateInScene(JoltScene* scene);
+
+        //! Removes the body from the physics system, leaving the object intact for the
+        //! scene's deferred deletion.
+        void RemoveFromJoltWorld();
 
         //! Builds the body and adds it to the given scene. Returns false when the scene is
         //! not backed by Jolt, which is the case under any other physics backend.
@@ -110,9 +136,23 @@ namespace JoltPhysics
 
         bool IsAttached() const;
 
+        // AzPhysics::SimulatedBody
+        AzPhysics::SceneQueryHit RayCast(const AzPhysics::RayCastRequest& request) override;
+        AZ::Crc32 GetNativeType() const override;
+        void* GetNativePointer() const override;
+        AZ::EntityId GetEntityId() const override;
+        AZ::Transform GetTransform() const override;
+        AZ::Vector3 GetPosition() const override;
+        AZ::Quaternion GetOrientation() const override;
+        //! Bounds of the simulated particles, which is where the body actually is - a
+        //! deformed cloth can be nowhere near its creation transform.
+        AZ::Aabb GetAabb() const override;
+
         //! The body's world placement. Applied when the body is built; moving an existing
         //! soft body would fight the solver, so this only takes effect on the next build.
-        void SetTransform(const AZ::Transform& worldTransform);
+        void SetTransform(const AZ::Transform& worldTransform) override;
+
+        JPH::BodyID GetBodyId() const;
 
         //! Replaces the settings. Live fields are pushed to the body immediately; changing
         //! a baked field rebuilds the body in place, keeping it in the same scene.
@@ -173,6 +213,8 @@ namespace JoltPhysics
         //! rendering reads particle positions.
         mutable AZStd::mutex m_mutex;
 
+        AZ::EntityId m_entityId;
+        JoltScene* m_scene = nullptr;
         JPH::PhysicsSystem* m_physicsSystem = nullptr;
         JPH::ObjectLayer m_objectLayer = 0;
         JPH::BodyID m_bodyId;

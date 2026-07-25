@@ -21,6 +21,8 @@
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
+#include <Jolt/Physics/SoftBody/SoftBodyContactListener.h>
+#include <Jolt/Physics/SoftBody/SoftBodyManifold.h>
 
 namespace JPH
 {
@@ -34,6 +36,7 @@ namespace JPH
 namespace JoltPhysics
 {
     class JoltContactListener;
+    class JoltSoftBodyContactListener;
     class JoltBodyActivationListener;
 
     class JoltScene final : public AzPhysics::Scene
@@ -139,6 +142,18 @@ namespace JoltPhysics
         //! so the resulting event carries an empty contact list.
         void QueueCollisionEndEvent(JPH::BodyID body1Id, JPH::BodyID body2Id);
 
+        //! Queues a Begin or Persist event for a soft body touching another body, and
+        //! records the pair as touching this step. Jolt reports soft body contacts through
+        //! its own listener, once per soft body per step, with a per-particle manifold
+        //! rather than a shape manifold - so the contacts are the colliding particles.
+        void QueueSoftBodyCollisionEvent(
+            JPH::BodyID softBodyId, JPH::BodyID otherBodyId, AZStd::vector<AzPhysics::Contact>&& contacts);
+
+        //! Emits End events for soft body pairs that stopped touching. Soft body contacts
+        //! have no removal callback - Jolt simply stops reporting them - so a pair that was
+        //! not refreshed this step has ended.
+        void FlushEndedSoftBodyContacts();
+
         //! Records the first/last touching sub-shape of a body pair so collision Begin/End
         //! fire once per pair. TrackContactAdded returns true on the first contact of the
         //! pair; TrackContactRemoved returns true when the last contact is removed (false
@@ -238,6 +253,17 @@ namespace JoltPhysics
         AzPhysics::TriggerEventList m_queuedTriggerEvents;
 
         AZStd::mutex m_collisionEventMutex;
+
+        //! Soft body pairs currently touching, and the step each was last reported on.
+        struct SoftBodyContactPair
+        {
+            JPH::BodyID m_softBodyId;
+            JPH::BodyID m_otherBodyId;
+            AZ::u64 m_lastSeenStep = 0;
+        };
+        AZStd::unordered_map<AZ::u64, SoftBodyContactPair> m_softBodyContacts;
+        AZStd::mutex m_softBodyContactsMutex;
+        AZ::u64 m_simulationStep = 0;
         AzPhysics::CollisionEventList m_queuedCollisionEvents;
 
         //! Live sub-shape contact count per body pair (normalized key -> count). Lets
@@ -284,6 +310,7 @@ namespace JoltPhysics
         JPH::BodyInterface* m_bodyInterface = nullptr;
 
         AZStd::unique_ptr<JoltContactListener> m_contactListener;
+        AZStd::unique_ptr<JoltSoftBodyContactListener> m_softBodyContactListener;
         AZStd::unique_ptr<JoltBodyActivationListener> m_activationListener;
 
         JPH::JobSystemThreadPool* m_jobSystem = nullptr;
@@ -291,6 +318,20 @@ namespace JoltPhysics
         int m_collisionSteps = 1;
 
         AZ::Vector3 m_gravity = AZ::Vector3(0.0f, 0.0f, -9.81f);
+    };
+
+    //! Bridges Jolt's separate soft-body contact path onto the scene's collision events.
+    //! Soft body contacts never reach JPH::ContactListener - Jolt reports them here
+    //! instead, once per soft body per step.
+    class JoltSoftBodyContactListener : public JPH::SoftBodyContactListener
+    {
+    public:
+        JoltSoftBodyContactListener(JoltScene* scene) : m_scene(scene) {}
+
+        void OnSoftBodyContactAdded(const JPH::Body& inSoftBody, const JPH::SoftBodyManifold& inManifold) override;
+
+    private:
+        JoltScene* m_scene = nullptr;
     };
 
     class JoltContactListener : public JPH::ContactListener

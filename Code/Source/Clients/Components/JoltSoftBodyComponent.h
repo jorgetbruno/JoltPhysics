@@ -72,7 +72,13 @@ namespace JoltPhysics
         JoltSoftBodySettings m_settings;
         bool m_visible = true;
 
-        JoltSoftBody m_softBody;
+        //! The scene owns the body; this component only holds its handle. Null whenever
+        //! the component is disabled or its scene has gone away.
+        JoltSoftBody* GetSoftBody() const;
+        void CreateSoftBody();
+        void DestroySoftBody();
+
+        AzPhysics::SimulatedBodyHandle m_softBodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
         bool m_enabled = true;
 

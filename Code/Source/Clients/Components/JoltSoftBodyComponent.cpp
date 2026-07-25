@@ -1,10 +1,12 @@
 #include <Clients/Components/JoltSoftBodyComponent.h>
 
+#include <AzCore/Component/Entity.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <AzFramework/Physics/PropertyTypes.h>
+#include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/SystemBus.h>
 
 #include <SoftBody/JoltSoftBodyRender.h>
@@ -135,16 +137,9 @@ namespace JoltPhysics
         Physics::DefaultWorldBus::BroadcastResult(
             m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
 
-        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
-        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-        // Settings and transform first: Attach builds the particles immediately, so both
-        // have to be in place before it runs rather than after.
-        m_softBody.SetSettings(m_settings);
-        m_softBody.SetTransform(worldTransform);
         if (m_enabled)
         {
-            m_softBody.Attach(m_attachedSceneHandle);
+            CreateSoftBody();
         }
 
         AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
@@ -158,7 +153,7 @@ namespace JoltPhysics
         JoltSoftBodyRequestBus::Handler::BusDisconnect();
         AZ::TransformNotificationBus::Handler::BusDisconnect();
 
-        m_softBody.Detach();
+        DestroySoftBody();
         m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
     }
 
@@ -166,7 +161,10 @@ namespace JoltPhysics
     {
         // Rebuilds the body at the new placement. Moving a soft body every frame would
         // rebuild it every frame, so this suits placement rather than animation.
-        m_softBody.SetTransform(world);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetTransform(world);
+        }
     }
 
     void JoltSoftBodyComponent::OnTick(float /*deltaTime*/, AZ::ScriptTimePoint /*time*/)
@@ -176,7 +174,8 @@ namespace JoltPhysics
             return;
         }
 
-        if (!m_softBody.CopyVertexPositions(m_vertexPositionCache))
+        auto* softBody = GetSoftBody();
+        if (!softBody || !softBody->CopyVertexPositions(m_vertexPositionCache))
         {
             return;
         }
@@ -185,14 +184,61 @@ namespace JoltPhysics
         AzFramework::DebugDisplayRequestBus::Bind(debugDisplayBus, AzFramework::g_defaultSceneEntityDebugDisplayId);
         if (auto* debugDisplay = AzFramework::DebugDisplayRequestBus::FindFirstHandler(debugDisplayBus))
         {
-            DrawSoftBody(*debugDisplay, m_vertexPositionCache, m_softBody.GetTriangleIndices());
+            DrawSoftBody(*debugDisplay, m_vertexPositionCache, softBody->GetTriangleIndices());
         }
+    }
+
+    JoltSoftBody* JoltSoftBodyComponent::GetSoftBody() const
+    {
+        auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
+        if (!sceneInterface || m_softBodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return nullptr;
+        }
+        return azdynamic_cast<JoltSoftBody*>(
+            sceneInterface->GetSimulatedBodyFromHandle(m_attachedSceneHandle, m_softBodyHandle));
+    }
+
+    void JoltSoftBodyComponent::CreateSoftBody()
+    {
+        auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
+        if (!sceneInterface || m_attachedSceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return;
+        }
+
+        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+
+        // The particles are generated in world space at creation, so the placement has to
+        // be part of the configuration rather than applied afterwards.
+        JoltSoftBodyConfiguration configuration;
+        configuration.m_settings = m_settings;
+        configuration.m_position = worldTransform.GetTranslation();
+        configuration.m_orientation = worldTransform.GetRotation();
+        configuration.m_entityId = GetEntityId();
+        configuration.m_debugName = GetEntity() ? GetEntity()->GetName() : AZStd::string();
+
+        m_softBodyHandle = sceneInterface->AddSimulatedBody(m_attachedSceneHandle, &configuration);
+    }
+
+    void JoltSoftBodyComponent::DestroySoftBody()
+    {
+        if (auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
+            sceneInterface && m_softBodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            sceneInterface->RemoveSimulatedBody(m_attachedSceneHandle, m_softBodyHandle);
+        }
+        m_softBodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
     }
 
     void JoltSoftBodyComponent::SetPressure(float pressure)
     {
         m_settings.m_pressure = pressure;
-        m_softBody.SetPressure(pressure);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetPressure(pressure);
+        }
     }
 
     float JoltSoftBodyComponent::GetPressure() const
@@ -203,7 +249,10 @@ namespace JoltPhysics
     void JoltSoftBodyComponent::SetLinearDamping(float damping)
     {
         m_settings.m_linearDamping = damping;
-        m_softBody.SetLinearDamping(damping);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetLinearDamping(damping);
+        }
     }
 
     float JoltSoftBodyComponent::GetLinearDamping() const
@@ -214,7 +263,10 @@ namespace JoltPhysics
     void JoltSoftBodyComponent::SetGravityFactor(float factor)
     {
         m_settings.m_gravityFactor = factor;
-        m_softBody.SetGravityFactor(factor);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetGravityFactor(factor);
+        }
     }
 
     float JoltSoftBodyComponent::GetGravityFactor() const
@@ -225,7 +277,10 @@ namespace JoltPhysics
     void JoltSoftBodyComponent::SetNumIterations(AZ::u32 iterations)
     {
         m_settings.m_numIterations = iterations;
-        m_softBody.SetNumIterations(iterations);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetNumIterations(iterations);
+        }
     }
 
     AZ::u32 JoltSoftBodyComponent::GetNumIterations() const
@@ -236,7 +291,10 @@ namespace JoltPhysics
     void JoltSoftBodyComponent::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
     {
         m_settings.m_collisionLayer = layer;
-        m_softBody.SetCollisionLayer(layer);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetCollisionLayer(layer);
+        }
     }
 
     AzPhysics::CollisionLayer JoltSoftBodyComponent::GetCollisionLayer() const
@@ -247,7 +305,10 @@ namespace JoltPhysics
     void JoltSoftBodyComponent::SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId)
     {
         m_settings.m_collisionGroupId = groupId;
-        m_softBody.SetCollisionGroupId(groupId);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetCollisionGroupId(groupId);
+        }
     }
 
     AzPhysics::CollisionGroups::Id JoltSoftBodyComponent::GetCollisionGroupId() const
@@ -265,11 +326,11 @@ namespace JoltPhysics
 
         if (enabled)
         {
-            m_softBody.Attach(m_attachedSceneHandle);
+            CreateSoftBody();
         }
         else
         {
-            m_softBody.Detach();
+            DestroySoftBody();
         }
     }
 
@@ -280,16 +341,19 @@ namespace JoltPhysics
 
     AZ::u32 JoltSoftBodyComponent::GetVertexCount() const
     {
-        return m_softBody.GetVertexCount();
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetVertexCount() : 0;
     }
 
     AZ::Aabb JoltSoftBodyComponent::GetWorldBounds() const
     {
-        return m_softBody.GetWorldBounds();
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetWorldBounds() : AZ::Aabb::CreateNull();
     }
 
     AZ::Vector3 JoltSoftBodyComponent::GetVertexPosition(AZ::u32 index) const
     {
-        return m_softBody.GetVertexPosition(index);
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetVertexPosition(index) : AZ::Vector3::CreateZero();
     }
 } // namespace JoltPhysics

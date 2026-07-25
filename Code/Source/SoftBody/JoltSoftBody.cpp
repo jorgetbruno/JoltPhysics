@@ -9,6 +9,7 @@
 
 #include <Scene/JoltScene.h>
 #include <System/CollisionLayerFilters.h>
+#include <Utils/Conversions.h>
 
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
@@ -96,6 +97,127 @@ namespace JoltPhysics
     JoltSoftBody::~JoltSoftBody()
     {
         Detach();
+    }
+
+    JoltSoftBody::JoltSoftBody(const JoltSoftBodyConfiguration& configuration)
+        : m_settings(configuration.m_settings)
+        , m_worldTransform(AZ::Transform::CreateFromQuaternionAndTranslation(
+              configuration.m_orientation, configuration.m_position))
+    {
+        m_entityId = configuration.m_entityId;
+    }
+
+    void JoltSoftBody::CreateInScene(JoltScene* scene)
+    {
+        m_scene = scene;
+        if (!scene)
+        {
+            return;
+        }
+
+        AttachToPhysicsSystem(
+            scene->GetJoltPhysicsSystem(),
+            AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true));
+    }
+
+    void JoltSoftBody::RemoveFromJoltWorld()
+    {
+        AZStd::lock_guard lock(m_mutex);
+        DestroyBody();
+    }
+
+    JPH::BodyID JoltSoftBody::GetBodyId() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_bodyId;
+    }
+
+    AZ::Crc32 JoltSoftBody::GetNativeType() const
+    {
+        return AZ_CRC_CE("JoltSoftBody");
+    }
+
+    void* JoltSoftBody::GetNativePointer() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return nullptr;
+        }
+        // The body itself, matching what the other body types return. Reading it needs a
+        // lock, which is the caller's business once they have the pointer.
+        return const_cast<JPH::BodyInterface*>(&m_physicsSystem->GetBodyInterface());
+    }
+
+    AZ::EntityId JoltSoftBody::GetEntityId() const
+    {
+        return m_entityId;
+    }
+
+    AZ::Transform JoltSoftBody::GetTransform() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_worldTransform;
+    }
+
+    AZ::Vector3 JoltSoftBody::GetPosition() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_worldTransform.GetTranslation();
+    }
+
+    AZ::Quaternion JoltSoftBody::GetOrientation() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_worldTransform.GetRotation();
+    }
+
+    AZ::Aabb JoltSoftBody::GetAabb() const
+    {
+        return GetWorldBounds();
+    }
+
+    AzPhysics::SceneQueryHit JoltSoftBody::RayCast(const AzPhysics::RayCastRequest& request)
+    {
+        AzPhysics::SceneQueryHit queryHit;
+
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return queryHit;
+        }
+
+        JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded())
+        {
+            return queryHit;
+        }
+
+        const JPH::Body& body = bodyLock.GetBody();
+
+        // Cast in body-local space, as the rigid bodies do. A soft body's shape tracks its
+        // particles, so this hits the deformed surface rather than the rest shape.
+        const JPH::Mat44 worldToLocal = body.GetInverseCenterOfMassTransform();
+        const JPH::Vec3 localStart = worldToLocal * Conversions::ToJolt(request.m_start);
+        const JPH::Vec3 localDirection =
+            worldToLocal.Multiply3x3(Conversions::ToJolt(request.m_direction * request.m_distance));
+
+        JPH::RayCast ray(localStart, localDirection);
+        JPH::RayCastResult hit;
+        if (body.GetShape()->CastRay(ray, JPH::SubShapeIDCreator(), hit))
+        {
+            queryHit.m_distance = hit.mFraction * request.m_distance;
+            queryHit.m_position = request.m_start + request.m_direction * (hit.mFraction * request.m_distance);
+            queryHit.m_normal = Conversions::FromJolt(
+                body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, Conversions::ToJolt(queryHit.m_position)));
+            queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
+                AzPhysics::SceneQuery::ResultFlags::Position | AzPhysics::SceneQuery::ResultFlags::Normal |
+                AzPhysics::SceneQuery::ResultFlags::BodyHandle | AzPhysics::SceneQuery::ResultFlags::EntityId;
+            queryHit.m_bodyHandle = m_bodyHandle;
+            queryHit.m_entityId = m_entityId;
+        }
+
+        return queryHit;
     }
 
     bool JoltSoftBody::Attach(AzPhysics::SceneHandle sceneHandle)

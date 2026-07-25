@@ -8,6 +8,7 @@
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <RigidBody/JoltStaticRigidBody.h>
+#include <SoftBody/JoltSoftBody.h>
 #include <Utils/Conversions.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
@@ -82,6 +83,7 @@ namespace JoltPhysics
         m_joints.clear();
 
         m_contactListener.reset();
+        m_softBodyContactListener.reset();
         m_activationListener.reset();
         m_physicsSystem.reset();
     }
@@ -116,7 +118,10 @@ namespace JoltPhysics
         m_contactListener = AZStd::make_unique<JoltContactListener>(this);
         m_activationListener = AZStd::make_unique<JoltBodyActivationListener>(this);
 
+        m_softBodyContactListener = AZStd::make_unique<JoltSoftBodyContactListener>(this);
+
         m_physicsSystem->SetContactListener(m_contactListener.get());
+        m_physicsSystem->SetSoftBodyContactListener(m_softBodyContactListener.get());
         m_physicsSystem->SetBodyActivationListener(m_activationListener.get());
 
         m_physicsSystem->SetGravity(Conversions::ToJolt(m_gravity));
@@ -173,6 +178,7 @@ namespace JoltPhysics
             }
         }
 
+        ++m_simulationStep;
         m_physicsSystem->Update(deltaTime, m_collisionSteps, m_tempAllocator, m_jobSystem);
     }
 
@@ -202,6 +208,8 @@ namespace JoltPhysics
                 character->PostSimulation();
             }
         }
+
+        FlushEndedSoftBodyContacts();
 
         FlushTransformSync();
         FlushQueuedEvents();
@@ -280,6 +288,12 @@ namespace JoltPhysics
             ragdoll->CreateInScene(this);
             body = ragdoll;
         }
+        else if (const auto* softBodyConfig = azdynamic_cast<const JoltSoftBodyConfiguration*>(simulatedBodyConfig))
+        {
+            auto* softBody = aznew JoltSoftBody(*softBodyConfig);
+            softBody->CreateInScene(this);
+            body = softBody;
+        }
 
         if (!body)
         {
@@ -322,6 +336,13 @@ namespace JoltPhysics
             if (const JPH::BodyID innerBodyId = character->GetInnerBodyId(); !innerBodyId.IsInvalid())
             {
                 m_bodyHandleByJoltId[innerBodyId.GetIndexAndSequenceNumber()] = handle;
+            }
+        }
+        else if (auto* softBody = azrtti_cast<JoltSoftBody*>(body))
+        {
+            if (const JPH::BodyID softBodyId = softBody->GetBodyId(); !softBodyId.IsInvalid())
+            {
+                m_bodyHandleByJoltId[softBodyId.GetIndexAndSequenceNumber()] = handle;
             }
         }
 
@@ -535,6 +556,17 @@ namespace JoltPhysics
             else if (auto* ragdoll = azrtti_cast<JoltRagdoll*>(body))
             {
                 ragdoll->RemoveFromScene();
+            }
+            else if (auto* softBody = azrtti_cast<JoltSoftBody*>(body))
+            {
+                const JPH::BodyID softBodyId = softBody->GetBodyId();
+                if (!softBodyId.IsInvalid())
+                {
+                    FlushCollisionEndsForRemovedBody(softBodyId, bodyHandle);
+                    FlushTriggerExitsForRemovedBody(softBodyId);
+                    m_bodyHandleByJoltId.erase(softBodyId.GetIndexAndSequenceNumber());
+                }
+                softBody->RemoveFromJoltWorld();
             }
             RemoveCollisionSuppressionsForBody(bodyHandle);
             m_deferredDeletions.push_back(body);
@@ -918,6 +950,14 @@ namespace JoltPhysics
                 triggerEvent.m_triggerBody->ProcessTriggerEvent(triggerEvent);
             }
         }
+
+        // Scene-level listeners get the whole batch. Registration for this is forwarded by
+        // JoltSceneInterface, but nothing signalled it until now, so a handler registered
+        // through RegisterSceneTriggersEventHandler never fired.
+        if (!triggerEvents.empty())
+        {
+            m_sceneTriggerEvent.Signal(m_sceneHandle, triggerEvents);
+        }
     }
 
     void JoltScene::QueueTriggerEvent(AzPhysics::TriggerEvent::Type type, JPH::BodyID triggerBodyId, JPH::BodyID otherBodyId)
@@ -948,6 +988,10 @@ namespace JoltPhysics
             collisionEvents.swap(m_queuedCollisionEvents);
         }
 
+        // Resolve and filter first, so the scene-level listeners can be given the batch
+        // before the per-body dispatch below starts swapping each event's perspective.
+        AzPhysics::CollisionEventList dispatchableEvents;
+        dispatchableEvents.reserve(collisionEvents.size());
         for (AzPhysics::CollisionEvent& collisionEvent : collisionEvents)
         {
             // Pairs registered with SuppressCollisionEvents still collide; only their
@@ -965,7 +1009,20 @@ namespace JoltPhysics
             // skip anything that has gone away.
             collisionEvent.m_body1 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle1);
             collisionEvent.m_body2 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle2);
+            dispatchableEvents.push_back(collisionEvent);
+        }
 
+        // Scene-level listeners get the whole batch, each event once and in its original
+        // orientation. Registration for this is forwarded by JoltSceneInterface, but
+        // nothing signalled it until now, so a handler registered through
+        // RegisterSceneCollisionEventHandler never fired.
+        if (!dispatchableEvents.empty())
+        {
+            m_sceneCollisionEvent.Signal(m_sceneHandle, dispatchableEvents);
+        }
+
+        for (AzPhysics::CollisionEvent& collisionEvent : dispatchableEvents)
+        {
             // Each body sees itself as body1 (matches the PhysX backend). Dispatch to
             // body1 as-is, then swap the perspective (bodies, handles, shapes and the
             // contact normals) and dispatch to body2.
@@ -1255,6 +1312,102 @@ namespace JoltPhysics
         [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
     {
         return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+    }
+
+    void JoltScene::QueueSoftBodyCollisionEvent(
+        JPH::BodyID softBodyId, JPH::BodyID otherBodyId, AZStd::vector<AzPhysics::Contact>&& contacts)
+    {
+        const AzPhysics::SimulatedBodyHandle softHandle = GetBodyHandleFromJoltId(softBodyId);
+        const AzPhysics::SimulatedBodyHandle otherHandle = GetBodyHandleFromJoltId(otherBodyId);
+        if (softHandle == AzPhysics::InvalidSimulatedBodyHandle || otherHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return;
+        }
+
+        bool isNewPair = false;
+        {
+            AZStd::lock_guard lock(m_softBodyContactsMutex);
+            const AZ::u64 pairKey = MakeBodyHandlePairKey(softHandle, otherHandle);
+            auto [entry, inserted] = m_softBodyContacts.insert_key(pairKey);
+            isNewPair = inserted;
+            entry->second.m_softBodyId = softBodyId;
+            entry->second.m_otherBodyId = otherBodyId;
+            entry->second.m_lastSeenStep = m_simulationStep;
+        }
+
+        AzPhysics::CollisionEvent collisionEvent;
+        collisionEvent.m_type = isNewPair ? AzPhysics::CollisionEvent::Type::Begin
+                                          : AzPhysics::CollisionEvent::Type::Persist;
+        collisionEvent.m_bodyHandle1 = softHandle;
+        collisionEvent.m_bodyHandle2 = otherHandle;
+        collisionEvent.m_contacts = AZStd::move(contacts);
+
+        AZStd::lock_guard lock(m_collisionEventMutex);
+        m_queuedCollisionEvents.push_back(AZStd::move(collisionEvent));
+    }
+
+    void JoltScene::FlushEndedSoftBodyContacts()
+    {
+        AZStd::vector<AZStd::pair<JPH::BodyID, JPH::BodyID>> ended;
+        {
+            AZStd::lock_guard lock(m_softBodyContactsMutex);
+            for (auto it = m_softBodyContacts.begin(); it != m_softBodyContacts.end();)
+            {
+                if (it->second.m_lastSeenStep != m_simulationStep)
+                {
+                    ended.emplace_back(it->second.m_softBodyId, it->second.m_otherBodyId);
+                    it = m_softBodyContacts.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+
+        for (const auto& [softBodyId, otherBodyId] : ended)
+        {
+            QueueCollisionEndEvent(softBodyId, otherBodyId);
+        }
+    }
+
+    void JoltSoftBodyContactListener::OnSoftBodyContactAdded(
+        const JPH::Body& inSoftBody, const JPH::SoftBodyManifold& inManifold)
+    {
+        if (!m_scene)
+        {
+            return;
+        }
+
+        // Jolt reports one callback per soft body per step covering every particle, so the
+        // per-particle contacts are grouped by the body they touch to produce one event per
+        // body pair - matching how rigid body collisions are reported.
+        AZStd::unordered_map<AZ::u32, AZStd::vector<AzPhysics::Contact>> contactsByBody;
+        AZStd::unordered_map<AZ::u32, JPH::BodyID> bodyIdByKey;
+
+        const JPH::RMat44 softBodyTransform = inSoftBody.GetCenterOfMassTransform();
+        for (const JPH::SoftBodyVertex& vertex : inManifold.GetVertices())
+        {
+            if (!inManifold.HasContact(vertex))
+            {
+                continue;
+            }
+
+            const JPH::BodyID otherBodyId = inManifold.GetContactBodyID(vertex);
+            const AZ::u32 key = otherBodyId.GetIndexAndSequenceNumber();
+            bodyIdByKey[key] = otherBodyId;
+
+            AzPhysics::Contact contact;
+            // Particle positions are relative to the soft body's centre of mass.
+            contact.m_position = Conversions::FromJolt(softBodyTransform * vertex.mPosition);
+            contact.m_normal = Conversions::FromJolt(inManifold.GetContactNormal(vertex));
+            contactsByBody[key].push_back(contact);
+        }
+
+        for (auto& [key, contacts] : contactsByBody)
+        {
+            m_scene->QueueSoftBodyCollisionEvent(inSoftBody.GetID(), bodyIdByKey[key], AZStd::move(contacts));
+        }
     }
 
     void JoltContactListener::OnContactAdded(
