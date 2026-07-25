@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
 
+#include <Editor/PropertyHandlers/PropertyTypes.h>
+
 namespace JoltPhysics
 {
     void JoltPhysicsEditorSystemComponent::Reflect(AZ::ReflectContext* context)
@@ -43,8 +45,13 @@ namespace JoltPhysics
         required.push_back(AZ_CRC_CE("JoltPhysicsService"));
     }
 
-    void JoltPhysicsEditorSystemComponent::GetDependentServices([[maybe_unused]] AZ::ComponentDescriptor::DependencyArrayType& dependent)
+    void JoltPhysicsEditorSystemComponent::GetDependentServices(AZ::ComponentDescriptor::DependencyArrayType& dependent)
     {
+        // The property manager owns the registry RegisterPropertyTypes writes to, so it
+        // has to be up first. Dependent rather than required because this same module is
+        // aliased as the Builders variant, where there is no property manager and a hard
+        // requirement would stop the component activating at all.
+        dependent.push_back(AZ_CRC_CE("PropertyManagerService"));
     }
 
     void JoltPhysicsEditorSystemComponent::Init()
@@ -54,10 +61,14 @@ namespace JoltPhysics
     void JoltPhysicsEditorSystemComponent::Activate()
     {
         AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusConnect();
+
+        Editor::RegisterPropertyTypes();
     }
 
     void JoltPhysicsEditorSystemComponent::Deactivate()
     {
+        Editor::UnregisterPropertyTypes();
+
         AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusDisconnect();
     }
 

@@ -5,6 +5,13 @@ set(FILES
     Source/Editor/EditorComponentDescriptors.h
     Source/Editor/JoltEditorSettingsRegistryManager.cpp
     Source/Editor/JoltEditorSettingsRegistryManager.h
+    Source/Editor/PropertyHandlers/CollisionPropertyUtils.h
+    Source/Editor/PropertyHandlers/PropertyTypes.cpp
+    Source/Editor/PropertyHandlers/PropertyTypes.h
+    Source/Editor/PropertyHandlers/CollisionLayerWidget.cpp
+    Source/Editor/PropertyHandlers/CollisionLayerWidget.h
+    Source/Editor/PropertyHandlers/CollisionGroupWidget.cpp
+    Source/Editor/PropertyHandlers/CollisionGroupWidget.h
     Source/Editor/Components/EditorJoltColliderComponentBase.cpp
     Source/Editor/Components/EditorJoltColliderComponentBase.h
     Source/Editor/Components/EditorJoltColliderDrawUtils.h
