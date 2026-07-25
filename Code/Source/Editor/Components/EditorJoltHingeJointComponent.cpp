@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -50,6 +51,19 @@ namespace JoltPhysics
             component->GetLimitProperties() = m_limitProperties;
             component->GetMotorProperties() = m_motorProperties;
         }
+    }
+
+    void EditorJoltHingeJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        if (!m_limitProperties.m_isLimited)
+        {
+            return;
+        }
+        // The hinge turns about the frame's X axis, with angles measured off +Y.
+        EditorDebugDraw::DrawLimitArc(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength, m_limitProperties.m_limitFirst,
+            m_limitProperties.m_limitSecond);
     }
 
 } // namespace JoltPhysics

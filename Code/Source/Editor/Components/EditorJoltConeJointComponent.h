@@ -19,6 +19,10 @@ namespace JoltPhysics
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
+        // EditorJoltJointComponentBase
+        void DrawJointLimits(
+            AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const override;
+
         JointGenericProperties m_genericProperties;
         float m_halfConeAngle = 45.0f;
     };

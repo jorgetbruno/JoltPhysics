@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -49,6 +50,15 @@ namespace JoltPhysics
             component->GetGenericProperties() = m_genericProperties;
             component->SetHalfConeAngle(m_halfConeAngle);
         }
+    }
+
+    void EditorJoltConeJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        // A cone joint is symmetric about its twist axis, so both half-angles are
+        // the same and the cone comes out circular.
+        EditorDebugDraw::DrawLimitCone(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength, m_halfConeAngle, m_halfConeAngle);
     }
 
 } // namespace JoltPhysics

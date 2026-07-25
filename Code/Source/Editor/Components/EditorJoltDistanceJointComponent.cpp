@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -61,6 +62,21 @@ namespace JoltPhysics
             component->GetConfiguration() = m_configuration;
             component->GetGenericProperties() = m_genericProperties;
             component->SetDistanceParams(m_minDistance, m_maxDistance, m_springFrequency, m_springDamping);
+        }
+    }
+
+    void EditorJoltDistanceJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        // A distance joint constrains how far the two anchors may separate, so the
+        // limits are spheres about the joint frame rather than a cone or an arc.
+        EditorDebugDraw::DrawWireSphere(
+            debugDisplay, jointTransform, m_maxDistance, EditorDebugDraw::LimitColor);
+
+        if (m_minDistance > 0.0f)
+        {
+            EditorDebugDraw::DrawWireSphere(
+                debugDisplay, jointTransform, m_minDistance, EditorDebugDraw::LimitColor);
         }
     }
 

@@ -17,6 +17,10 @@ namespace JoltPhysics
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
+        // EditorJoltJointComponentBase
+        void DrawJointLimits(
+            AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const override;
+
         float m_swingLimitY = 45.0f;
         float m_swingLimitZ = 45.0f;
         float m_twistLimitLower = -45.0f;

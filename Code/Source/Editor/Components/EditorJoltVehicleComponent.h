@@ -2,15 +2,17 @@
 
 #include <Vehicle/JoltVehicleConfiguration.h>
 
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
 
 namespace JoltPhysics
 {
     //! Editor Jolt Vehicle: edit-time counterpart of JoltVehicleComponent.
     //! Spawns the runtime component via BuildGameEntity, copying the vehicle
-    //! configuration.
+    //! configuration, and previews the wheels and their suspension travel.
     class EditorJoltVehicleComponent
         : public AzToolsFramework::Components::EditorComponentBase
+        , private AzFramework::EntityDebugDisplayEventBus::Handler
     {
     public:
         AZ_COMPONENT(EditorJoltVehicleComponent, "{D0E1F2A3-B4C5-4678-C9D0-E1F2A3B4C5D6}", AzToolsFramework::Components::EditorComponentBase);
@@ -22,9 +24,15 @@ namespace JoltPhysics
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
         // EditorComponentBase
+        void Activate() override;
+        void Deactivate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
+        // AzFramework::EntityDebugDisplayEvents
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo, AzFramework::DebugDisplayRequests& debugDisplay) override;
+
         JoltVehicleConfiguration m_configuration;
     };
 } // namespace JoltPhysics

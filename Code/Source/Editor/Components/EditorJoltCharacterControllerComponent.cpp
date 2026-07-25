@@ -1,9 +1,11 @@
 #include <Editor/Components/EditorJoltCharacterControllerComponent.h>
 
+#include <AzCore/Component/TransformBus.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltCharacterControllerComponent.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 
 namespace JoltPhysics
 {
@@ -69,6 +71,50 @@ namespace JoltPhysics
     void EditorJoltCharacterControllerComponent::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
     {
         required.push_back(AZ_CRC_CE("TransformService"));
+    }
+
+    void EditorJoltCharacterControllerComponent::Activate()
+    {
+        AzToolsFramework::Components::EditorComponentBase::Activate();
+        AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(GetEntityId());
+    }
+
+    void EditorJoltCharacterControllerComponent::Deactivate()
+    {
+        AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
+        AzToolsFramework::Components::EditorComponentBase::Deactivate();
+    }
+
+    void EditorJoltCharacterControllerComponent::DisplayEntityViewport(
+        [[maybe_unused]] const AzFramework::ViewportInfo& viewportInfo,
+        AzFramework::DebugDisplayRequests& debugDisplay)
+    {
+        // An explicitly assigned shape configuration wins over Height/Radius, exactly
+        // as in JoltCharacterControllerComponent::CreateCharacter, so preview that
+        // instead when one is set and it is a capsule.
+        float height = m_height;
+        float radius = m_radius;
+        if (m_shapeConfig)
+        {
+            const auto* capsule = azdynamic_cast<const Physics::CapsuleShapeConfiguration*>(m_shapeConfig.get());
+            if (!capsule)
+            {
+                // Some other shape drives the character; there is nothing meaningful
+                // to draw here rather than a capsule that would not match.
+                return;
+            }
+            height = capsule->m_height;
+            radius = capsule->m_radius;
+        }
+
+        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+        // The character shape is centred on the entity origin and Z-aligned in local
+        // space; scale is deliberately dropped so the preview matches the capsule the
+        // runtime builds from Height/Radius.
+        worldTransform.ExtractUniformScale();
+
+        EditorDebugDraw::DrawWireCapsule(debugDisplay, worldTransform, radius, height);
     }
 
     void EditorJoltCharacterControllerComponent::BuildGameEntity(AZ::Entity* gameEntity)

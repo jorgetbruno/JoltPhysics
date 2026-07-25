@@ -452,6 +452,39 @@ feature, trust the topic sections below the milestones.**
   report no selection bounds and get no Edit button — the same reason they are not
   drawn in the viewport, their geometry is not cheaply available here.
 
+## Editor viewport debug draw
+
+- **Every editor component that owns geometry draws it**, through
+  `AzFramework::EntityDebugDisplayEventBus`. The shared primitives live in
+  `EditorJoltDebugDrawUtils.h` (`EditorDebugDraw`), which builds on the older
+  collider-only helpers rather than duplicating them.
+- **The character controller previews its capsule.** It is centred on the entity
+  origin and Z-aligned, matching what `JoltCharacterControllerComponent` builds
+  from Height/Radius. An explicitly assigned `ShapeConfiguration` wins over those
+  two fields exactly as at runtime, so the preview follows it; a non-capsule shape
+  draws nothing rather than a capsule that would not match.
+- **Joints draw their frame, their limits and a link to the lead entity.** The
+  frame axes follow the convention `JoltJoint.cpp` uses everywhere: X is the
+  primary axis (hinge, slider, twist, cone) and Y the normal/plane reference.
+  Limits are amber, the lead link grey. PhysX draws joint helpers through its
+  `JointHelpersInterface`; here it is a virtual `DrawJointLimits` on the editor
+  joint base, which each joint type overrides.
+- **Limit shapes follow the joint type**: hinge and prismatic draw an arc and a
+  travel segment, ball/cone/swing-twist/D6 draw a cone, distance draws min and max
+  spheres, fixed draws only the frame. Swing limits are named for the axis rotated
+  *about*, so they cross over when expressed as cone extents — a swing about Y
+  widens the cone towards Z.
+- **Vehicles draw each wheel and its suspension travel.** Wheels sit below their
+  attachment point along -Z and spin about Y, per `JoltVehicle`; the wheel is drawn
+  mid-travel, which is roughly where it rests.
+- **The rigid body draws its centre of mass only when set manually.** With
+  `ComputeCenterOfMass` on, the real centre comes from the shapes and is not known
+  at edit time, so drawing the stale offset would be actively misleading.
+- **Static rigid bodies, heightfield and compound colliders still draw nothing**,
+  deliberately: a static rigid body has no geometry of its own, a compound's
+  children draw their own wireframes, and the heightfield surface is already drawn
+  by whatever provides it.
+
 ## Configuration window and collision property editors
 
 - **A "Jolt Physics Configuration" view pane** (Tools menu) mirrors the PhysX

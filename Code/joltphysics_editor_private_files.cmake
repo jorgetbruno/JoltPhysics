@@ -22,6 +22,7 @@ set(FILES
     Source/Editor/Components/EditorJoltColliderComponentBase.cpp
     Source/Editor/Components/EditorJoltColliderComponentBase.h
     Source/Editor/Components/EditorJoltColliderDrawUtils.h
+    Source/Editor/Components/EditorJoltDebugDrawUtils.h
     Source/Editor/Components/EditorJoltBoxColliderComponent.cpp
     Source/Editor/Components/EditorJoltBoxColliderComponent.h
     Source/Editor/Components/EditorJoltSphereColliderComponent.cpp

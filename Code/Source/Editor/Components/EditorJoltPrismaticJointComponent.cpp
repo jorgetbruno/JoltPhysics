@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -49,6 +50,29 @@ namespace JoltPhysics
             component->GetGenericProperties() = m_genericProperties;
             component->GetLimitProperties() = m_limitProperties;
             component->GetMotorProperties() = m_motorProperties;
+        }
+    }
+
+    void EditorJoltPrismaticJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        if (!m_limitProperties.m_isLimited)
+        {
+            return;
+        }
+        // Travel runs along the frame's X axis; the two limits are metres along it.
+        const AZ::Vector3 from =
+            jointTransform.TransformPoint(AZ::Vector3(m_limitProperties.m_limitFirst, 0.0f, 0.0f));
+        const AZ::Vector3 to =
+            jointTransform.TransformPoint(AZ::Vector3(m_limitProperties.m_limitSecond, 0.0f, 0.0f));
+        EditorDebugDraw::DrawLine(debugDisplay, from, to, EditorDebugDraw::LimitColor);
+
+        // End stops drawn across the travel, so both ends stay readable end-on.
+        constexpr float StopHalfWidth = 0.05f;
+        const AZ::Vector3 across = jointTransform.GetBasisY() * StopHalfWidth;
+        for (const AZ::Vector3& end : { from, to })
+        {
+            EditorDebugDraw::DrawLine(debugDisplay, end - across, end + across, EditorDebugDraw::LimitColor);
         }
     }
 

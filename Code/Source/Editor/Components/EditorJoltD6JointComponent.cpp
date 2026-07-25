@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -63,6 +64,20 @@ namespace JoltPhysics
             component->GetConfiguration() = m_configuration;
             component->SetD6Limits(m_swingLimitY, m_swingLimitZ, m_twistLimitLower, m_twistLimitUpper);
         }
+    }
+
+    void EditorJoltD6JointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        // The swing limits are named for the axis rotated about, so they cross over
+        // when expressed as cone extents: rotating about Y moves the twist axis
+        // towards Z, and rotating about Z moves it towards Y.
+        EditorDebugDraw::DrawLimitCone(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength, m_swingLimitZ, m_swingLimitY);
+
+        EditorDebugDraw::DrawLimitArc(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength * 0.5f, m_twistLimitLower,
+            m_twistLimitUpper);
     }
 
 } // namespace JoltPhysics

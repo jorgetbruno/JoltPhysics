@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -46,6 +47,21 @@ namespace JoltPhysics
             component->GetGenericProperties() = m_genericProperties;
             component->GetLimitProperties() = m_limitProperties;
         }
+    }
+
+    void EditorJoltBallJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        if (!m_limitProperties.m_isLimited)
+        {
+            return;
+        }
+        // For a ball joint the two limits are cone half-angles about the frame's
+        // Y and Z axes (see JointLimitProperties), which is exactly what the cone
+        // helper takes.
+        EditorDebugDraw::DrawLimitCone(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength, m_limitProperties.m_limitFirst,
+            m_limitProperties.m_limitSecond);
     }
 
 } // namespace JoltPhysics

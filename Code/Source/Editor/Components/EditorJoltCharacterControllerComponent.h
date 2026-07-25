@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <AzFramework/Physics/Character.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
@@ -9,9 +10,11 @@ namespace JoltPhysics
 {
     //! Editor Jolt Character Controller: edit-time counterpart of
     //! JoltCharacterControllerComponent. Spawns the runtime component via
-    //! BuildGameEntity, copying the character and shape configurations.
+    //! BuildGameEntity, copying the character and shape configurations, and
+    //! previews the capsule in the viewport.
     class EditorJoltCharacterControllerComponent
         : public AzToolsFramework::Components::EditorComponentBase
+        , private AzFramework::EntityDebugDisplayEventBus::Handler
     {
     public:
         AZ_COMPONENT(EditorJoltCharacterControllerComponent, "{C9D0E1F2-A3B4-4567-B8C9-D0E1F2A3B4C5}", AzToolsFramework::Components::EditorComponentBase);
@@ -23,9 +26,15 @@ namespace JoltPhysics
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
         // EditorComponentBase
+        void Activate() override;
+        void Deactivate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
+        // AzFramework::EntityDebugDisplayEvents
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo, AzFramework::DebugDisplayRequests& debugDisplay) override;
+
         Physics::CharacterConfiguration m_characterConfig;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfig;
 

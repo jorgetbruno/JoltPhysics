@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <Clients/Components/JoltJointComponents.h>
+#include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
 
 namespace JoltPhysics
@@ -67,6 +68,20 @@ namespace JoltPhysics
             component->GetGenericProperties() = m_genericProperties;
             component->SetSwingTwistLimits(m_normalHalfConeAngle, m_planeHalfConeAngle, m_twistLower, m_twistUpper);
         }
+    }
+
+    void EditorJoltSwingTwistJointComponent::DrawJointLimits(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Transform& jointTransform) const
+    {
+        // Twist axis is X and plane axis Y, so the normal axis is Z. A swing about
+        // the normal axis (Z) tilts the twist axis towards Y, and a swing about the
+        // plane axis (Y) tilts it towards Z -- hence the pairing below.
+        EditorDebugDraw::DrawLimitCone(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength, m_normalHalfConeAngle,
+            m_planeHalfConeAngle);
+
+        EditorDebugDraw::DrawLimitArc(
+            debugDisplay, jointTransform, EditorDebugDraw::JointAxisLength * 0.5f, m_twistLower, m_twistUpper);
     }
 
 } // namespace JoltPhysics
