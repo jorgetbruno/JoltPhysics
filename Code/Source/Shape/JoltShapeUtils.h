@@ -62,6 +62,16 @@ namespace JoltPhysics
         //! that follow them, valid); any other shape becomes sub-shape 0.
         static JPH::Ref<JPH::MutableCompoundShape> MakeMutableCompound(const JPH::Shape* shape);
 
+        //! Maps a sub-shape id from a scene query or contact back to the collider index it
+        //! came from, so a hit can be attributed to the collider that produced it.
+        //!
+        //! Pass the body's *base* shape - the compound built from the colliders, before any
+        //! center-of-mass wrapper. That wrapper can be left on: a RotatedTranslatedShape
+        //! forwards the sub-shape id to its inner shape untouched, so ids stay valid either
+        //! way. Returns 0 for a non-compound shape, which is the only collider such a body
+        //! has.
+        static size_t GetColliderIndexFromSubShapeId(const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId);
+
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);
 

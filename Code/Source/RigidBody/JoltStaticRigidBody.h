@@ -8,6 +8,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Collision/Shape/SubShapeID.h>
 
 namespace JPH
 {
@@ -64,6 +65,16 @@ namespace JoltPhysics
         //! read live so runtime material changes apply to contacts of existing bodies.
         //! Null when the index is out of range.
         AZStd::shared_ptr<Physics::Material> GetColliderMaterial(size_t colliderIndex) const;
+
+        // AzPhysics shape access: one Physics::Shape per collider, in compound sub-shape
+        // order, so callers can inspect what a body is actually made of.
+        AZ::u32 GetShapeCount() const override;
+        AZStd::shared_ptr<Physics::Shape> GetShape(AZ::u32 index) override;
+        AZStd::shared_ptr<const Physics::Shape> GetShape(AZ::u32 index) const override;
+
+        //! The collider a scene-query or contact sub-shape id belongs to. Null when the
+        //! body was built from a variant that carries no shape objects.
+        AZStd::shared_ptr<Physics::Shape> GetShapeFromSubShapeId(const JPH::SubShapeID& subShapeId) const;
         //! Per-square material indices for heightfield bodies (empty otherwise).
         const AZStd::vector<AZ::u8>& GetHeightfieldMaterialIndices() const { return m_heightfieldMaterialIndices; }
 

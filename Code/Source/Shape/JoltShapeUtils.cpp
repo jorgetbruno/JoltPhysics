@@ -452,4 +452,28 @@ namespace JoltPhysics
         return mutableCompound;
     }
 
+    size_t JoltShapeUtils::GetColliderIndexFromSubShapeId(const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId)
+    {
+        if (!baseShape)
+        {
+            return 0;
+        }
+
+        // Step past the center-of-mass wrapper if there is one. It is a decorated shape and
+        // forwards sub-shape ids to its inner shape unchanged, so no bits need popping.
+        const JPH::Shape* shape = baseShape;
+        while (shape->GetSubType() == JPH::EShapeSubType::RotatedTranslated)
+        {
+            shape = static_cast<const JPH::RotatedTranslatedShape*>(shape)->GetInnerShape();
+        }
+
+        if (shape->GetType() != JPH::EShapeType::Compound)
+        {
+            return 0;
+        }
+
+        JPH::SubShapeID remainder;
+        return static_cast<const JPH::CompoundShape*>(shape)->GetSubShapeIndexFromID(subShapeId, remainder);
+    }
+
 } // namespace JoltPhysics

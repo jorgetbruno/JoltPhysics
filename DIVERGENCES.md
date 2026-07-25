@@ -49,10 +49,9 @@ feature, trust the topic sections below the milestones.**
   are accepted but ignored.
 - **Per-body sleep threshold is not configurable** — see "Scene queries and rigid
   body details" for the current, more precise description.
-- **Scene-query filter callbacks receive `nullptr` for the `Physics::Shape*`
-  argument** (the SimulatedBody argument is valid). Still true, but no longer for
-  the original reason: a `JoltShape` wrapper exists now, so this is a wiring gap in
-  the query helpers rather than a missing type.
+- **[superseded — see "Scene queries and rigid body details"]** *Scene-query filter
+  callbacks receive `nullptr` for the `Physics::Shape*` argument.* Hits now carry
+  the collider they came from, and the callbacks receive it.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.
@@ -224,6 +223,18 @@ feature, trust the topic sections below the milestones.**
   fires during the scene's next simulation finish, so results reflect the state that
   step produced. A scene that is never stepped never delivers its callbacks. The single
   request form is copied on queueing, since only a borrowed pointer is passed in.
+- **Query hits identify the collider they came from.** Rigid and static bodies build
+  one `Physics::Shape` per collider at creation, in compound sub-shape order, so a
+  hit's Jolt sub-shape id maps straight to a collider: `SceneQueryHit::m_shape` is
+  populated (with `ResultFlags::Shape` set) and the same pointer is handed to the
+  request's filter callback. `AzPhysics::RigidBody::GetShapeCount`/`GetShape` are
+  implemented from the same list. Body types that hold no shape objects —
+  characters and ragdoll parts, whose bodies Jolt builds itself — still report a
+  null shape.
+- **Per-collider shapes share geometry with the body's compound rather than
+  duplicating it.** Primitive shapes are a few bytes, and a cooked mesh caches its
+  native shape on the configuration, so building a `Physics::Shape` alongside the
+  compound reuses the same `JPH::Shape` instead of cooking twice.
 - **`RigidBody::SetSleepThreshold` only toggles whether the body may sleep.** Jolt has
   no per-body sleep threshold — the velocity below which bodies may sleep is scene-wide
   (`PhysicsSettings::mPointVelocitySleepThreshold`), and what is per-body is a plain

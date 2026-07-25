@@ -148,8 +148,14 @@ namespace JoltPhysics
         m_colliderMaterials.reserve(colliderPairs.size() + prebuiltShapes.size());
         for (const auto& [colliderConfig, shapeConfig] : colliderPairs)
         {
+            // A Physics::Shape per collider, so scene-query hits can name the collider they
+            // came from. JoltShape resolves its material the same way this used to directly,
+            // so GetColliderMaterial is unaffected. Cooked meshes cache their native shape on
+            // the configuration, so this shares geometry with the body's compound rather than
+            // cooking it a second time.
             m_colliderMaterials.push_back(
-                { nullptr, colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr });
+                { colliderConfig && shapeConfig ? JoltShapeUtils::CreateShape(*colliderConfig, *shapeConfig) : nullptr,
+                  colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr });
         }
         for (const AZStd::shared_ptr<Physics::Shape>& prebuiltShape : prebuiltShapes)
         {
@@ -180,6 +186,27 @@ namespace JoltPhysics
     AZStd::shared_ptr<Physics::Material> JoltRigidBody::GetColliderMaterial(size_t colliderIndex) const
     {
         return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].Get() : nullptr;
+    }
+
+    AZ::u32 JoltRigidBody::GetShapeCount() const
+    {
+        return static_cast<AZ::u32>(m_colliderMaterials.size());
+    }
+
+    AZStd::shared_ptr<Physics::Shape> JoltRigidBody::GetShape(AZ::u32 index)
+    {
+        return index < m_colliderMaterials.size() ? m_colliderMaterials[index].m_shape : nullptr;
+    }
+
+    AZStd::shared_ptr<const Physics::Shape> JoltRigidBody::GetShape(AZ::u32 index) const
+    {
+        return index < m_colliderMaterials.size() ? m_colliderMaterials[index].m_shape : nullptr;
+    }
+
+    AZStd::shared_ptr<Physics::Shape> JoltRigidBody::GetShapeFromSubShapeId(const JPH::SubShapeID& subShapeId) const
+    {
+        const size_t colliderIndex = JoltShapeUtils::GetColliderIndexFromSubShapeId(m_baseShape, subShapeId);
+        return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].m_shape : nullptr;
     }
 
     AZ::Vector3 JoltRigidBody::GetPosition() const

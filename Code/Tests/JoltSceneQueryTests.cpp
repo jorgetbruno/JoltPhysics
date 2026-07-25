@@ -9,6 +9,7 @@
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
+#include <AzFramework/Physics/SimulatedBodies/StaticRigidBody.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
 namespace JoltPhysics
@@ -49,6 +50,28 @@ namespace JoltPhysics
             staticConfig.m_position = position;
             staticConfig.m_entityId = AZ::EntityId(12345 + collisionLayer);
             staticConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, shapeConfig);
+            return m_scene->AddSimulatedBody(&staticConfig);
+        }
+
+        //! A static body with two box colliders side by side on X, each 1 m wide, centred
+        //! at -1.5 and +1.5 in the body's local frame. Two colliders is what makes the
+        //! sub-shape mapping observable: with one, any mapping bug still returns collider 0.
+        AzPhysics::SimulatedBodyHandle CreateTwoColliderBody(const AZ::Vector3& position)
+        {
+            AzPhysics::ShapeColliderPairList colliders;
+            for (float offsetX : { -1.5f, 1.5f })
+            {
+                auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+                colliderConfig->m_position = AZ::Vector3(offsetX, 0.0f, 0.0f);
+                auto shapeConfig = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+                shapeConfig->m_dimensions = AZ::Vector3(1.0f, 1.0f, 1.0f);
+                colliders.emplace_back(colliderConfig, shapeConfig);
+            }
+
+            AzPhysics::StaticRigidBodyConfiguration staticConfig;
+            staticConfig.m_position = position;
+            staticConfig.m_entityId = AZ::EntityId(4242);
+            staticConfig.m_colliderAndShapeData = colliders;
             return m_scene->AddSimulatedBody(&staticConfig);
         }
 
@@ -164,6 +187,90 @@ namespace JoltPhysics
 
         ASSERT_EQ(hits.m_hits.size(), 1u);
         EXPECT_EQ(hits.m_hits[0].m_bodyHandle, inside);
+    }
+
+    TEST_F(JoltSceneQueryTests, RaycastHitCarriesTheShapeItHit)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));
+
+        auto request = CreateRayDown(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        const AzPhysics::SceneQueryHit& hit = hits.m_hits[0];
+        ASSERT_NE(hit.m_shape, nullptr);
+        EXPECT_TRUE(
+            AzPhysics::SceneQuery::ResultFlags::Shape == (hit.m_resultFlags & AzPhysics::SceneQuery::ResultFlags::Shape));
+
+        // The hit shape is the body's own collider object, not a copy built for the hit.
+        auto* body = azdynamic_cast<AzPhysics::StaticRigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(hit.m_bodyHandle));
+        ASSERT_NE(body, nullptr);
+        ASSERT_EQ(body->GetShapeCount(), 1u);
+        EXPECT_EQ(hit.m_shape, body->GetShape(0).get());
+    }
+
+    TEST_F(JoltSceneQueryTests, RaycastHitNamesWhichColliderOfACompoundWasHit)
+    {
+        CreateTwoColliderBody(AZ::Vector3(0.0f, 0.0f, 0.0f));
+
+        auto* body = azdynamic_cast<AzPhysics::StaticRigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(CreateTwoColliderBody(AZ::Vector3(0.0f, 0.0f, 20.0f))));
+        ASSERT_NE(body, nullptr);
+        ASSERT_EQ(body->GetShapeCount(), 2u);
+
+        // Straight down onto the left collider, then the right one. Distinguishing them is
+        // the whole point: a mapping that always answered 0 would fail the second case.
+        auto leftRequest = CreateRayDown(AZ::Vector3(-1.5f, 0.0f, 25.0f), 10.0f);
+        AzPhysics::SceneQueryHits leftHits = m_scene->QueryScene(&leftRequest);
+        ASSERT_EQ(leftHits.m_hits.size(), 1u);
+        EXPECT_EQ(leftHits.m_hits[0].m_shape, body->GetShape(0).get());
+
+        auto rightRequest = CreateRayDown(AZ::Vector3(1.5f, 0.0f, 25.0f), 10.0f);
+        AzPhysics::SceneQueryHits rightHits = m_scene->QueryScene(&rightRequest);
+        ASSERT_EQ(rightHits.m_hits.size(), 1u);
+        EXPECT_EQ(rightHits.m_hits[0].m_shape, body->GetShape(1).get());
+
+        EXPECT_NE(leftHits.m_hits[0].m_shape, rightHits.m_hits[0].m_shape);
+    }
+
+    TEST_F(JoltSceneQueryTests, FilterCallbackReceivesTheHitShape)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));
+
+        Physics::Shape* shapeSeenByCallback = nullptr;
+        auto request = CreateRayDown(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        request.m_filterCallback = [&shapeSeenByCallback](
+            const AzPhysics::SimulatedBody* body, const Physics::Shape* shape)
+        {
+            EXPECT_NE(body, nullptr);
+            shapeSeenByCallback = const_cast<Physics::Shape*>(shape);
+            return AzPhysics::SceneQuery::QueryHitType::Touch;
+        };
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        // Used to be nullptr unconditionally, so a callback could filter by body but never
+        // by which collider was hit.
+        ASSERT_NE(shapeSeenByCallback, nullptr);
+        EXPECT_EQ(shapeSeenByCallback, hits.m_hits[0].m_shape);
+    }
+
+    TEST_F(JoltSceneQueryTests, OverlapHitCarriesTheShapeItHit)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(2.0f, 2.0f, 2.0f));
+
+        AzPhysics::OverlapRequest request;
+        request.m_pose = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 0.0f));
+        auto sphere = AZStd::make_shared<Physics::SphereShapeConfiguration>();
+        sphere->m_radius = 1.0f;
+        request.m_shapeConfiguration = sphere;
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+
+        ASSERT_GE(hits.m_hits.size(), 1u);
+        EXPECT_NE(hits.m_hits[0].m_shape, nullptr);
     }
 
     TEST_F(JoltSceneQueryTests, AsyncRaycastDeliversHitsOnSimulationFinish)

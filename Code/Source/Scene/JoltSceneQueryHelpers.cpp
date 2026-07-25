@@ -1,5 +1,7 @@
 #include <Scene/JoltSceneQueryHelpers.h>
 #include <Scene/JoltScene.h>
+#include <RigidBody/JoltRigidBody.h>
+#include <RigidBody/JoltStaticRigidBody.h>
 #include <Shape/JoltShapeUtils.h>
 #include <System/CollisionLayerFilters.h>
 #include <Utils/Conversions.h>
@@ -69,9 +71,26 @@ namespace JoltPhysics
             AZ::u64 m_collisionGroupMask;
         };
 
+        // The collider a hit came from. Bodies keep one Physics::Shape per collider in
+        // sub-shape order, so the sub-shape id the hit carries names the collider directly.
+        // Null for body types that hold no shape objects (characters, ragdoll parts).
+        Physics::Shape* ResolveHitShape(const AzPhysics::SimulatedBody* body, const JPH::SubShapeID& subShapeId)
+        {
+            if (const auto* rigidBody = azrtti_cast<const JoltRigidBody*>(body))
+            {
+                return rigidBody->GetShapeFromSubShapeId(subShapeId).get();
+            }
+            if (const auto* staticBody = azrtti_cast<const JoltStaticRigidBody*>(body))
+            {
+                return staticBody->GetShapeFromSubShapeId(subShapeId).get();
+            }
+            return nullptr;
+        }
+
         void FillCommonHitData(
             AzPhysics::SceneQueryHit& queryHit,
             const JPH::BodyID& bodyId,
+            const JPH::SubShapeID& subShapeId,
             JoltScene* scene)
         {
             queryHit.m_bodyHandle = scene->GetBodyHandleFromJoltId(bodyId);
@@ -80,6 +99,12 @@ namespace JoltPhysics
                 if (AzPhysics::SimulatedBody* body = scene->GetSimulatedBodyFromHandle(queryHit.m_bodyHandle))
                 {
                     queryHit.m_entityId = body->GetEntityId();
+
+                    queryHit.m_shape = ResolveHitShape(body, subShapeId);
+                    if (queryHit.m_shape)
+                    {
+                        queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::Shape;
+                    }
                 }
                 queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::BodyHandle |
                                           AzPhysics::SceneQuery::ResultFlags::EntityId;
@@ -102,8 +127,6 @@ namespace JoltPhysics
 
         // Applies the request's filter callback (if any) to a candidate hit.
         // Returns true when the hit should be included in the results.
-        // The gem does not have a Physics::Shape wrapper yet, so the shape argument
-        // passed to the callback is nullptr.
         bool PassesFilterCallback(
             const AzPhysics::SceneQueryRequest& request,
             const AzPhysics::SceneQueryHit& queryHit,
@@ -115,25 +138,29 @@ namespace JoltPhysics
                 body = scene->GetSimulatedBodyFromHandle(queryHit.m_bodyHandle);
             }
 
+            // Resolved when the hit was built, so the callback sees the same collider the
+            // caller will find on the hit itself.
+            Physics::Shape* shape = queryHit.m_shape;
+
             if (const auto* raycastRequest = azdynamic_cast<const AzPhysics::RayCastRequest*>(&request))
             {
                 if (raycastRequest->m_filterCallback)
                 {
-                    return raycastRequest->m_filterCallback(body, nullptr) != AzPhysics::SceneQuery::QueryHitType::None;
+                    return raycastRequest->m_filterCallback(body, shape) != AzPhysics::SceneQuery::QueryHitType::None;
                 }
             }
             else if (const auto* shapecastRequest = azdynamic_cast<const AzPhysics::ShapeCastRequest*>(&request))
             {
                 if (shapecastRequest->m_filterCallback)
                 {
-                    return shapecastRequest->m_filterCallback(body, nullptr) != AzPhysics::SceneQuery::QueryHitType::None;
+                    return shapecastRequest->m_filterCallback(body, shape) != AzPhysics::SceneQuery::QueryHitType::None;
                 }
             }
             else if (const auto* overlapRequest = azdynamic_cast<const AzPhysics::OverlapRequest*>(&request))
             {
                 if (overlapRequest->m_filterCallback)
                 {
-                    return overlapRequest->m_filterCallback(body, nullptr);
+                    return overlapRequest->m_filterCallback(body, shape);
                 }
             }
 
@@ -221,7 +248,7 @@ namespace JoltPhysics
                     queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                             AzPhysics::SceneQuery::ResultFlags::Position |
                                             AzPhysics::SceneQuery::ResultFlags::Normal;
-                    FillCommonHitData(queryHit, hit.mBodyID, scene);
+                    FillCommonHitData(queryHit, hit.mBodyID, hit.mSubShapeID2, scene);
                     AppendHitIfAccepted(result, request, queryHit, scene);
                 }
 
@@ -240,7 +267,7 @@ namespace JoltPhysics
                 queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                         AzPhysics::SceneQuery::ResultFlags::Position |
                                         AzPhysics::SceneQuery::ResultFlags::Normal;
-                FillCommonHitData(queryHit, hit.mBodyID, scene);
+                FillCommonHitData(queryHit, hit.mBodyID, hit.mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
 
                 return !result.m_hits.empty();
@@ -295,7 +322,7 @@ namespace JoltPhysics
                 queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                         AzPhysics::SceneQuery::ResultFlags::Position |
                                         AzPhysics::SceneQuery::ResultFlags::Normal;
-                FillCommonHitData(queryHit, hit.mBodyID2, scene);
+                FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
             }
         }
@@ -315,7 +342,7 @@ namespace JoltPhysics
                 queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                         AzPhysics::SceneQuery::ResultFlags::Position |
                                         AzPhysics::SceneQuery::ResultFlags::Normal;
-                FillCommonHitData(queryHit, hit.mBodyID2, scene);
+                FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
             }
         }
@@ -348,7 +375,7 @@ namespace JoltPhysics
                 queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
                                         AzPhysics::SceneQuery::ResultFlags::Position |
                                         AzPhysics::SceneQuery::ResultFlags::Normal;
-                FillCommonHitData(queryHit, deepest->mBodyID2, scene);
+                FillCommonHitData(queryHit, deepest->mBodyID2, deepest->mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
             }
         }
@@ -397,7 +424,7 @@ namespace JoltPhysics
 
             AzPhysics::SceneQueryHit queryHit;
             queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags(0);
-            FillCommonHitData(queryHit, hit.mBodyID2, scene);
+            FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
             AppendHitIfAccepted(result, request, queryHit, scene);
         }
 
