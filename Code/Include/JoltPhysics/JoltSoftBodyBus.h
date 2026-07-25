@@ -4,6 +4,9 @@
 #include <AzCore/Math/Aabb.h>
 #include <AzCore/Math/Vector3.h>
 
+#include <AzFramework/Physics/Collision/CollisionGroups.h>
+#include <AzFramework/Physics/Collision/CollisionLayers.h>
+
 namespace JoltPhysics
 {
     //! Which shape the soft body is built from. Jolt simulates particles and constraints,
@@ -48,6 +51,14 @@ namespace JoltPhysics
         //! Solver iterations per step. Higher is stiffer and more expensive.
         virtual void SetNumIterations(AZ::u32 iterations) = 0;
         virtual AZ::u32 GetNumIterations() const = 0;
+
+        //! Which collision layer the body sits on, and which layers it collides with.
+        //! Changing either moves the body between Jolt object layers without rebuilding
+        //! it, so a soft body keeps whatever deformation it had.
+        virtual void SetCollisionLayer(const AzPhysics::CollisionLayer& layer) = 0;
+        virtual AzPhysics::CollisionLayer GetCollisionLayer() const = 0;
+        virtual void SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId) = 0;
+        virtual AzPhysics::CollisionGroups::Id GetCollisionGroupId() const = 0;
 
         //! Removes the body from the simulation, or rebuilds and re-adds it. A disabled
         //! soft body keeps its settings but occupies nothing in the scene.

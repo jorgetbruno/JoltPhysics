@@ -299,10 +299,12 @@ feature, trust the topic sections below the milestones.**
   queries, raise no collision or trigger events, and cannot be fetched through
   `AzPhysics::SceneInterface`. Rigid bodies still collide with them in the
   solver.
-- **Every soft body is on the default collision layer.** The component has no
-  layer/group fields; the body acquires its object layer with
-  `AzPhysics::CollisionLayer::Default` and an empty group id. Filtering them
-  against specific layers needs those fields plumbed through first.
+- **Collision layer and group are live settings, not baked ones.** Jolt can move a
+  body between object layers with `BodyInterface::SetObjectLayer`, so changing
+  either re-resolves the object layer and moves the existing body rather than
+  rebuilding it — a rebuild would discard whatever deformation the body had
+  settled into. Soft bodies always register as *moving*: there is no static
+  variety.
 - **Drawing is debug-draw only.** A soft body has no mesh asset and its shape
   changes every step, so `JoltSoftBodyRender` draws it from particle positions —
   in game mode from the live body, and in the Edit viewport from the rest shape

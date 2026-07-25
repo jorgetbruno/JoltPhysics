@@ -4,6 +4,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <AzFramework/Entity/EntityDebugDisplayBus.h>
+#include <AzFramework/Physics/PropertyTypes.h>
 #include <AzFramework/Physics/SystemBus.h>
 
 #include <SoftBody/JoltSoftBodyRender.h>
@@ -15,7 +16,7 @@ namespace JoltPhysics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltSoftBodySettings>()
-                ->Version(1)
+                ->Version(2)
                 ->Field("Shape", &JoltSoftBodySettings::m_shape)
                 ->Field("Pinning", &JoltSoftBodySettings::m_pinning)
                 ->Field("Size", &JoltSoftBodySettings::m_size)
@@ -27,6 +28,8 @@ namespace JoltPhysics
                 ->Field("Pressure", &JoltSoftBodySettings::m_pressure)
                 ->Field("GravityFactor", &JoltSoftBodySettings::m_gravityFactor)
                 ->Field("AllowSleeping", &JoltSoftBodySettings::m_allowSleeping)
+                ->Field("CollisionLayer", &JoltSoftBodySettings::m_collisionLayer)
+                ->Field("CollisionGroupId", &JoltSoftBodySettings::m_collisionGroupId)
                 ;
 
             serializeContext->Class<JoltSoftBodyComponent, AZ::Component>()
@@ -88,6 +91,12 @@ namespace JoltPhysics
                         "Gravity factor", "Multiplier on gravity for this body alone. 0 makes it hang in the air.")
                     ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSoftBodySettings::m_allowSleeping,
                         "Allow sleeping", "Lets the body stop simulating once it settles.")
+                    // Same selectors the colliders and character controller use, so a soft
+                    // body is filtered by the project's collision layers like any other body.
+                    ->DataElement(Physics::Edit::CollisionLayerSelector, &JoltSoftBodySettings::m_collisionLayer,
+                        "Collision Layer", "Which collision layer this soft body is on.")
+                    ->DataElement(Physics::Edit::CollisionGroupSelector, &JoltSoftBodySettings::m_collisionGroupId,
+                        "Collides With", "Which collision layers this soft body collides with.")
                     ;
 
                 editContext->Class<JoltSoftBodyComponent>(
@@ -222,6 +231,28 @@ namespace JoltPhysics
     AZ::u32 JoltSoftBodyComponent::GetNumIterations() const
     {
         return m_settings.m_numIterations;
+    }
+
+    void JoltSoftBodyComponent::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
+    {
+        m_settings.m_collisionLayer = layer;
+        m_softBody.SetCollisionLayer(layer);
+    }
+
+    AzPhysics::CollisionLayer JoltSoftBodyComponent::GetCollisionLayer() const
+    {
+        return m_settings.m_collisionLayer;
+    }
+
+    void JoltSoftBodyComponent::SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId)
+    {
+        m_settings.m_collisionGroupId = groupId;
+        m_softBody.SetCollisionGroupId(groupId);
+    }
+
+    AzPhysics::CollisionGroups::Id JoltSoftBodyComponent::GetCollisionGroupId() const
+    {
+        return m_settings.m_collisionGroupId;
     }
 
     void JoltSoftBodyComponent::SetEnabled(bool enabled)

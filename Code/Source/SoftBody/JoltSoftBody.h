@@ -9,6 +9,8 @@
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/parallel/mutex.h>
 
+#include <AzFramework/Physics/Collision/CollisionGroups.h>
+#include <AzFramework/Physics/Collision/CollisionLayers.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
 #include <Jolt/Jolt.h>
@@ -59,6 +61,13 @@ namespace JoltPhysics
         float m_gravityFactor = 1.0f;
         //! Baked: whether the body may go to sleep once it settles.
         bool m_allowSleeping = true;
+
+        //! Live: which collision layer the body is on, and which layers it collides with.
+        //! Live rather than baked because Jolt can move a body between object layers
+        //! (`BodyInterface::SetObjectLayer`) without rebuilding it — and rebuilding a soft
+        //! body would throw away whatever deformation it had settled into.
+        AzPhysics::CollisionLayer m_collisionLayer;
+        AzPhysics::CollisionGroups::Id m_collisionGroupId;
     };
 
     //! A Jolt soft body - cloth, a wobbling cube or a pressurised balloon - in one of this
@@ -114,6 +123,12 @@ namespace JoltPhysics
         void SetLinearDamping(float damping);
         void SetGravityFactor(float factor);
         void SetNumIterations(AZ::u32 iterations);
+        void SetCollisionLayer(const AzPhysics::CollisionLayer& layer);
+        void SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId);
+
+        //! The Jolt object layer the body currently occupies. Exposed so tests and tools
+        //! can confirm the layer/group pair actually reached the body.
+        JPH::ObjectLayer GetObjectLayer() const;
 
         AZ::u32 GetVertexCount() const;
         AZ::Vector3 GetVertexPosition(AZ::u32 index) const;
@@ -149,6 +164,10 @@ namespace JoltPhysics
 
         //! Pushes the live settings onto an existing body. Assumes the caller holds m_mutex.
         void ApplyLiveSettings();
+
+        //! Re-resolves the object layer from the settings' collision layer and group, and
+        //! moves an existing body onto it. Assumes the caller holds m_mutex.
+        void RefreshObjectLayer();
 
         //! Guards every member below: gameplay writes settings from the main thread while
         //! rendering reads particle positions.

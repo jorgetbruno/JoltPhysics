@@ -117,8 +117,9 @@ namespace JoltPhysics
         // Straight to the layer registry every body in this gem goes through. Soft bodies
         // used to reach it through JoltPhysicsSystemRequestBus::AcquireObjectLayer when they
         // lived in a separate gem; inside the gem that round trip buys nothing.
+        // Soft bodies are always moving: there is no static variety.
         const JPH::ObjectLayer objectLayer =
-            AcquireObjectLayer(AzPhysics::CollisionLayer::Default, AzPhysics::CollisionGroups::Id(), true);
+            AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true);
 
         return AttachToPhysicsSystem(joltScene->GetJoltPhysicsSystem(), objectLayer);
     }
@@ -176,6 +177,9 @@ namespace JoltPhysics
             !AZ::IsClose(settings.m_mass, m_settings.m_mass) || !AZ::IsClose(settings.m_compliance, m_settings.m_compliance) ||
             settings.m_allowSleeping != m_settings.m_allowSleeping;
 
+        const bool layerChanged = settings.m_collisionLayer != m_settings.m_collisionLayer ||
+            settings.m_collisionGroupId != m_settings.m_collisionGroupId;
+
         m_settings = settings;
 
         if (!m_physicsSystem)
@@ -185,11 +189,21 @@ namespace JoltPhysics
 
         if (needsRebuild)
         {
+            // CreateBody reads m_objectLayer, so resolve it before rebuilding rather than
+            // after, or the new body would land on the old layer.
+            if (layerChanged)
+            {
+                RefreshObjectLayer();
+            }
             DestroyBody();
             CreateBody();
         }
         else
         {
+            if (layerChanged)
+            {
+                RefreshObjectLayer();
+            }
             ApplyLiveSettings();
         }
     }
@@ -226,6 +240,38 @@ namespace JoltPhysics
         AZStd::lock_guard lock(m_mutex);
         m_settings.m_numIterations = AZ::GetMax(iterations, 1u);
         ApplyLiveSettings();
+    }
+
+    void JoltSoftBody::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_settings.m_collisionLayer = layer;
+        RefreshObjectLayer();
+    }
+
+    void JoltSoftBody::SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_settings.m_collisionGroupId = groupId;
+        RefreshObjectLayer();
+    }
+
+    JPH::ObjectLayer JoltSoftBody::GetObjectLayer() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_objectLayer;
+    }
+
+    void JoltSoftBody::RefreshObjectLayer()
+    {
+        m_objectLayer = AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true);
+
+        if (m_physicsSystem && !m_bodyId.IsInvalid())
+        {
+            // Jolt can move a live body between object layers, so this needs no rebuild.
+            // The broadphase is updated as part of the call.
+            m_physicsSystem->GetBodyInterface().SetObjectLayer(m_bodyId, m_objectLayer);
+        }
     }
 
     AZ::u32 JoltSoftBody::GetBuildGeneration() const

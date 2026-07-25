@@ -25,6 +25,15 @@ namespace JoltPhysics
             m_system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
 
             JoltSystemConfiguration config;
+
+            // A named layer for soft bodies plus a group that excludes it, so the collision
+            // filtering tests have something real to filter against.
+            config.m_collisionConfig.m_collisionLayers.SetName(SoftBodyLayerIndex, "SoftBody");
+            AzPhysics::CollisionGroup everythingButSoftBodies = AzPhysics::CollisionGroup::All;
+            everythingButSoftBodies.SetLayer(AzPhysics::CollisionLayer(SoftBodyLayerIndex), false);
+            m_noSoftBodiesGroupId =
+                config.m_collisionConfig.m_collisionGroups.CreateGroup("NoSoftBodies", everythingButSoftBodies);
+
             m_system->Initialize(&config);
 
             AzPhysics::SceneConfiguration sceneConfig;
@@ -57,13 +66,17 @@ namespace JoltPhysics
             return m_softBody.Attach(m_sceneHandle);
         }
 
-        //! A static floor whose top surface sits at the given height.
-        void CreateFloor(float height)
+        //! A static floor whose top surface sits at the given height. The collision group
+        //! decides which layers the floor collides with; the default collides with all.
+        void CreateFloor(float height, const AzPhysics::CollisionGroups::Id& groupId = AzPhysics::CollisionGroups::Id())
         {
+            auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            colliderConfig->m_collisionGroupId = groupId;
+
             AzPhysics::StaticRigidBodyConfiguration config;
             config.m_position = AZ::Vector3(0.0f, 0.0f, height - 0.5f);
             config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
-                AZStd::make_shared<Physics::ColliderConfiguration>(),
+                colliderConfig,
                 AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(100.0f, 100.0f, 1.0f)));
             m_scene->AddSimulatedBody(&config);
         }
@@ -82,10 +95,13 @@ namespace JoltPhysics
             return settings;
         }
 
+        static constexpr AZ::u64 SoftBodyLayerIndex = 1;
+
         AZStd::unique_ptr<JoltSystem> m_system;
         AzPhysics::SceneHandle m_sceneHandle = AzPhysics::InvalidSceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
         JoltSoftBody m_softBody;
+        AzPhysics::CollisionGroups::Id m_noSoftBodiesGroupId;
     };
 
     TEST_F(JoltSoftBodyTests, AttachingBuildsParticlesAndTriangles)
@@ -235,6 +251,64 @@ namespace JoltPhysics
         // value, which is the whole reason the settings are split into baked and live.
         EXPECT_EQ(m_softBody.GetBuildGeneration(), generationBefore);
         EXPECT_EQ(m_softBody.GetSettings().m_numIterations, 12u);
+    }
+
+    TEST_F(JoltSoftBodyTests, CollisionLayerAndGroupReachTheBody)
+    {
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::None);
+        settings.m_collisionLayer = AzPhysics::CollisionLayer(SoftBodyLayerIndex);
+        settings.m_collisionGroupId = m_noSoftBodiesGroupId;
+        m_softBody.SetSettings(settings);
+        ASSERT_TRUE(Attach());
+
+        // A distinct (layer, group) pair has to resolve to its own object layer, not the
+        // catch-all Moving layer every unconfigured body lands on.
+        const JPH::ObjectLayer configuredLayer = m_softBody.GetObjectLayer();
+        EXPECT_NE(configuredLayer, ObjectLayers::Moving);
+        EXPECT_NE(configuredLayer, ObjectLayers::NonMoving);
+
+        JoltSoftBody defaultBody;
+        defaultBody.SetSettings(ClothSettings(JoltSoftBodyPinning::None));
+        ASSERT_TRUE(defaultBody.Attach(m_sceneHandle));
+        EXPECT_NE(defaultBody.GetObjectLayer(), configuredLayer);
+        defaultBody.Detach();
+    }
+
+    TEST_F(JoltSoftBodyTests, ClothFallsThroughAFloorThatExcludesItsLayer)
+    {
+        // The floor collides with everything except the soft body layer.
+        CreateFloor(0.0f, m_noSoftBodiesGroupId);
+
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::None);
+        settings.m_collisionLayer = AzPhysics::CollisionLayer(SoftBodyLayerIndex);
+        m_softBody.SetSettings(settings);
+        m_softBody.SetTransform(AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 2.0f)));
+        ASSERT_TRUE(Attach());
+
+        SimulateSeconds(3.0f);
+
+        // Well below the floor: the filtering is what is being tested, so the assertion has
+        // to be one that a merely-slow landing could not satisfy. ClothLandsOnAFloorAndStays        // AboveIt is the same setup with an unfiltered floor and asserts the opposite.
+        const AZ::Aabb bounds = m_softBody.GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_LT(bounds.GetMax().GetZ(), -2.0f);
+    }
+
+    TEST_F(JoltSoftBodyTests, ChangingTheCollisionLayerMovesTheBodyWithoutRebuilding)
+    {
+        m_softBody.SetSettings(ClothSettings(JoltSoftBodyPinning::None));
+        ASSERT_TRUE(Attach());
+
+        const AZ::u32 generationBefore = m_softBody.GetBuildGeneration();
+        const JPH::ObjectLayer layerBefore = m_softBody.GetObjectLayer();
+
+        m_softBody.SetCollisionLayer(AzPhysics::CollisionLayer(SoftBodyLayerIndex));
+
+        // Jolt can move a live body between object layers, and rebuilding would discard
+        // whatever deformation the body had settled into.
+        EXPECT_EQ(m_softBody.GetBuildGeneration(), generationBefore);
+        EXPECT_NE(m_softBody.GetObjectLayer(), layerBefore);
+        EXPECT_EQ(m_softBody.GetSettings().m_collisionLayer.GetIndex(), SoftBodyLayerIndex);
     }
 
     TEST_F(JoltSoftBodyTests, DetachRemovesTheBody)

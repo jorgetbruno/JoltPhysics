@@ -58,6 +58,10 @@ namespace JoltPhysics
         float GetGravityFactor() const override;
         void SetNumIterations(AZ::u32 iterations) override;
         AZ::u32 GetNumIterations() const override;
+        void SetCollisionLayer(const AzPhysics::CollisionLayer& layer) override;
+        AzPhysics::CollisionLayer GetCollisionLayer() const override;
+        void SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId) override;
+        AzPhysics::CollisionGroups::Id GetCollisionGroupId() const override;
         void SetEnabled(bool enabled) override;
         bool IsEnabled() const override;
         AZ::u32 GetVertexCount() const override;
