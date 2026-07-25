@@ -33,18 +33,28 @@ namespace JoltPhysics
         unsigned int m_maxContactConstraints = DefaultMaxContactConstraints;
         unsigned int m_tempAllocatorSize = DefaultTempAllocatorSize;
         unsigned int m_maxJobThreads = 0;
-    };
 
-    class JoltSceneConfiguration : public AzPhysics::SceneConfiguration
-    {
-    public:
-        AZ_CLASS_ALLOCATOR(JoltSceneConfiguration, AZ::SystemAllocator);
-        AZ_RTTI(JoltSceneConfiguration, "{A2B4C6D8-E1F3-5A7B-9C2D-4E6F8A1B3C5D}", AzPhysics::SceneConfiguration);
-        static void Reflect(AZ::ReflectContext* context);
+        //! Solver settings, mapped onto JPH::PhysicsSettings for every scene's physics
+        //! system. Defaults match Jolt's. Unlike the capacity settings above (which
+        //! only apply when a scene's physics system is created), these apply to live
+        //! scenes immediately on UpdateConfiguration.
+        unsigned int m_numVelocitySteps = 10; //!< Solver velocity iterations per step.
+        unsigned int m_numPositionSteps = 2; //!< Solver position iterations per step.
+        float m_baumgarte = 0.2f; //!< Fraction of penetration resolved per step.
+        float m_speculativeContactDistance = 0.02f; //!< Radius around objects where speculative contacts form (m).
+        float m_penetrationSlop = 0.02f; //!< Allowed body overlap, keeps contacts stable (m).
+        float m_timeBeforeSleep = 0.5f; //!< Seconds below the sleep threshold before a body sleeps.
+        float m_pointVelocitySleepThreshold = 0.03f; //!< Max velocity (m/s) of a body's sleep-test points for it to count as resting.
+        bool m_allowSleeping = true; //!< Whether bodies may sleep at all.
+        bool m_deterministicSimulation = true; //!< Deterministic stepping; turning it off buys performance.
 
-        JoltSceneConfiguration() = default;
-        virtual ~JoltSceneConfiguration() = default;
-
+        //! Jolt collision (sub-)steps per simulation update, for every scene. Raising
+        //! it improves fast object behavior at proportional cost.
+        //!
+        //! System-wide by design: AzPhysics::SceneConfiguration is not polymorphic
+        //! (AZ_TYPE_INFO only) and travels by value through the AzPhysics API, so a
+        //! derived per-scene configuration would be sliced before any backend could
+        //! read it. That is why there is no JoltSceneConfiguration.
         int m_collisionSteps = 1;
     };
 

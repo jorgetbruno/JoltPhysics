@@ -352,6 +352,17 @@ namespace JoltPhysics
         {
             m_systemConfig = *joltConfig;
 
+            // Solver settings apply to live scenes immediately; the capacity settings
+            // in the same configuration only apply when a scene's physics system is
+            // (re)created.
+            for (auto& scene : m_sceneList)
+            {
+                if (auto* joltScene = azdynamic_cast<JoltScene*>(scene.get()))
+                {
+                    joltScene->ApplySystemConfiguration(m_systemConfig);
+                }
+            }
+
             // Listeners (e.g. the configuration window, collision property dropdowns)
             // refresh from this; the base-class event is how AzPhysics broadcasts it.
             m_configChangeEvent.Signal(&m_systemConfig);
@@ -481,13 +492,23 @@ namespace JoltPhysics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltSystemConfiguration, AzPhysics::SystemConfiguration>()
-                ->Version(1)
+                ->Version(2)
                 ->Field("MaxBodies", &JoltSystemConfiguration::m_maxBodies)
                 ->Field("NumBodyMutexes", &JoltSystemConfiguration::m_numBodyMutexes)
                 ->Field("MaxBodyPairs", &JoltSystemConfiguration::m_maxBodyPairs)
                 ->Field("MaxContactConstraints", &JoltSystemConfiguration::m_maxContactConstraints)
                 ->Field("TempAllocatorSize", &JoltSystemConfiguration::m_tempAllocatorSize)
                 ->Field("MaxJobThreads", &JoltSystemConfiguration::m_maxJobThreads)
+                ->Field("NumVelocitySteps", &JoltSystemConfiguration::m_numVelocitySteps)
+                ->Field("NumPositionSteps", &JoltSystemConfiguration::m_numPositionSteps)
+                ->Field("Baumgarte", &JoltSystemConfiguration::m_baumgarte)
+                ->Field("SpeculativeContactDistance", &JoltSystemConfiguration::m_speculativeContactDistance)
+                ->Field("PenetrationSlop", &JoltSystemConfiguration::m_penetrationSlop)
+                ->Field("TimeBeforeSleep", &JoltSystemConfiguration::m_timeBeforeSleep)
+                ->Field("PointVelocitySleepThreshold", &JoltSystemConfiguration::m_pointVelocitySleepThreshold)
+                ->Field("AllowSleeping", &JoltSystemConfiguration::m_allowSleeping)
+                ->Field("DeterministicSimulation", &JoltSystemConfiguration::m_deterministicSimulation)
+                ->Field("CollisionSteps", &JoltSystemConfiguration::m_collisionSteps)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -513,19 +534,46 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Min, 1024u)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_maxJobThreads,
                         "Max Job Threads", "Number of worker threads for the physics job system. 0 uses hardware concurrency minus one.")
+                    ->ClassElement(AZ::Edit::ClassElements::Group, "Solver Settings")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_numVelocitySteps,
+                        "Velocity Steps", "Solver velocity iterations per step. More is more accurate and slower.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1u)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_numPositionSteps,
+                        "Position Steps", "Solver position iterations per step. More reduces penetration.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_baumgarte,
+                        "Baumgarte", "Fraction of remaining penetration resolved each step. Higher is stiffer but can add energy.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_speculativeContactDistance,
+                        "Speculative Contact Distance", "Radius around objects where speculative contacts are created. "
+                        "Helps prevent fast objects tunneling; too high makes contacts feel soft.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_penetrationSlop,
+                        "Penetration Slop", "Overlap bodies are allowed to keep, which stabilizes contacts. "
+                        "Lower looks tighter but can jitter.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_timeBeforeSleep,
+                        "Time Before Sleep", "How long a body must be still before it is put to sleep.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " s")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_pointVelocitySleepThreshold,
+                        "Sleep Velocity Threshold", "Velocity below which a body counts as still for sleeping.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m/s")
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSystemConfiguration::m_allowSleeping,
+                        "Allow Sleeping", "Whether resting bodies may sleep. Turn off to debug sleep-related issues.")
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSystemConfiguration::m_deterministicSimulation,
+                        "Deterministic Simulation", "Run the simulation deterministically. Turning this off buys some performance.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_collisionSteps,
+                        "Collision Steps", "Jolt collision sub-steps per physics update. Raising it improves fast-object "
+                        "behavior at proportional CPU cost.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1)
+                        ->Attribute(AZ::Edit::Attributes::Max, 8)
                     ;
             }
-        }
-    }
-
-    void JoltSceneConfiguration::Reflect(AZ::ReflectContext* context)
-    {
-        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
-        {
-            serializeContext->Class<JoltSceneConfiguration, AzPhysics::SceneConfiguration>()
-                ->Version(1)
-                ->Field("CollisionSteps", &JoltSceneConfiguration::m_collisionSteps)
-                ;
         }
     }
 

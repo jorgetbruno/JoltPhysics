@@ -314,3 +314,25 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   not re-resolve the object layers of already-created bodies — bodies pick up new
   masks when they are recreated (e.g. entering game mode). Gravity edits do apply
   live via the default-scene-configuration-changed event.
+
+## Solver settings
+
+- **The tunable subset of `JPH::PhysicsSettings` is exposed** in the configuration
+  window's Solver Settings group: velocity/position iterations, Baumgarte,
+  speculative contact distance, penetration slop, sleep time/velocity threshold,
+  allow sleeping, deterministic simulation, and collision (sub-)steps per update.
+  The remaining `PhysicsSettings` fields (contact cache tolerances, manifold
+  reduction, island splitting, warm starting, active edge checks, step listener
+  batching) deliberately stay at Jolt's defaults — they are internal optimization
+  toggles, and the window applies its values on top of a default-constructed
+  `PhysicsSettings` so those defaults survive.
+- **Solver settings apply to live scenes immediately** (`UpdateConfiguration`
+  pushes them into every scene's `JPH::PhysicsSystem`); the capacity settings
+  (max bodies/pairs/constraints, mutexes) only take effect when a scene's physics
+  system is created. Scenes previously ignored the configured capacities entirely
+  and used hard-coded constants.
+- **Collision steps are system-wide, not per scene.** `AzPhysics::SceneConfiguration`
+  is not polymorphic (`AZ_TYPE_INFO` only) and travels by value through the
+  AzPhysics API, so a derived per-scene configuration is sliced before any backend
+  can read it. The gem's former `JoltSceneConfiguration` was removed for exactly
+  this reason — it could never actually reach a scene.

@@ -4,6 +4,7 @@ set(FILES
     Tests/JoltTestWarningCatcher.h
     Tests/JoltSystemTests.cpp
     Tests/JoltSettingsRegistryTests.cpp
+    Tests/JoltSolverSettingsTests.cpp
     Tests/JoltSceneTests.cpp
     Tests/JoltComponentSerializationTests.cpp
     Tests/JoltHeightfieldTests.cpp

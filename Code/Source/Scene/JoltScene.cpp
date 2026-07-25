@@ -20,6 +20,7 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -97,12 +98,14 @@ namespace JoltPhysics
         m_tempAllocator = joltSystem->GetJoltAllocator();
         m_jobSystem = joltSystem->GetJoltJobSystem();
 
+        const JoltSystemConfiguration& systemConfig = joltSystem->GetJoltConfiguration();
+
         m_physicsSystem = AZStd::make_unique<JPH::PhysicsSystem>();
         m_physicsSystem->Init(
-            MaxBodies,
-            NumBodyMutexes,
-            MaxBodyPairs,
-            MaxContactConstraints,
+            systemConfig.m_maxBodies,
+            systemConfig.m_numBodyMutexes,
+            systemConfig.m_maxBodyPairs,
+            systemConfig.m_maxContactConstraints,
             joltSystem->GetBroadPhaseLayerInterface(),
             joltSystem->GetObjectVsBroadPhaseLayerFilter(),
             joltSystem->GetObjectLayerPairFilter()
@@ -118,7 +121,34 @@ namespace JoltPhysics
 
         m_physicsSystem->SetGravity(Conversions::ToJolt(m_gravity));
 
+        ApplySystemConfiguration(systemConfig);
+
         AZLOG_INFO("JoltPhysics: Scene '%s' initialized", m_config.m_sceneName.c_str());
+    }
+
+    void JoltScene::ApplySystemConfiguration(const JoltSystemConfiguration& config)
+    {
+        m_collisionSteps = AZStd::max(1, config.m_collisionSteps);
+
+        if (!m_physicsSystem)
+        {
+            return;
+        }
+
+        // Start from Jolt's defaults so the fields the configuration does not cover
+        // (contact cache tolerances, island splitting and the like) keep the values
+        // Jolt ships with.
+        JPH::PhysicsSettings settings;
+        settings.mNumVelocitySteps = config.m_numVelocitySteps;
+        settings.mNumPositionSteps = config.m_numPositionSteps;
+        settings.mBaumgarte = config.m_baumgarte;
+        settings.mSpeculativeContactDistance = config.m_speculativeContactDistance;
+        settings.mPenetrationSlop = config.m_penetrationSlop;
+        settings.mTimeBeforeSleep = config.m_timeBeforeSleep;
+        settings.mPointVelocitySleepThreshold = config.m_pointVelocitySleepThreshold;
+        settings.mAllowSleeping = config.m_allowSleeping;
+        settings.mDeterministicSimulation = config.m_deterministicSimulation;
+        m_physicsSystem->SetPhysicsSettings(settings);
     }
 
     void JoltScene::StartSimulation(float deltaTime)

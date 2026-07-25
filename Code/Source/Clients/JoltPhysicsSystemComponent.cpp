@@ -47,7 +47,6 @@ namespace JoltPhysics
         Internal::ReflectOnce<AzPhysics::SceneConfiguration>(context);
 
         JoltSystemConfiguration::Reflect(context);
-        JoltSceneConfiguration::Reflect(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

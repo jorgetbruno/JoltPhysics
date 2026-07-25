@@ -13,6 +13,8 @@
 #include <AzFramework/Physics/Common/PhysicsSimulatedBody.h>
 #include <AzFramework/Physics/Configuration/SceneConfiguration.h>
 
+#include <JoltPhysics/Configuration/JoltConfiguration.h>
+
 #include <AzCore/std/parallel/mutex.h>
 
 #include <Jolt/Jolt.h>
@@ -34,11 +36,6 @@ namespace JoltPhysics
     class JoltContactListener;
     class JoltBodyActivationListener;
 
-    static constexpr unsigned int MaxBodies = 65536;
-    static constexpr unsigned int NumBodyMutexes = 128;
-    static constexpr unsigned int MaxBodyPairs = 65536;
-    static constexpr unsigned int MaxContactConstraints = 16384;
-
     class JoltScene final : public AzPhysics::Scene
     {
     public:
@@ -55,6 +52,18 @@ namespace JoltPhysics
         [[nodiscard]] bool IsEnabled() const override;
         [[nodiscard]] const AzPhysics::SceneConfiguration& GetConfiguration() const override;
         void UpdateConfiguration(const AzPhysics::SceneConfiguration& config) override;
+
+        //! Applies the solver portion of the system configuration (JPH::PhysicsSettings
+        //! and collision steps) to this scene's physics system. Called on scene
+        //! creation and again whenever the system configuration changes, so solver
+        //! edits reach live scenes. Capacity settings are Init-time only.
+        void ApplySystemConfiguration(const JoltSystemConfiguration& config);
+
+        //! Jolt collision sub-steps this scene runs per simulation update.
+        [[nodiscard]] int GetCollisionSteps() const
+        {
+            return m_collisionSteps;
+        }
 
         AzPhysics::SimulatedBodyHandle AddSimulatedBody(
             const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig) override;
