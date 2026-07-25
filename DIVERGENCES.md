@@ -169,6 +169,19 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   with a car-sized engine wheelies, loses front contact and falls over, so the engine
   needs sizing for the vehicle too.
 
+## Shapes
+
+- **Cylinder colliders are native.** AzFramework declares `Physics::ShapeType::Cylinder`
+  but ships no configuration for it (PhysX has no native cylinder and approximates one
+  with a cooked convex hull of `DefaultCylinderSubdivisionCount` sides), so the gem
+  supplies `JoltCylinderShapeConfiguration` and maps it onto `JPH::CylinderShape`. The
+  cylinder is Z-aligned to match the O3DE capsule convention, and is exact rather than
+  faceted — colliders authored for PhysX will not transfer, and a rolling PhysX
+  "cylinder" behaves subtly differently from a real one.
+- **Jolt's tapered capsule, tapered cylinder and plane shapes are not exposed.** They
+  have no `Physics::ShapeType` counterpart, so they would each need a gem-specific
+  configuration in the same way as the cylinder.
+
 ## Scene queries and rigid body details
 
 - **Async scene queries complete on the next `FinishSimulation`**, not on a worker

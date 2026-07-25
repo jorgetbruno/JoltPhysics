@@ -5,6 +5,7 @@
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+#include <Shape/JoltCylinderShapeConfiguration.h>
 #include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShapeUtils.h>
 
@@ -281,6 +282,63 @@ namespace JoltPhysics
         }
 
         EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ(), 0.5f, 0.05f);
+    }
+
+    TEST_F(JoltSceneTests, CylinderColliderIsNativeAndZAligned)
+    {
+        // Jolt cylinders are Y-aligned; O3DE (like its capsules) is Z-aligned, so the
+        // shape is wrapped in a rotation. Verify through the bounds: a 2 m tall,
+        // 0.5 m radius cylinder spans 1.0 x 1.0 x 2.0.
+        JoltCylinderShapeConfiguration cylinderConfig(2.0f, 0.5f);
+        JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(cylinderConfig);
+        ASSERT_NE(shape, nullptr);
+
+        const JPH::AABox bounds = shape->GetLocalBounds();
+        EXPECT_NEAR(bounds.GetExtent().GetX(), 0.5f, 0.01f);
+        EXPECT_NEAR(bounds.GetExtent().GetY(), 0.5f, 0.01f);
+        EXPECT_NEAR(bounds.GetExtent().GetZ(), 1.0f, 0.01f);
+    }
+
+    TEST_F(JoltSceneTests, CylinderRestsOnItsFlatFaceUnlikeACapsule)
+    {
+        // Static ground with its top at z=0.
+        auto groundCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        groundCollider->m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        auto groundShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration groundConfig;
+        groundConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(groundCollider, groundShape);
+        m_scene->AddSimulatedBody(&groundConfig);
+
+        // A 1 m tall, 0.4 m radius cylinder dropped flat.
+        auto cylinderShape = AZStd::make_shared<JoltCylinderShapeConfiguration>(1.0f, 0.4f);
+        AzPhysics::RigidBodyConfiguration cylinderConfig;
+        cylinderConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        cylinderConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), cylinderShape);
+        auto handle = m_scene->AddSimulatedBody(&cylinderConfig);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 300; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+
+        // It settles on its flat end at half its height. A capsule of the same
+        // dimensions would rest on its rounded cap, and a sphere fallback (the capsule
+        // degenerate path) would sit at its radius instead.
+        auto* body = m_scene->GetSimulatedBodyFromHandle(handle);
+        EXPECT_NEAR(body->GetPosition().GetZ(), 0.5f, 0.05f);
+    }
+
+    TEST_F(JoltSceneTests, DegenerateCylinderIsClampedInsteadOfFailing)
+    {
+        // Zero height/radius would be rejected by Jolt; the collider is clamped to a
+        // sliver so the body still builds (with a warning).
+        JoltCylinderShapeConfiguration degenerate(0.0f, 0.0f);
+        JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(degenerate);
+        EXPECT_NE(shape, nullptr);
     }
 
     TEST_F(JoltSceneTests, StaticBodyPerBodyRayCastHitsAndMisses)

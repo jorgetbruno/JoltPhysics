@@ -6,6 +6,8 @@
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 
+#include <Shape/JoltCylinderShapeConfiguration.h>
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
@@ -68,6 +70,9 @@ namespace JoltPhysics
 
         static JPH::RefConst<JPH::Shape> CreateCapsuleShape(
             const Physics::CapsuleShapeConfiguration& config);
+
+        static JPH::RefConst<JPH::Shape> CreateCylinderShape(
+            const JoltCylinderShapeConfiguration& config);
     };
 
 } // namespace JoltPhysics

@@ -11,6 +11,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
@@ -202,6 +203,22 @@ namespace JoltPhysics
         case Physics::ShapeType::Capsule:
             return CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
 
+        case Physics::ShapeType::Cylinder:
+        {
+            // AzFramework declares the shape type but ships no configuration for it, so
+            // the only cylinder this backend can build is its own (see
+            // JoltCylinderShapeConfiguration). Anything else claiming to be a cylinder is
+            // some other backend's configuration and cannot be read here.
+            if (const auto* cylinder = azrtti_cast<const JoltCylinderShapeConfiguration*>(&shapeConfiguration))
+            {
+                return CreateCylinderShape(*cylinder);
+            }
+            AZ_Warning("JoltPhysics", false,
+                "Cylinder collider uses an unrecognized configuration type; use JoltCylinderShapeConfiguration "
+                "(the Jolt Cylinder Collider component) for cylinders in the Jolt backend.");
+            return nullptr;
+        }
+
         case Physics::ShapeType::Heightfield:
         {
             // The native heightfield is produced by the heightfield collider component
@@ -287,6 +304,28 @@ namespace JoltPhysics
             JPH::Vec3::sZero(),
             yToZRotation,
             new JPH::CapsuleShape(halfHeight, config.m_radius));
+    }
+
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCylinderShape(const JoltCylinderShapeConfiguration& config)
+    {
+        // Jolt rejects a cylinder without extent in either direction, so clamp both to a
+        // small positive value rather than letting the shape fail to build.
+        constexpr float minimumExtent = 0.001f;
+        const float halfHeight = AZStd::max(config.m_height * 0.5f, minimumExtent);
+        const float radius = AZStd::max(config.m_radius, minimumExtent);
+        AZ_WarningOnce("JoltPhysics", config.m_height > 0.0f && config.m_radius > 0.0f,
+            "Cylinder collider has a non-positive height (%.3f) or radius (%.3f); clamping to %.3f m.",
+            config.m_height, config.m_radius, minimumExtent);
+
+        // Jolt rounds the cylinder's edges by its convex radius, which must not exceed
+        // either dimension; the default (0.05) is too large for a small cylinder.
+        const float convexRadius = AZStd::min(JPH::cDefaultConvexRadius, AZStd::min(halfHeight, radius));
+
+        // Jolt cylinders are Y-axis aligned, O3DE (like its capsules) is Z-axis aligned:
+        // wrap the cylinder rotated +90 degrees around X.
+        const JPH::Quat yToZRotation(0.70710678f, 0.0f, 0.0f, 0.70710678f);
+        return new JPH::RotatedTranslatedShape(
+            JPH::Vec3::sZero(), yToZRotation, new JPH::CylinderShape(halfHeight, radius, convexRadius));
     }
 
     const Physics::ColliderConfiguration* JoltShapeUtils::GetFirstColliderConfiguration(
