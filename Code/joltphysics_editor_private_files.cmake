@@ -62,6 +62,8 @@ set(FILES
     Source/Editor/Components/EditorJoltDistanceJointComponent.h
     Source/Editor/Components/EditorJoltConeJointComponent.cpp
     Source/Editor/Components/EditorJoltConeJointComponent.h
+    Source/Editor/Components/EditorJoltSoftBodyComponent.cpp
+    Source/Editor/Components/EditorJoltSoftBodyComponent.h
     Source/Editor/Components/EditorJoltSwingTwistJointComponent.cpp
     Source/Editor/Components/EditorJoltSwingTwistJointComponent.h
 )

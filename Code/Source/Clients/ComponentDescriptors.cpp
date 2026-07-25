@@ -12,6 +12,7 @@
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Clients/Components/JoltJointComponents.h>
 #include <Clients/Components/JoltVehicleComponent.h>
+#include <Clients/Components/JoltSoftBodyComponent.h>
 
 namespace JoltPhysics
 {
@@ -40,6 +41,7 @@ namespace JoltPhysics
         descriptors.push_back(JoltConeJointComponent::CreateDescriptor());
         descriptors.push_back(JoltSwingTwistJointComponent::CreateDescriptor());
         descriptors.push_back(JoltVehicleComponent::CreateDescriptor());
+        descriptors.push_back(JoltSoftBodyComponent::CreateDescriptor());
 
         return descriptors;
     }

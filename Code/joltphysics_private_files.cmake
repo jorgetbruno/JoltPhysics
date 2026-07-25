@@ -41,6 +41,8 @@ set(FILES
     Source/Character/JoltRagdollNode.h
     Source/Character/JoltSkeletonMapper.cpp
     Source/Character/JoltSkeletonMapper.h
+    Source/Clients/Components/JoltSoftBodyComponent.cpp
+    Source/Clients/Components/JoltSoftBodyComponent.h
     Source/Joint/JoltJoint.cpp
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp
@@ -83,6 +85,10 @@ set(FILES
     Source/Shape/JoltShape.h
     Source/Shape/JoltShapeUtils.cpp
     Source/Shape/JoltShapeUtils.h
+    Source/SoftBody/JoltSoftBody.cpp
+    Source/SoftBody/JoltSoftBody.h
+    Source/SoftBody/JoltSoftBodyRender.cpp
+    Source/SoftBody/JoltSoftBodyRender.h
     Source/Utils/Conversions.cpp
     Source/Utils/Conversions.h
     Source/Utils/ReflectionUtils.h
