@@ -12,6 +12,7 @@
 
 #include <ISystem.h>
 
+#include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Shape/JoltMeshUtils.h>
@@ -471,6 +472,14 @@ namespace JoltPhysics
         // asking through this bus gets null rather than a foreign backend's pointer.
         auto* joltScene = azrtti_cast<JoltScene*>(systemInterface->GetScene(sceneHandle));
         return joltScene ? joltScene->GetJoltPhysicsSystem() : nullptr;
+    }
+
+    AZ::u32 JoltPhysicsSystemComponent::AcquireObjectLayer(
+        const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId, bool isMoving)
+    {
+        // Reuses the same registry every body this gem creates goes through, so an
+        // extension gem's bodies are filtered identically to this gem's own.
+        return JoltPhysics::AcquireObjectLayer(collisionLayer, collisionGroupId, isMoving);
     }
 
     void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)

@@ -6,6 +6,8 @@
 #include <AzCore/Math/Transform.h>
 #include <AzCore/std/utility/pair.h>
 
+#include <AzFramework/Physics/Collision/CollisionGroups.h>
+#include <AzFramework/Physics/Collision/CollisionLayers.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
 namespace JPH
@@ -100,6 +102,24 @@ namespace JoltPhysics
         //! one of this gem's. The returned system is owned by the scene: it stays valid
         //! until the scene is removed.
         virtual JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) = 0;
+
+        //! The Jolt object layer for an AzPhysics collision layer and group, for an
+        //! extension gem that creates its own bodies (soft bodies and the like).
+        //!
+        //! Object layers cannot be chosen by an extension gem on its own: this gem gives
+        //! every distinct (layer, group, motion class) combination its own Jolt object
+        //! layer, because AzPhysics filtering is per body and not a function of two layer
+        //! indices. A body created with a layer this gem never registered would be
+        //! filtered against the wrong entry, so ask for one here rather than passing a
+        //! literal. Must be called from the main thread, as it may register a new
+        //! combination.
+        //!
+        //! Returned as AZ::u32 rather than JPH::ObjectLayer so this header needs no Jolt
+        //! include; this gem builds Jolt with OBJECT_LAYER_BITS 32, so the two match.
+        virtual AZ::u32 AcquireObjectLayer(
+            const AzPhysics::CollisionLayer& collisionLayer,
+            const AzPhysics::CollisionGroups::Id& collisionGroupId,
+            bool isMoving) = 0;
     };
 
     using JoltPhysicsSystemRequestBus = AZ::EBus<JoltPhysicsSystemRequests>;

@@ -102,6 +102,10 @@ namespace JoltPhysics
 
         // JoltPhysicsSystemRequestBus
         JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) override;
+        AZ::u32 AcquireObjectLayer(
+            const AzPhysics::CollisionLayer& collisionLayer,
+            const AzPhysics::CollisionGroups::Id& collisionGroupId,
+            bool isMoving) override;
 
     private:
         void EnablePhysics();
