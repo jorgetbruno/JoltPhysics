@@ -285,3 +285,32 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   prefabs saved before the split keep loading and simulating unchanged (they are
   wrapped by `GenericComponentWrapper` in the editor and instantiate into the game
   entity as before).
+
+## Configuration window and collision property editors
+
+- **A "Jolt Physics Configuration" view pane** (Tools menu) mirrors the PhysX
+  Configuration window: a Global Configuration tab (engine timestep/buffer
+  settings, the default scene's gravity, and Jolt's capacity settings — max
+  bodies, body pairs, contact constraints, temp allocator, job threads) and a
+  Collision Filtering tab with Layers (the 64 layer names; layer 0 is pinned and
+  names are kept unique) and Groups (a checkbox matrix of preset × named layer,
+  with add/remove; read-only presets such as All/None are shown locked). Every
+  change is applied to the live physics system and saved immediately — there is
+  no separate save button.
+- **Configuration persists to `<project>/Registry/joltphysicsconfiguration.setreg`**
+  under `/O3DE/Physics/JoltPhysics/{SystemConfiguration,DefaultSceneConfiguration}`.
+  The settings registry merges project .setreg files at boot in every build
+  flavor, so the Editor, launchers and servers all pick up the saved
+  configuration; `EnablePhysics` falls back to defaults when nothing was saved.
+  PhysX splits its configuration across several .setreg files; this gem uses one.
+- **The gem supplies the `CollisionLayerSelector`/`CollisionGroupSelector`
+  property handlers** that AzFramework's reflection asks for (Collision Layer /
+  Collides With dropdowns). PhysX was previously the only implementer, so these
+  fields rendered without dropdowns in PhysX-less projects. Registration is
+  skipped if another gem already claimed the handler names. The dropdowns' pencil
+  button opens the configuration window on the matching tab.
+- **Caveats:** Jolt capacity settings take effect on the next physics system
+  initialization (enter/leave game mode), not immediately. Group-mask edits do
+  not re-resolve the object layers of already-created bodies — bodies pick up new
+  masks when they are recreated (e.g. entering game mode). Gravity edits do apply
+  live via the default-scene-configuration-changed event.

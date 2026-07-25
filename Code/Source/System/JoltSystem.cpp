@@ -351,6 +351,10 @@ namespace JoltPhysics
         if (const auto* joltConfig = azdynamic_cast<const JoltSystemConfiguration*>(newConfig))
         {
             m_systemConfig = *joltConfig;
+
+            // Listeners (e.g. the configuration window, collision property dropdowns)
+            // refresh from this; the base-class event is how AzPhysics broadcasts it.
+            m_configChangeEvent.Signal(&m_systemConfig);
         }
 
         if (forceReinitialization)
@@ -361,7 +365,14 @@ namespace JoltPhysics
 
     void JoltSystem::UpdateDefaultSceneConfiguration(const AzPhysics::SceneConfiguration& sceneConfiguration)
     {
-        m_defaultSceneConfiguration = sceneConfiguration;
+        if (m_defaultSceneConfiguration != sceneConfiguration)
+        {
+            m_defaultSceneConfiguration = sceneConfiguration;
+
+            // The default world component listens for this and pushes the new
+            // configuration (gravity etc.) into the live default scene.
+            m_onDefaultSceneConfigurationChangedEvent.Signal(&m_defaultSceneConfiguration);
+        }
     }
 
     const AzPhysics::SceneConfiguration& JoltSystem::GetDefaultSceneConfiguration() const
@@ -478,6 +489,32 @@ namespace JoltPhysics
                 ->Field("TempAllocatorSize", &JoltSystemConfiguration::m_tempAllocatorSize)
                 ->Field("MaxJobThreads", &JoltSystemConfiguration::m_maxJobThreads)
                 ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                // Shown by the Jolt Physics Configuration window's Global Configuration
+                // tab. These take effect on the next physics system initialization.
+                editContext->Class<JoltSystemConfiguration>("Jolt Configuration", "Jolt solver capacity settings")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_maxBodies,
+                        "Max Bodies", "Maximum number of bodies the physics system supports.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1u)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_numBodyMutexes,
+                        "Body Mutexes", "Number of mutexes protecting body access. 0 uses Jolt's default.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_maxBodyPairs,
+                        "Max Body Pairs", "Maximum number of body pairs the broadphase can queue for narrowphase.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1u)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_maxContactConstraints,
+                        "Max Contact Constraints", "Maximum number of contact constraints the solver can process in a step.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1u)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_tempAllocatorSize,
+                        "Temp Allocator Size", "Bytes reserved for the per-step temporary allocator.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1024u)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_maxJobThreads,
+                        "Max Job Threads", "Number of worker threads for the physics job system. 0 uses hardware concurrency minus one.")
+                    ;
+            }
         }
     }
 

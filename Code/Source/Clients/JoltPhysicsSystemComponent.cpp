@@ -194,8 +194,20 @@ namespace JoltPhysics
     {
         if (!m_enabled && m_physicsSystem)
         {
-            JoltSystemConfiguration config;
+            // The project's saved configuration (Jolt Physics Configuration window)
+            // lives in the settings registry; fall back to defaults for projects that
+            // never saved one.
+            const auto& registryManager = m_physicsSystem->GetSettingsRegistryManager();
+
+            JoltSystemConfiguration config = registryManager.LoadSystemConfiguration()
+                .value_or(JoltSystemConfiguration());
             m_physicsSystem->Initialize(&config);
+
+            if (auto sceneConfig = registryManager.LoadDefaultSceneConfiguration())
+            {
+                m_physicsSystem->UpdateDefaultSceneConfiguration(*sceneConfig);
+            }
+
             m_enabled = true;
         }
     }

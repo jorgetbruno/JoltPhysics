@@ -4,6 +4,10 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
 
+#include <AzToolsFramework/API/ViewPaneOptions.h>
+
+#include <Editor/ConfigurationWindow/JoltConfigurationWidget.h>
+#include <Editor/ConfigurationWindow/JoltConfigurationWindowBus.h>
 #include <Editor/PropertyHandlers/PropertyTypes.h>
 
 namespace JoltPhysics
@@ -61,15 +65,28 @@ namespace JoltPhysics
     void JoltPhysicsEditorSystemComponent::Activate()
     {
         AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusConnect();
+        AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
 
         Editor::RegisterPropertyTypes();
     }
 
     void JoltPhysicsEditorSystemComponent::Deactivate()
     {
+        AzToolsFramework::UnregisterViewPane(Editor::ConfigurationWindowName);
+
         Editor::UnregisterPropertyTypes();
 
+        AzToolsFramework::EditorEvents::Bus::Handler::BusDisconnect();
         AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusDisconnect();
+    }
+
+    void JoltPhysicsEditorSystemComponent::NotifyRegisterViews()
+    {
+        AzToolsFramework::ViewPaneOptions options;
+        options.paneRect = QRect(100, 100, 700, 600);
+        options.showOnToolsToolbar = false;
+        AzToolsFramework::RegisterViewPane<Editor::JoltConfigurationWidget>(
+            Editor::ConfigurationWindowName, "Tools", options);
     }
 
     void JoltPhysicsEditorSystemComponent::OnStartPlayInEditorBegin()

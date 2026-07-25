@@ -1,24 +1,40 @@
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include <AzCore/Settings/SettingsRegistry.h>
-#include <AzCore/Console/ILogger.h>
 
 namespace JoltPhysics
 {
-    void JoltSettingsRegistryManager::LoadSettings()
+    AZStd::optional<JoltSystemConfiguration> JoltSettingsRegistryManager::LoadSystemConfiguration() const
     {
         if (auto* settingsRegistry = AZ::SettingsRegistry::Get())
         {
-            AZLOG_INFO("JoltPhysics: Loading settings from registry");
+            JoltSystemConfiguration configuration;
+            if (settingsRegistry->GetObject(configuration, SystemConfigPath))
+            {
+                return configuration;
+            }
         }
+        return AZStd::nullopt;
     }
 
-    void JoltSettingsRegistryManager::SaveSettings()
+    AZStd::optional<AzPhysics::SceneConfiguration> JoltSettingsRegistryManager::LoadDefaultSceneConfiguration() const
     {
         if (auto* settingsRegistry = AZ::SettingsRegistry::Get())
         {
-            AZLOG_INFO("JoltPhysics: Saving settings to registry");
+            AzPhysics::SceneConfiguration configuration;
+            if (settingsRegistry->GetObject(configuration, DefaultSceneConfigPath))
+            {
+                return configuration;
+            }
         }
+        return AZStd::nullopt;
+    }
+
+    bool JoltSettingsRegistryManager::SaveConfiguration(
+        [[maybe_unused]] const JoltSystemConfiguration& systemConfiguration,
+        [[maybe_unused]] const AzPhysics::SceneConfiguration& defaultSceneConfiguration) const
+    {
+        return false;
     }
 
 } // namespace JoltPhysics

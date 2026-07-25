@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzCore/Component/Component.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
 namespace JoltPhysics
@@ -8,6 +9,7 @@ namespace JoltPhysics
     class JoltPhysicsEditorSystemComponent
         : public AZ::Component
         , private AzToolsFramework::EditorEntityContextNotificationBus::Handler
+        , private AzToolsFramework::EditorEvents::Bus::Handler
     {
     public:
         AZ_COMPONENT(JoltPhysicsEditorSystemComponent, "{4E5F6A7B-8C9D-0E1F-2A3B-4C5D6E7F8A9B}");
@@ -28,6 +30,9 @@ namespace JoltPhysics
 
         void OnStartPlayInEditorBegin() override;
         void OnStopPlayInEditor() override;
+
+        // AzToolsFramework::EditorEvents
+        void NotifyRegisterViews() override;
     };
 
 } // namespace JoltPhysics

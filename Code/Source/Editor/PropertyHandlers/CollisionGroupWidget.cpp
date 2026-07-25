@@ -2,11 +2,14 @@
 
 #include <AzCore/Serialization/EditContextConstants.inl>
 #include <AzFramework/Physics/PropertyTypes.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
+#include <Editor/ConfigurationWindow/JoltConfigurationWindowBus.h>
 #include <Editor/PropertyHandlers/CollisionPropertyUtils.h>
 
 #include <QComboBox>
 #include <QSignalBlocker>
+#include <QToolButton>
 
 namespace JoltPhysics::Editor
 {
@@ -25,6 +28,16 @@ namespace JoltPhysics::Editor
         auto* picker = aznew widget_t(parent);
 
         picker->GetComboBox()->setToolTip("Which collision layers this object collides with.");
+
+        picker->GetEditButton()->setVisible(true);
+        picker->GetEditButton()->setToolTip("Edit collision groups");
+        connect(picker->GetEditButton(), &QToolButton::clicked, this, []()
+            {
+                AzToolsFramework::EditorRequests::Bus::Broadcast(
+                    &AzToolsFramework::EditorRequests::OpenViewPane, ConfigurationWindowName);
+                JoltConfigurationWindowRequestBus::Broadcast(
+                    &JoltConfigurationWindowRequests::ShowCollisionGroupsTab);
+            });
 
         connect(picker, &widget_t::valueChanged, this, [picker]()
             {
