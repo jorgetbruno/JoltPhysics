@@ -368,8 +368,10 @@ namespace JoltPhysics
 
     void JoltCharacter::AttachShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
     {
+        // Jolt characters take a single shape at construction; adding one later would
+        // mean rebuilding the character around a compound shape.
         AZ_WarningOnce("JoltPhysics", false,
-            "JoltCharacter::AttachShape is not supported (no Physics::Shape wrapper in the Jolt backend yet)");
+            "JoltCharacter::AttachShape is not supported (a Jolt character's shape is fixed at creation)");
     }
 
     AZ::EntityId JoltCharacter::GetEntityId() const

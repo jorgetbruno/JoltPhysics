@@ -3,6 +3,12 @@
 Per project rule 6, component names / serialize contexts / reflected properties should
 match the PhysX gem equivalents. Every intentional divergence is logged here.
 
+The `M0`–`M7` sections are a milestone-by-milestone record and some of their entries
+describe limitations that later milestones removed. Those are marked
+**[superseded]** with a pointer to the section that now governs, rather than deleted,
+so the reasoning behind each decision stays readable. **For the current state of a
+feature, trust the topic sections below the milestones.**
+
 ## M0 (baseline)
 
 - **Component class and display names use a `Jolt` prefix instead of `PhysX`.**
@@ -15,14 +21,14 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   the feature set is complete (M3+).
 - **Editor Add-Component menu category is "Jolt Physics"** instead of "PhysX".
   Same reason as above.
-- **Runtime components are used directly in the editor** (mirroring how
-  `BoxColliderComponent` works), but no editor wrapper components equivalent to
-  PhysX's `EditorColliderComponent` / `EditorMeshColliderComponent` exist yet.
-- **Only one collider component per entity is allowed** (`JoltColliderService` is
-  self-incompatible). PhysX allows many colliders per entity; multi-collider
-  (compound) support is milestone M3.
-- **No cylinder collider.** The engine itself removed `CylinderShapeConfiguration`
-  in 26.05, so there is nothing to mirror — noted for completeness.
+- **[superseded — see "Editor components"]** *Runtime components are used directly in
+  the editor, with no editor wrapper components.* Every component family now has an
+  `EditorJolt*` variant.
+- **[superseded — see M3]** *Only one collider component per entity is allowed.*
+  Colliders no longer declare `JoltColliderService` as incompatible with itself;
+  multi-collider (compound) bodies work.
+- **[superseded — see "Shapes"]** *No cylinder collider.* The gem now supplies
+  `JoltCylinderShapeConfiguration` and maps it onto a native `JPH::CylinderShape`.
 - **`GetNativeType` values differ.** PhysX bodies report constants from its
   `NativeTypeIdentifiers.h`; Jolt bodies report `AZ_CRC_CE("JoltRigidBody")` /
   `AZ_CRC_CE("JoltStaticRigidBody")`. These values are backend-identifying by design.
@@ -41,25 +47,27 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   mean, restitution: max) rather than PhysX's average/min/max/multiply combine-mode
   properties. The `FrictionCombineMode`/`RestitutionCombineMode` material properties
   are accepted but ignored.
-- **Per-body sleep threshold is not configurable** (`SetSleepThreshold` stores the
-  value but Jolt does not support per-body sleep thresholds; the config value is
-  honored at body creation via `mAllowSleeping`).
+- **Per-body sleep threshold is not configurable** — see "Scene queries and rigid
+  body details" for the current, more precise description.
 - **Scene-query filter callbacks receive `nullptr` for the `Physics::Shape*`
-  argument** (the gem has no Physics::Shape wrapper yet; the SimulatedBody argument
-  is valid).
+  argument** (the SimulatedBody argument is valid). Still true, but no longer for
+  the original reason: a `JoltShape` wrapper exists now, so this is a wiring gap in
+  the query helpers rather than a missing type.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.
 - **Per-collider settings on multi-collider bodies** (collision layer/group,
-  trigger flag, material) are taken from the first collider only until compound
-  collider support lands in M3.
-- **`AzPhysics::SceneInterface` (high-level scene management and scene-event
-  registration) is not implemented yet.** Scene-level events
-  (`OnSceneTriggersEvent`, `OnSceneCollisionsEvent`, simulation start/finish) are
-  therefore unavailable; body-level events work.
-- **Mesh colliders and `Physics::Shape` objects remain unimplemented** (cooking
-  stubs, `CreateShape` returns nullptr, `AddShape`/`RemoveShape` on bodies are
-  no-ops). Scheduled after compound collider work.
+  trigger flag, material) are taken from the first collider only. Compound support
+  landed in M3 and the restriction survived it for the reasons given there — it is
+  a Jolt structural limit, not unfinished work.
+- **[superseded]** *`AzPhysics::SceneInterface` is not implemented yet, so
+  scene-level events are unavailable.* `JoltSceneInterface` registers the interface
+  and forwards `OnSceneCollisionsEvent`, `OnSceneTriggersEvent` and the
+  simulation start/finish events to the scene.
+- **[superseded — see "Shapes"]** *Mesh colliders and `Physics::Shape` objects
+  remain unimplemented.* `CreateShape` returns a real `JoltShape`, mesh cooking
+  works, and `AddShape`/`RemoveShape` mutate live bodies through
+  `JPH::MutableCompoundShape`.
 
 ## M3 (compound colliders)
 
@@ -105,11 +113,14 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   (`CharacterVirtualSettings::mInnerBodyShape`): dynamic bodies collide with and are
   pushed by the character, and sensors fire trigger events for it. PhysX instead uses
   its CCT obstacle/shadow-body machinery.
-- **The character's own collision layer/group is stored but not enforced** on its
-  movement queries yet (default Jolt filters collide with everything); sensors never
-  block movement either way.
+- **[superseded — see "Collision filtering"]** *The character's collision layer/group
+  is stored but not enforced.* Both character backends now resolve their layer and
+  group through `AcquireObjectLayer`, so the shared object-layer rule applies to
+  them like any other body. Sensors still never block movement.
 - **Body-level `RayCast` on a character returns an empty hit** (use scene queries).
-- **`AttachShape` is unsupported** (no `Physics::Shape` wrapper in the backend yet).
+- **`AttachShape` on a character is unsupported.** A `Physics::Shape` wrapper exists
+  now; what is missing is a way to recombine a character's shape at runtime, since
+  Jolt characters take a single shape at construction.
 - **No `CharacterGameplayComponent` equivalent**: gameplay drives the character via
   `CharacterRequestBus::AddVelocityForTick` (gravity, jumps), as the smoke test's
   `CharacterDriverTestComponent` demonstrates.
@@ -178,9 +189,12 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   cylinder is Z-aligned to match the O3DE capsule convention, and is exact rather than
   faceted — colliders authored for PhysX will not transfer, and a rolling PhysX
   "cylinder" behaves subtly differently from a real one.
-- **Jolt's tapered capsule, tapered cylinder and plane shapes are not exposed.** They
-  have no `Physics::ShapeType` counterpart, so they would each need a gem-specific
-  configuration in the same way as the cylinder.
+- **Jolt's tapered capsule, tapered cylinder, plane and triangle shapes are not
+  exposed.** They have no `Physics::ShapeType` counterpart, so they would each need a
+  gem-specific configuration in the same way as the cylinder.
+- **Convex hulls have no authoring path of their own.** `JoltMeshUtils` builds a
+  `JPH::ConvexHullShape` when cooking, so hulls exist at runtime, but there is no
+  convex-hull collider component or shape configuration to author one directly.
 
 ## Collision filtering
 
@@ -261,13 +275,59 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   belonging to a chain between two mapped joints are reoriented towards the next
   mapped joint, so extreme poses can show artifacts (a Jolt limitation).
 
+## Soft bodies
+
+- **There is no PhysX counterpart at all.** PhysX 5 has soft bodies but the O3DE
+  PhysX gem does not wrap them, and AzPhysics has no soft-body interface, so the
+  whole feature is exposed through this gem's own `JoltSoftBodyComponent` and
+  `JoltSoftBodyRequestBus` (rule 5 of the project brief). Nothing here is meant to
+  be API-compatible with anything.
+- **Geometry is procedural, not authored.** A body is one of three generated
+  shapes — `Cloth` (a flat grid that drapes), `Cube` (a solid grid that keeps its
+  bulk) or `Balloon` (a closed grid driven by internal pressure) — sized by
+  `m_size` and `m_resolution`. There is no path from a mesh asset to a soft body,
+  and cloth pinning is limited to three presets (`None`, `Corners`, `TopEdge`)
+  rather than an arbitrary vertex selection.
+- **Settings split into baked and live, and the split is enforced.** Shape,
+  pinning, size, resolution, mass, compliance and allow-sleeping go into the
+  particle layout at creation and cannot change on a live body; iterations,
+  linear damping, pressure and gravity factor forward straight to Jolt's motion
+  properties and can change every frame. The runtime bus only exposes the live
+  ones.
+- **Soft bodies are not `AzPhysics::SimulatedBody`s.** They hold a raw
+  `JPH::BodyID` rather than a scene handle, so they do not appear in scene
+  queries, raise no collision or trigger events, and cannot be fetched through
+  `AzPhysics::SceneInterface`. Rigid bodies still collide with them in the
+  solver.
+- **Every soft body is on the default collision layer.** The component has no
+  layer/group fields; the body acquires its object layer with
+  `AzPhysics::CollisionLayer::Default` and an empty group id. Filtering them
+  against specific layers needs those fields plumbed through first.
+- **Drawing is debug-draw only.** A soft body has no mesh asset and its shape
+  changes every step, so `JoltSoftBodyRender` draws it from particle positions —
+  in game mode from the live body, and in the Edit viewport from the rest shape
+  the settings would generate, so resolution and size changes are visible before
+  pressing play. There is no Atom material or renderable mesh.
+- **Locking is the inverse of the JoltBuoyancy gem's water volume**, and both are
+  load-bearing. That volume runs inside a step listener where every body mutex is
+  already held, so it uses the no-lock interface and never adds or removes bodies.
+  This class creates and destroys bodies — legal only outside the step — and reads
+  particle positions while the solver may run, so it takes a real body lock.
+  Creating a body from a step listener would deadlock; reading particles without a
+  lock would tear.
+- **Why this lives in the physics gem while buoyancy does not:** a soft body *is* a
+  body, so it needs object layers, collision filtering and eventually scene handles
+  and collision events — all internals of this gem. Buoyancy only perturbs bodies
+  something else owns, so it stays an extension gem.
+
 ## Editor components (PhysX-style editor/runtime split)
 
 - **Every Jolt component family now has an editor variant** (`EditorJolt*` classes
   deriving from `AzToolsFramework::Components::EditorComponentBase`): box/sphere/
   capsule colliders, static and dynamic rigid bodies, heightfield collider, static
-  and mutable compound colliders, character controller, vehicle, and all five joint
-  types (fixed, ball, hinge, prismatic, D6). This mirrors the PhysX gem's
+  and mutable compound colliders, character controller, vehicle, soft body, and all
+  eight joint types (fixed, ball, hinge, prismatic, D6, distance, cone,
+  swing-twist). This mirrors the PhysX gem's
   editor/runtime split. Editor components activate in the Edit viewport (plain
   `AZ::Component`s are silently wrapped by `GenericComponentWrapper` and never
   activate there) and spawn the runtime component via `BuildGameEntity` on
@@ -336,3 +396,31 @@ match the PhysX gem equivalents. Every intentional divergence is logged here.
   AzPhysics API, so a derived per-scene configuration is sliced before any backend
   can read it. The gem's former `JoltSceneConfiguration` was removed for exactly
   this reason — it could never actually reach a scene.
+
+## Jolt features not wrapped
+
+Not divergences from PhysX — Jolt capabilities this gem simply does not expose yet.
+Listed so the gaps do not have to be re-derived from Jolt's headers.
+
+- **`StateRecorder` (save/restore of simulation state) is untouched.**
+  `PhysicsSystem::SaveState`/`RestoreState` and `StateRecorderImpl` are what
+  networked rollback/resimulation and deterministic replay are built on, and
+  nothing in the gem can snapshot or restore state today. The largest single gap.
+- **Four of Jolt's twelve constraints are unwrapped:** path, gear, rack-and-pinion
+  and pulley. Wrapped: fixed, point (exposed as "ball"), distance, hinge, slider
+  (exposed as "prismatic"), cone, swing-twist and six-DOF (exposed as "D6"). Gear
+  and rack-and-pinion follow the existing joint pattern directly; a path
+  constraint additionally needs spline authoring.
+- **No editor component modes or viewport manipulators.** PhysX ships
+  `ColliderComponentMode` with handles for collider dimensions plus dedicated
+  offset and rotation modes; collider dimensions here are numeric entry only.
+- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
+  visualization and auto-configuration) — also noted under M6.
+- **Jolt's own scene serialization (`PhysicsScene`, `ObjectStream`) is not used.**
+  Scenes are built from O3DE entities; there is no import/export of Jolt's native
+  scene format.
+- **Hair does not exist in Jolt 5.5.0** and needs a Jolt upgrade before it could be
+  wrapped at all.
+- **Buoyancy lives in the separate JoltBuoyancy gem**, which drives
+  `Body::ApplyBuoyancyImpulse` from a step listener. It is deliberately outside
+  this gem — see the reasoning under "Soft bodies".
