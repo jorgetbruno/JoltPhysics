@@ -7,6 +7,8 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/GearConstraint.h>
+#include <Jolt/Physics/Constraints/RackAndPinionConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
@@ -264,6 +266,66 @@ namespace JoltPhysics
             settings.mTwistMaxAngle = AZ::DegToRad(configuration.m_twistUpper);
             return settings.Create(parentBody, childBody);
         }
+
+        JPH::Constraint* CreateGearConstraint(
+            const JoltGearJointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
+        {
+            if (configuration.m_parentNumTeeth == 0 || configuration.m_childNumTeeth == 0)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Gear joint '%s' has a zero tooth count; the ratio would be undefined. Joint not created.",
+                    configuration.m_debugName.c_str());
+                return nullptr;
+            }
+
+            JPH::GearConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mHingeAxis1 = AxisInLocalSpace(configuration.m_parentLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mHingeAxis2 = AxisInLocalSpace(configuration.m_childLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.SetRatio(
+                static_cast<int>(configuration.m_parentNumTeeth), static_cast<int>(configuration.m_childNumTeeth));
+            return settings.Create(parentBody, childBody);
+        }
+
+        JPH::Constraint* CreateRackAndPinionConstraint(
+            const JoltRackAndPinionJointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
+        {
+            if (configuration.m_pinionNumTeeth == 0 || configuration.m_rackLength <= 0.0f)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Rack and pinion joint '%s' needs a non-zero pinion tooth count and a positive rack length. "
+                    "Joint not created.",
+                    configuration.m_debugName.c_str());
+                return nullptr;
+            }
+
+            JPH::RackAndPinionConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            // Parent is the pinion (rotates), child is the rack (slides); both take the
+            // joint-frame X axis, like the hinge and prismatic joints they accompany.
+            settings.mHingeAxis = AxisInLocalSpace(configuration.m_parentLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.mSliderAxis = AxisInLocalSpace(configuration.m_childLocalRotation, AZ::Vector3::CreateAxisX());
+            settings.SetRatio(
+                static_cast<int>(configuration.m_rackNumTeeth),
+                configuration.m_rackLength,
+                static_cast<int>(configuration.m_pinionNumTeeth));
+            return settings.Create(parentBody, childBody);
+        }
+
+        //! The JPH::Constraint behind a joint handle, or null when the handle names nothing
+        //! in this scene.
+        JPH::Constraint* FindConstraint(JoltScene& scene, AzPhysics::JointHandle jointHandle)
+        {
+            if (jointHandle == AzPhysics::InvalidJointHandle)
+            {
+                return nullptr;
+            }
+            if (auto* joint = azrtti_cast<JoltJoint*>(scene.GetJointFromHandle(jointHandle)))
+            {
+                return joint->GetConstraint();
+            }
+            return nullptr;
+        }
     } // namespace
 
     JPH::Constraint* CreateJoltConstraint(
@@ -297,10 +359,45 @@ namespace JoltPhysics
         {
             return CreateD6Constraint(*d6Config, parentBody, childBody);
         }
+        if (const auto* gearConfig = azrtti_cast<const JoltGearJointConfiguration*>(&configuration))
+        {
+            return CreateGearConstraint(*gearConfig, parentBody, childBody);
+        }
+        if (const auto* rackConfig = azrtti_cast<const JoltRackAndPinionJointConfiguration*>(&configuration))
+        {
+            return CreateRackAndPinionConstraint(*rackConfig, parentBody, childBody);
+        }
         if (azrtti_cast<const JoltFixedJointConfiguration*>(&configuration))
         {
             return CreateFixedConstraint(configuration, parentBody, childBody);
         }
         return nullptr;
+    }
+
+    void LinkGearedConstraint(
+        JPH::Constraint& constraint, const AzPhysics::JointConfiguration& configuration, JoltScene& scene)
+    {
+        // Gear and rack-and-pinion couple velocities. Position error therefore accumulates
+        // as drift unless Jolt can measure the rotation each accompanying joint has really
+        // travelled, which is what these references are for. Both must resolve: with only
+        // one, Jolt has nothing to compare against.
+        if (const auto* gearConfig = azrtti_cast<const JoltGearJointConfiguration*>(&configuration))
+        {
+            JPH::Constraint* parentHinge = FindConstraint(scene, gearConfig->m_parentHingeJoint);
+            JPH::Constraint* childHinge = FindConstraint(scene, gearConfig->m_childHingeJoint);
+            if (parentHinge && childHinge)
+            {
+                static_cast<JPH::GearConstraint&>(constraint).SetConstraints(parentHinge, childHinge);
+            }
+        }
+        else if (const auto* rackConfig = azrtti_cast<const JoltRackAndPinionJointConfiguration*>(&configuration))
+        {
+            JPH::Constraint* pinionHinge = FindConstraint(scene, rackConfig->m_pinionHingeJoint);
+            JPH::Constraint* rackSlider = FindConstraint(scene, rackConfig->m_rackSliderJoint);
+            if (pinionHinge && rackSlider)
+            {
+                static_cast<JPH::RackAndPinionConstraint&>(constraint).SetConstraints(pinionHinge, rackSlider);
+            }
+        }
     }
 } // namespace JoltPhysics

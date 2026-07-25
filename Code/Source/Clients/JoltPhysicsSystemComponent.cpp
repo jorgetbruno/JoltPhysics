@@ -12,6 +12,7 @@
 
 #include <ISystem.h>
 
+#include <Joint/JoltJointConfiguration.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
@@ -48,6 +49,11 @@ namespace JoltPhysics
         Internal::ReflectOnce<AzPhysics::SceneConfiguration>(context);
 
         JoltSystemConfiguration::Reflect(context);
+
+        // Reflected here rather than from a component, as the other joint configurations
+        // are: gear and rack-and-pinion have no components of their own yet.
+        JoltGearJointConfiguration::Reflect(context);
+        JoltRackAndPinionJointConfiguration::Reflect(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

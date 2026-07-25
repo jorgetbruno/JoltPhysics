@@ -3,6 +3,7 @@
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/RTTI/RTTI.h>
 
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
 #include <AzFramework/Physics/Configuration/JointConfiguration.h>
 
 namespace JoltPhysics
@@ -163,5 +164,60 @@ namespace JoltPhysics
         float m_planeHalfConeAngle = 45.0f;  //!< Swing half-angle about joint-frame Z (degrees).
         float m_twistLower = -45.0f; //!< Lower twist limit about joint-frame X (degrees).
         float m_twistUpper = 45.0f;  //!< Upper twist limit about joint-frame X (degrees).
+    };
+
+    //! Gear: couples the rotation of two bodies so one turns the other, at a ratio set by
+    //! their tooth counts. There is no gear geometry — nothing meshes and nothing is
+    //! checked for interpenetration, so the "teeth" only express the ratio.
+    //!
+    //! **This constraint does not hold the bodies in place.** It couples rotation and
+    //! nothing else, so each body needs its own hinge joint as well or it will simply
+    //! drift off. Point the hinge joints at the same axes given here.
+    //!
+    //! Ratio: parentRotation = -(childTeeth / parentTeeth) * childRotation, so a small
+    //! parent driving a large child turns the child more slowly, and in the opposite
+    //! direction, as real gears do.
+    struct JoltGearJointConfiguration : public AzPhysics::JointConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltGearJointConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltGearJointConfiguration, "{687F775C-23E2-45FC-A703-1D1BD8BDAEBA}", AzPhysics::JointConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JointGenericProperties m_genericProperties;
+
+        //! Tooth counts. Only their ratio matters; both must be non-zero.
+        AZ::u32 m_parentNumTeeth = 1;
+        AZ::u32 m_childNumTeeth = 1;
+
+        //! The hinge joints holding each gear on its axle, if they have been created.
+        //! Optional: Jolt uses them only to measure accumulated rotation error and correct
+        //! the drift a velocity-level coupling otherwise builds up over time. The gearing
+        //! itself works without them, but two gears left running will slowly lose phase.
+        AzPhysics::JointHandle m_parentHingeJoint = AzPhysics::InvalidJointHandle;
+        AzPhysics::JointHandle m_childHingeJoint = AzPhysics::InvalidJointHandle;
+    };
+
+    //! Rack and pinion: couples the rotation of the parent (the pinion, a gear on a hinge)
+    //! to the translation of the child (the rack, a bar on a slider). Same caveat as the
+    //! gear joint — it couples motion only, so the pinion still needs a hinge joint and
+    //! the rack a prismatic joint.
+    //!
+    //! Ratio: pinionRotation = (2*pi * rackTeeth / (rackLength * pinionTeeth)) * rackTranslation.
+    struct JoltRackAndPinionJointConfiguration : public AzPhysics::JointConfiguration
+    {
+        AZ_CLASS_ALLOCATOR(JoltRackAndPinionJointConfiguration, AZ::SystemAllocator);
+        AZ_RTTI(JoltRackAndPinionJointConfiguration, "{55C43F2C-528E-4885-BD55-A84AC1F9344F}", AzPhysics::JointConfiguration);
+        static void Reflect(AZ::ReflectContext* context);
+
+        JointGenericProperties m_genericProperties;
+
+        AZ::u32 m_pinionNumTeeth = 1; //!< Teeth on the parent gear. Must be non-zero.
+        AZ::u32 m_rackNumTeeth = 1; //!< Teeth cut into the child bar.
+        float m_rackLength = 1.0f; //!< Length of the child bar in metres. Must be non-zero.
+
+        //! The pinion's hinge joint and the rack's prismatic joint, for drift correction.
+        //! Optional, as with the gear joint.
+        AzPhysics::JointHandle m_pinionHingeJoint = AzPhysics::InvalidJointHandle;
+        AzPhysics::JointHandle m_rackSliderJoint = AzPhysics::InvalidJointHandle;
     };
 } // namespace JoltPhysics

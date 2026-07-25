@@ -179,6 +179,36 @@ feature, trust the topic sections below the milestones.**
   with a car-sized engine wheelies, loses front contact and falls over, so the engine
   needs sizing for the vehicle too.
 
+## Gear and rack-and-pinion joints
+
+- **No PhysX counterpart:** the PhysX gem wraps neither, so these are exposed
+  through this gem's own `JoltGearJointConfiguration` and
+  `JoltRackAndPinionJointConfiguration` with no compatibility layer to match.
+- **They couple motion and nothing else.** Neither constraint holds its bodies in
+  place, so each body still needs its own joint - two hinges for a gear, a hinge
+  and a prismatic for a rack and pinion - or the bodies simply drift apart. This
+  is a Jolt requirement, not a gem limitation.
+- **There is no gear geometry.** Nothing meshes and no interpenetration is
+  checked; the tooth counts only express a ratio. Gear ratio is
+  `parentRotation = -(childTeeth / parentTeeth) * childRotation` (so the driven
+  wheel turns the opposite way, as real gears do); rack and pinion is
+  `pinionRotation = 2*pi * rackTeeth / (rackLength * pinionTeeth) * rackTranslation`.
+  Tooth counts are exposed rather than the raw ratio because that is what an
+  author knows, and it is the form Jolt's own `SetRatio` helpers take.
+- **The accompanying joints are referenced by `AzPhysics::JointHandle`, and those
+  handles are deliberately not serialized.** A joint handle is a runtime index into
+  a scene's joint list and means nothing once written to disk, so whatever creates
+  the gear fills them in. Jolt uses the references only to measure accumulated
+  rotation error and correct drift - the coupling itself works without them, but
+  two gears left running slowly lose phase. Both must resolve; with only one there
+  is nothing to compare against. They are resolved in `JoltScene::AddJoint` rather
+  than in `CreateJoltConstraint`, which has no access to the scene's joint list.
+- **No editor or runtime components yet.** Unlike the other eight joint types,
+  these are reachable only through `SceneInterface::AddJoint` from code. A
+  component would need to reference two *other joint components* rather than two
+  entities, which the existing `JoltJointComponentBase` lead/follower model does
+  not express.
+
 ## Shapes
 
 - **Cylinder colliders are native.** AzFramework declares `Physics::ShapeType::Cylinder`
@@ -419,11 +449,10 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
   `PhysicsSystem::SaveState`/`RestoreState` and `StateRecorderImpl` are what
   networked rollback/resimulation and deterministic replay are built on, and
   nothing in the gem can snapshot or restore state today. The largest single gap.
-- **Four of Jolt's twelve constraints are unwrapped:** path, gear, rack-and-pinion
-  and pulley. Wrapped: fixed, point (exposed as "ball"), distance, hinge, slider
-  (exposed as "prismatic"), cone, swing-twist and six-DOF (exposed as "D6"). Gear
-  and rack-and-pinion follow the existing joint pattern directly; a path
-  constraint additionally needs spline authoring.
+- **Two of Jolt's twelve constraints are unwrapped:** path and pulley. A path
+  constraint additionally needs spline authoring. Wrapped: fixed, point (exposed as
+  "ball"), distance, hinge, slider (exposed as "prismatic"), cone, swing-twist,
+  six-DOF (exposed as "D6"), gear and rack-and-pinion.
 - **No editor component modes or viewport manipulators.** PhysX ships
   `ColliderComponentMode` with handles for collider dimensions plus dedicated
   offset and rotation modes; collider dimensions here are numeric entry only.

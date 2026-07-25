@@ -229,4 +229,38 @@ namespace JoltPhysics
                 ;
         }
     }
+
+    void JoltGearJointConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        Internal::ReflectOnce<JointGenericProperties>(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            // The hinge joint handles are deliberately not fields: a JointHandle is a
+            // runtime index into a scene's joint list, meaningless once serialized.
+            // Whatever creates the gear resolves them and fills them in.
+            serializeContext->Class<JoltGearJointConfiguration, AzPhysics::JointConfiguration>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltGearJointConfiguration::m_genericProperties)
+                ->Field("ParentNumTeeth", &JoltGearJointConfiguration::m_parentNumTeeth)
+                ->Field("ChildNumTeeth", &JoltGearJointConfiguration::m_childNumTeeth)
+                ;
+        }
+    }
+
+    void JoltRackAndPinionJointConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        Internal::ReflectOnce<JointGenericProperties>(context);
+
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltRackAndPinionJointConfiguration, AzPhysics::JointConfiguration>()
+                ->Version(1)
+                ->Field("GenericProperties", &JoltRackAndPinionJointConfiguration::m_genericProperties)
+                ->Field("PinionNumTeeth", &JoltRackAndPinionJointConfiguration::m_pinionNumTeeth)
+                ->Field("RackNumTeeth", &JoltRackAndPinionJointConfiguration::m_rackNumTeeth)
+                ->Field("RackLength", &JoltRackAndPinionJointConfiguration::m_rackLength)
+                ;
+        }
+    }
 } // namespace JoltPhysics

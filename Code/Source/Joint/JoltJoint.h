@@ -55,4 +55,13 @@ namespace JoltPhysics
     //! (hinge/slider axis, twist axis), matching the PhysX convention.
     JPH::Constraint* CreateJoltConstraint(
         const AzPhysics::JointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody);
+
+    //! Points a gear or rack-and-pinion constraint at the joints holding its bodies on
+    //! their axes, which is how Jolt corrects the drift a velocity-level coupling
+    //! accumulates. Does nothing for any other configuration, or when the referenced
+    //! joints are not in this scene. Separate from CreateJoltConstraint because it needs
+    //! the scene to resolve joint handles, and because those joints may be created after
+    //! the gear itself.
+    void LinkGearedConstraint(
+        JPH::Constraint& constraint, const AzPhysics::JointConfiguration& configuration, JoltScene& scene);
 } // namespace JoltPhysics

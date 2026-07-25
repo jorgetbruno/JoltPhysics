@@ -654,6 +654,12 @@ namespace JoltPhysics
         {
             return AzPhysics::InvalidJointHandle;
         }
+
+        // Gear and rack-and-pinion joints reference the joints holding their bodies on
+        // their axes. Resolved here rather than in CreateJoltConstraint because it needs
+        // the scene's joint list.
+        LinkGearedConstraint(*constraint, *jointConfig, *this);
+
         m_physicsSystem->AddConstraint(constraint);
 
         AzPhysics::JointIndex jointIndex;

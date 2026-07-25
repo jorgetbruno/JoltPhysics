@@ -9,6 +9,8 @@
 #include <Scene/JoltScene.h>
 #include <System/JoltSystem.h>
 
+#include "JoltTestWarningCatcher.h"
+
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
@@ -110,6 +112,36 @@ namespace JoltPhysics
             config.m_parentLocalRotation = frameRotation;
             config.m_childLocalPosition = pivotWorld - childBodyPosition;
             config.m_childLocalRotation = frameRotation;
+        }
+
+        //! A dynamic box with gravity switched off, so a test measuring a constraint's
+        //! coupling is not also measuring the body falling.
+        AzPhysics::SimulatedBodyHandle CreateWeightlessBox(
+            const AZ::Vector3& position, const AZ::Vector3& initialAngularVelocity = AZ::Vector3::CreateZero())
+        {
+            auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+            boxShape->m_dimensions = AZ::Vector3(0.5f, 0.5f, 0.5f);
+
+            AzPhysics::RigidBodyConfiguration boxConfig;
+            boxConfig.m_position = position;
+            boxConfig.m_initialAngularVelocity = initialAngularVelocity;
+            boxConfig.m_gravityEnabled = false;
+            boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+            return m_scene->AddSimulatedBody(&boxConfig);
+        }
+
+        //! Hinges a body to a static anchor about the world X axis, pivoting in place.
+        AzPhysics::JointHandle HingeInPlaceAboutX(
+            AzPhysics::SimulatedBodyHandle anchor,
+            const AZ::Vector3& anchorPosition,
+            AzPhysics::SimulatedBodyHandle body,
+            const AZ::Vector3& bodyPosition)
+        {
+            JoltHingeJointConfiguration hinge;
+            hinge.m_limitProperties.m_isLimited = false;
+            SetFrames(hinge, anchorPosition, bodyPosition, bodyPosition);
+            return m_scene->AddJoint(&hinge, anchor, body);
         }
 
         //! Angle of the arm (child - pivot) away from straight down, in degrees.
@@ -381,6 +413,143 @@ namespace JoltPhysics
         EXPECT_LT((link1->GetPosition() - AZ::Vector3(0.0f, 5.0f, 5.5f)).GetLength(), 1.2f);
         EXPECT_TRUE(link2->GetPosition().IsFinite());
         EXPECT_LT((link2->GetPosition() - link1->GetPosition()).GetLength(), 1.2f);
+    }
+
+    TEST_F(JoltJointTests, GearJointCouplesRotationAtTheToothRatio)
+    {
+        const AZ::Vector3 anchorPosition(0.0f, 0.0f, 0.0f);
+        const AZ::Vector3 driverPosition(-1.0f, 0.0f, 0.0f);
+        const AZ::Vector3 drivenPosition(1.0f, 0.0f, 0.0f);
+
+        auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.2f, 0.2f, 0.2f));
+        auto driver = CreateWeightlessBox(driverPosition, AZ::Vector3(10.0f, 0.0f, 0.0f));
+        auto driven = CreateWeightlessBox(drivenPosition);
+
+        // The gear only couples rotation; without these hinges holding each body on its
+        // axis the constraint has nothing meaningful to couple.
+        auto driverHinge = HingeInPlaceAboutX(anchor, anchorPosition, driver, driverPosition);
+        auto drivenHinge = HingeInPlaceAboutX(anchor, anchorPosition, driven, drivenPosition);
+        ASSERT_NE(driverHinge, AzPhysics::InvalidJointHandle);
+        ASSERT_NE(drivenHinge, AzPhysics::InvalidJointHandle);
+
+        JoltGearJointConfiguration gear;
+        gear.m_parentNumTeeth = 1;
+        gear.m_childNumTeeth = 2;
+        gear.m_parentHingeJoint = driverHinge;
+        gear.m_childHingeJoint = drivenHinge;
+        SetFrames(gear, driverPosition, drivenPosition, AZ::Vector3::CreateZero());
+        ASSERT_NE(m_scene->AddJoint(&gear, driver, driven), AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(30);
+
+        // Jolt's ratio is driverRotation = -(childTeeth / parentTeeth) * drivenRotation, so a
+        // 1-tooth driver turns a 2-tooth wheel at half speed, the opposite way.
+        const float driverSpin = GetBody(driver)->GetAngularVelocity().GetX();
+        const float drivenSpin = GetBody(driven)->GetAngularVelocity().GetX();
+        EXPECT_GT(driverSpin, 1.0f);
+        EXPECT_NEAR(drivenSpin, -driverSpin * 0.5f, AZStd::abs(driverSpin) * 0.1f);
+    }
+
+    TEST_F(JoltJointTests, GearJointToothRatioChangesTheCouplingSpeed)
+    {
+        // Same rig at 1:1, to show the ratio is doing the work rather than the constraint
+        // simply mirroring whatever the driver does.
+        const AZ::Vector3 anchorPosition(0.0f, 0.0f, 0.0f);
+        const AZ::Vector3 driverPosition(-1.0f, 0.0f, 0.0f);
+        const AZ::Vector3 drivenPosition(1.0f, 0.0f, 0.0f);
+
+        auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.2f, 0.2f, 0.2f));
+        auto driver = CreateWeightlessBox(driverPosition, AZ::Vector3(10.0f, 0.0f, 0.0f));
+        auto driven = CreateWeightlessBox(drivenPosition);
+
+        HingeInPlaceAboutX(anchor, anchorPosition, driver, driverPosition);
+        HingeInPlaceAboutX(anchor, anchorPosition, driven, drivenPosition);
+
+        JoltGearJointConfiguration gear;
+        gear.m_parentNumTeeth = 1;
+        gear.m_childNumTeeth = 1;
+        SetFrames(gear, driverPosition, drivenPosition, AZ::Vector3::CreateZero());
+        ASSERT_NE(m_scene->AddJoint(&gear, driver, driven), AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(30);
+
+        const float driverSpin = GetBody(driver)->GetAngularVelocity().GetX();
+        const float drivenSpin = GetBody(driven)->GetAngularVelocity().GetX();
+        EXPECT_GT(driverSpin, 1.0f);
+        EXPECT_NEAR(drivenSpin, -driverSpin, AZStd::abs(driverSpin) * 0.1f);
+    }
+
+    TEST_F(JoltJointTests, GearJointWithZeroTeethIsRejected)
+    {
+        auto driver = CreateWeightlessBox(AZ::Vector3(-1.0f, 0.0f, 0.0f));
+        auto driven = CreateWeightlessBox(AZ::Vector3(1.0f, 0.0f, 0.0f));
+
+        JoltGearJointConfiguration gear;
+        gear.m_parentNumTeeth = 0;
+        gear.m_debugName = "ZeroTeethGear";
+
+        JoltWarningCatcher warnings;
+        EXPECT_EQ(m_scene->AddJoint(&gear, driver, driven), AzPhysics::InvalidJointHandle);
+        EXPECT_TRUE(warnings.ContainsWarningWith("ZeroTeethGear"));
+    }
+
+    TEST_F(JoltJointTests, RackAndPinionJointTurnsRotationIntoTranslation)
+    {
+        const AZ::Vector3 anchorPosition(0.0f, -2.0f, 0.0f);
+        const AZ::Vector3 pinionPosition(0.0f, 0.0f, 0.0f);
+        const AZ::Vector3 rackPosition(0.0f, 2.0f, 0.0f);
+
+        auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.2f, 0.2f, 0.2f));
+        auto pinion = CreateWeightlessBox(pinionPosition, AZ::Vector3(10.0f, 0.0f, 0.0f));
+        auto rack = CreateWeightlessBox(rackPosition);
+
+        // Pinion spins about X; the rack slides along X on a prismatic joint.
+        auto pinionHinge = HingeInPlaceAboutX(anchor, anchorPosition, pinion, pinionPosition);
+        ASSERT_NE(pinionHinge, AzPhysics::InvalidJointHandle);
+
+        JoltPrismaticJointConfiguration slider;
+        slider.m_limitProperties.m_isLimited = false;
+        SetFrames(slider, anchorPosition, rackPosition, rackPosition);
+        auto rackSlider = m_scene->AddJoint(&slider, anchor, rack);
+        ASSERT_NE(rackSlider, AzPhysics::InvalidJointHandle);
+
+        JoltRackAndPinionJointConfiguration rackAndPinion;
+        rackAndPinion.m_pinionNumTeeth = 8;
+        rackAndPinion.m_rackNumTeeth = 8;
+        rackAndPinion.m_rackLength = 1.0f;
+        rackAndPinion.m_pinionHingeJoint = pinionHinge;
+        rackAndPinion.m_rackSliderJoint = rackSlider;
+        SetFrames(rackAndPinion, pinionPosition, rackPosition, AZ::Vector3::CreateZero());
+        ASSERT_NE(m_scene->AddJoint(&rackAndPinion, pinion, rack), AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(30);
+
+        // A spinning pinion has to drag the rack along its slider axis. Without the
+        // constraint the rack has no reason to move at all - see the control below.
+        EXPECT_GT(AZStd::abs(GetBody(rack)->GetLinearVelocity().GetX()), 0.5f);
+        EXPECT_GT(AZStd::abs(GetBody(rack)->GetPosition().GetX()), 0.05f);
+    }
+
+    TEST_F(JoltJointTests, RackOnItsOwnSliderDoesNotMoveWithoutTheRackAndPinionJoint)
+    {
+        // The control for the test above: same rig, no rack-and-pinion joint.
+        const AZ::Vector3 anchorPosition(0.0f, -2.0f, 0.0f);
+        const AZ::Vector3 rackPosition(0.0f, 2.0f, 0.0f);
+
+        auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.2f, 0.2f, 0.2f));
+        auto pinion = CreateWeightlessBox(AZ::Vector3::CreateZero(), AZ::Vector3(10.0f, 0.0f, 0.0f));
+        auto rack = CreateWeightlessBox(rackPosition);
+
+        HingeInPlaceAboutX(anchor, anchorPosition, pinion, AZ::Vector3::CreateZero());
+
+        JoltPrismaticJointConfiguration slider;
+        slider.m_limitProperties.m_isLimited = false;
+        SetFrames(slider, anchorPosition, rackPosition, rackPosition);
+        ASSERT_NE(m_scene->AddJoint(&slider, anchor, rack), AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(30);
+
+        EXPECT_NEAR(GetBody(rack)->GetPosition().GetX(), 0.0f, 0.01f);
     }
 
     TEST_F(JoltJointTests, DistanceJointCapsSeparation)
