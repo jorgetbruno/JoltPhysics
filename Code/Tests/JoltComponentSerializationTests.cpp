@@ -89,6 +89,10 @@ namespace JoltPhysics
 
         AZStd::string json = StoreToJson(source);
         EXPECT_NE(json.find("RigidBodyConfiguration"), AZStd::string::npos);
+        // The serialized field names are what prefabs and level generators have to write,
+        // so pin the two this component is usually authored with.
+        EXPECT_NE(json.find("Mass"), AZStd::string::npos) << json.c_str();
+        EXPECT_NE(json.find("Kinematic"), AZStd::string::npos) << json.c_str();
 
         JoltRigidBodyComponent loaded;
         rapidjson::Document doc;
