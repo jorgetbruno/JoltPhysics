@@ -39,6 +39,16 @@ namespace JoltPhysics
         }
     }
 
+    AZ::Crc32 JointLimitProperties::GetLimitVisibility() const
+    {
+        return m_isLimited ? AZ::Edit::PropertyVisibility::Show : AZ::Edit::PropertyVisibility::Hide;
+    }
+
+    AZ::Crc32 JointLimitProperties::GetSoftLimitVisibility() const
+    {
+        return (m_isLimited && m_isSoftLimit) ? AZ::Edit::PropertyVisibility::Show : AZ::Edit::PropertyVisibility::Hide;
+    }
+
     void JointLimitProperties::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -61,21 +71,25 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_isLimited,
                         "Is limited", "Whether the joint's degree of freedom is limited.")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_limitFirst,
                         "Limit lower", "Lower limit. Hinge: angle (deg). Prismatic: min slide (m). Ball: cone half-angle about joint Y (deg).")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointLimitProperties::GetLimitVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_limitSecond,
                         "Limit upper", "Upper limit. Hinge: angle (deg). Prismatic: max slide (m). Ball: cone half-angle about joint Z (deg).")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointLimitProperties::GetLimitVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_isSoftLimit,
-                        "Soft limit", "Soft limits use a spring + damping; hard limits use a tolerance band.")
+                        "Soft limit", "Soft limits push back with a spring + damping instead of stopping dead. Hinge and prismatic only.")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointLimitProperties::GetLimitVisibility)
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_stiffness,
-                        "Stiffness", "Soft-limit spring strength.")
+                        "Stiffness", "Soft-limit spring stiffness (N/m for prismatic, N m/rad for hinge).")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointLimitProperties::GetSoftLimitVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_damping,
-                        "Damping", "Soft-limit damping.")
+                        "Damping", "Soft-limit damping coefficient (N s/m for prismatic, N m s/rad for hinge).")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &JointLimitProperties::m_tolerance,
-                        "Tolerance", "Hard-limit distance at which the limit begins to be enforced.")
-                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointLimitProperties::GetSoftLimitVisibility)
                     ;
             }
         }

@@ -619,4 +619,141 @@ namespace JoltPhysics
         EXPECT_TRUE(child->GetPosition().IsFinite());
     }
 
+    TEST_F(JoltJointTests, HingeSoftLimitBecomesALimitSpring)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(2.0f, 0.0f, 5.0f));
+
+        JoltHingeJointConfiguration config;
+        config.m_limitProperties.m_isLimited = true;
+        config.m_limitProperties.m_isSoftLimit = true;
+        config.m_limitProperties.m_limitFirst = -45.0f;
+        config.m_limitProperties.m_limitSecond = 45.0f;
+        config.m_limitProperties.m_stiffness = 77.0f;
+        config.m_limitProperties.m_damping = 7.0f;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(2.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        // Stiffness/damping pass through unchanged: PhysX's soft-limit fields are the
+        // k and c of Jolt's StiffnessAndDamping spring mode.
+        auto* hinge = static_cast<JPH::HingeConstraint*>(GetConstraint(jointHandle));
+        ASSERT_NE(hinge, nullptr);
+        const JPH::SpringSettings& spring = hinge->GetLimitsSpringSettings();
+        EXPECT_EQ(JPH::ESpringMode::StiffnessAndDamping, spring.mMode);
+        EXPECT_FLOAT_EQ(77.0f, spring.mStiffness);
+        EXPECT_FLOAT_EQ(7.0f, spring.mDamping);
+    }
+
+    TEST_F(JoltJointTests, HingeHardLimitLeavesTheLimitSpringInactive)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(2.0f, 0.0f, 5.0f));
+
+        JoltHingeJointConfiguration config;
+        config.m_limitProperties.m_isLimited = true;
+        config.m_limitProperties.m_isSoftLimit = false;
+        config.m_limitProperties.m_limitFirst = -45.0f;
+        config.m_limitProperties.m_limitSecond = 45.0f;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(2.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        auto* hinge = static_cast<JPH::HingeConstraint*>(GetConstraint(jointHandle));
+        ASSERT_NE(hinge, nullptr);
+        EXPECT_FALSE(hinge->GetLimitsSpringSettings().HasStiffnessOrDamping());
+    }
+
+    TEST_F(JoltJointTests, PrismaticSoftLimitBecomesALimitSpring)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 10.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(2.0f, 10.0f, 5.0f));
+
+        JoltPrismaticJointConfiguration config;
+        config.m_limitProperties.m_isLimited = true;
+        config.m_limitProperties.m_isSoftLimit = true;
+        config.m_limitProperties.m_limitFirst = -0.5f;
+        config.m_limitProperties.m_limitSecond = 0.5f;
+        config.m_limitProperties.m_stiffness = 33.0f;
+        config.m_limitProperties.m_damping = 3.0f;
+        SetFrames(config, AZ::Vector3(0.0f, 10.0f, 5.0f), AZ::Vector3(2.0f, 10.0f, 5.0f), AZ::Vector3(2.0f, 10.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        auto* slider = static_cast<JPH::SliderConstraint*>(GetConstraint(jointHandle));
+        ASSERT_NE(slider, nullptr);
+        const JPH::SpringSettings& spring = slider->GetLimitsSpringSettings();
+        EXPECT_EQ(JPH::ESpringMode::StiffnessAndDamping, spring.mMode);
+        EXPECT_FLOAT_EQ(33.0f, spring.mStiffness);
+        EXPECT_FLOAT_EQ(3.0f, spring.mDamping);
+    }
+
+    TEST_F(JoltJointTests, PrismaticSoftLimitYieldsWhereAHardLimitStops)
+    {
+        // Two identical weightless boxes launched at 2 m/s along their slider, limits at
+        // 0.5 m. The hard limit stops its box dead; the soft one (a weak 1 N/m spring
+        // against a 1 kg box) must let its box glide well past before pulling it back.
+        auto MakeSliderRig = [this](float y, bool softLimit, AzPhysics::SimulatedBodyHandle& outBox)
+        {
+            const AZ::Vector3 anchorPosition(0.0f, y, 5.0f);
+            const AZ::Vector3 boxPosition(2.0f, y, 5.0f);
+            auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.5f, 0.5f, 0.5f));
+            outBox = CreateWeightlessBox(boxPosition);
+
+            JoltPrismaticJointConfiguration config;
+            config.m_limitProperties.m_isLimited = true;
+            config.m_limitProperties.m_isSoftLimit = softLimit;
+            config.m_limitProperties.m_limitFirst = -0.5f;
+            config.m_limitProperties.m_limitSecond = 0.5f;
+            config.m_limitProperties.m_stiffness = 1.0f;
+            config.m_limitProperties.m_damping = 0.2f;
+            SetFrames(config, anchorPosition, boxPosition, boxPosition);
+            ASSERT_NE(m_scene->AddJoint(&config, anchor, outBox), AzPhysics::InvalidJointHandle);
+
+            GetBody(outBox)->SetLinearVelocity(AZ::Vector3(2.0f, 0.0f, 0.0f));
+        };
+
+        AzPhysics::SimulatedBodyHandle hardBox = AzPhysics::InvalidSimulatedBodyHandle;
+        AzPhysics::SimulatedBodyHandle softBox = AzPhysics::InvalidSimulatedBodyHandle;
+        MakeSliderRig(0.0f, false, hardBox);
+        MakeSliderRig(20.0f, true, softBox);
+
+        float hardMaxSlide = 0.0f;
+        float softMaxSlide = 0.0f;
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 300; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+            hardMaxSlide = AZStd::max(hardMaxSlide, GetBody(hardBox)->GetPosition().GetX() - 2.0f);
+            softMaxSlide = AZStd::max(softMaxSlide, GetBody(softBox)->GetPosition().GetX() - 2.0f);
+        }
+
+        EXPECT_LT(hardMaxSlide, 0.8f);
+        EXPECT_GT(softMaxSlide, 1.2f);
+        // And the spring does eventually turn it around rather than letting it escape.
+        EXPECT_LT(GetBody(softBox)->GetPosition().GetX() - 2.0f, softMaxSlide - 0.05f);
+    }
+
+    TEST_F(JoltJointTests, BallJointSoftLimitWarnsAndFallsBackToHard)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 6.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 5.0f));
+
+        JoltBallJointConfiguration config;
+        config.m_debugName = "SoftBall";
+        config.m_limitProperties.m_isLimited = true;
+        config.m_limitProperties.m_isSoftLimit = true;
+        config.m_limitProperties.m_limitFirst = 60.0f;
+        config.m_limitProperties.m_limitSecond = 60.0f;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 6.0f), AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 5.5f));
+
+        // Jolt's swing-twist constraint has no limit spring, so the request has to be
+        // called out rather than silently ignored - but the joint is still created.
+        JoltWarningCatcher warnings;
+        EXPECT_NE(m_scene->AddJoint(&config, anchorHandle, childHandle), AzPhysics::InvalidJointHandle);
+        EXPECT_TRUE(warnings.ContainsWarningWith("SoftBall"));
+        EXPECT_TRUE(warnings.ContainsWarningWith("soft limits are not supported"));
+    }
+
 } // namespace JoltPhysics

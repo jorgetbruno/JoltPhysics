@@ -12,6 +12,7 @@
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/SpringSettings.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/ConeConstraint.h>
@@ -86,6 +87,16 @@ namespace JoltPhysics
             motorSettings.mMaxForceLimit = motorProperties.m_driveForceLimit;
         }
 
+        void ConfigureLimitSpring(JPH::SpringSettings& springSettings, const JointLimitProperties& limitProperties)
+        {
+            // PhysX-style soft limits give a spring stiffness and damping coefficient
+            // directly, which is Jolt's StiffnessAndDamping spring mode (k in N/m or
+            // N m/rad, c in N s/m or N m s/rad) - no unit conversion needed.
+            springSettings.mMode = JPH::ESpringMode::StiffnessAndDamping;
+            springSettings.mStiffness = limitProperties.m_stiffness;
+            springSettings.mDamping = limitProperties.m_damping;
+        }
+
         JPH::Constraint* CreateFixedConstraint(
             const AzPhysics::JointConfiguration& configuration, JPH::Body& parentBody, JPH::Body& childBody)
         {
@@ -117,6 +128,10 @@ namespace JoltPhysics
             {
                 settings.mLimitsMin = AZ::DegToRad(configuration.m_limitProperties.m_limitFirst);
                 settings.mLimitsMax = AZ::DegToRad(configuration.m_limitProperties.m_limitSecond);
+                if (configuration.m_limitProperties.m_isSoftLimit)
+                {
+                    ConfigureLimitSpring(settings.mLimitsSpringSettings, configuration.m_limitProperties);
+                }
             }
 
             if (configuration.m_motorProperties.m_useMotor)
@@ -144,6 +159,12 @@ namespace JoltPhysics
             {
                 settings.mNormalHalfConeAngle = AZ::DegToRad(configuration.m_limitProperties.m_limitFirst);
                 settings.mPlaneHalfConeAngle = AZ::DegToRad(configuration.m_limitProperties.m_limitSecond);
+                // Jolt's swing-twist constraint has no limit spring, so a soft cone
+                // limit cannot be honoured - say so instead of silently hardening it.
+                AZ_Warning("JoltPhysics", !configuration.m_limitProperties.m_isSoftLimit,
+                    "Ball joint '%s': soft limits are not supported by Jolt's swing-twist constraint; "
+                    "the cone limit will be hard.",
+                    configuration.m_debugName.c_str());
             }
             else
             {
@@ -174,6 +195,10 @@ namespace JoltPhysics
             {
                 settings.mLimitsMin = configuration.m_limitProperties.m_limitFirst;
                 settings.mLimitsMax = configuration.m_limitProperties.m_limitSecond;
+                if (configuration.m_limitProperties.m_isSoftLimit)
+                {
+                    ConfigureLimitSpring(settings.mLimitsSpringSettings, configuration.m_limitProperties);
+                }
             }
 
             if (configuration.m_motorProperties.m_useMotor)

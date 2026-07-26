@@ -158,6 +158,16 @@ feature, trust the topic sections below the milestones.**
 - **Limit semantics are made explicit in the Jolt configs**: hinge `LimitFirst`/`LimitSecond`
   are the lower/upper angle in degrees, prismatic min/max slide in meters, ball cone
   half-angles about joint Y/Z in degrees (PhysX's field semantics are backend-specific).
+- **Soft limits exist on hinge and prismatic joints only.** `Stiffness`/`Damping` map
+  straight onto Jolt's limit spring in `StiffnessAndDamping` mode (the same k and c a
+  PhysX soft limit takes: N m/rad and N m s/rad for the hinge, N/m and N s/m for the
+  prismatic). Jolt's swing-twist constraint has no limit spring, so a ball joint asking
+  for a soft cone limit warns at creation and keeps the limit hard; the inspector notes
+  the restriction on the field.
+- **The `Tolerance` limit field is parsed but unused, and hidden from the inspector.**
+  PhysX treats it as the distance before a hard limit at which enforcement begins;
+  Jolt hard limits engage exactly at the limit and expose no such band. The field
+  stays serialized so PhysX-era data loads.
 - **Runtime joint control is exposed through `JoltJointRequestBus`** (this gem's own
   bus) mirroring the PhysX gem's `JointRequestBus` surface, since AzPhysics defines no
   joint control bus and the PhysX bus lives in the PhysX gem.

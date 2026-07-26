@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzCore/Math/Crc.h>
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/RTTI/RTTI.h>
 
@@ -40,13 +41,18 @@ namespace JoltPhysics
         AZ_TYPE_INFO(JointLimitProperties, "{2B3C4D5E-6F7A-4890-B1C2-D3E4F5A6B7C8}");
         static void Reflect(AZ::ReflectContext* context);
 
+        //! Edit-context helpers: limit fields only show when the limit is on, and the
+        //! spring fields only when the limit is soft.
+        AZ::Crc32 GetLimitVisibility() const;
+        AZ::Crc32 GetSoftLimitVisibility() const;
+
         bool m_isLimited = true; //!< Whether the joint DOF is limited at all.
-        bool m_isSoftLimit = false; //!< Soft limits use spring+damping, hard limits use tolerance.
-        float m_damping = 20.0f; //!< Soft-limit damping.
+        bool m_isSoftLimit = false; //!< Soft limits push back with a spring instead of stopping dead.
+        float m_damping = 20.0f; //!< Soft-limit damping coefficient (N s/m linear, N m s/rad angular).
         float m_limitFirst = 45.0f; //!< Hinge: lower angle (deg). Prismatic: min slide (m). Ball: cone half-angle about joint Y (deg).
         float m_limitSecond = 45.0f; //!< Hinge: upper angle (deg). Prismatic: max slide (m). Ball: cone half-angle about joint Z (deg).
-        float m_stiffness = 100.0f; //!< Soft-limit spring strength.
-        float m_tolerance = 0.1f; //!< Hard-limit: distance at which the limit becomes enforced.
+        float m_stiffness = 100.0f; //!< Soft-limit spring stiffness (N/m linear, N m/rad angular).
+        float m_tolerance = 0.1f; //!< Unused: kept so PhysX-era data loads. Jolt limits engage exactly at the limit.
     };
 
     //! Mirrors PhysX::JointMotorProperties.
