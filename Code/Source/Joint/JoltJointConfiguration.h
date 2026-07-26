@@ -28,9 +28,12 @@ namespace JoltPhysics
             return (static_cast<AZ::u16>(m_flags) & static_cast<AZ::u16>(flag)) != 0;
         }
 
+        //! Edit-context helper: the break thresholds only show on a breakable joint.
+        AZ::Crc32 GetBreakableVisibility() const;
+
         GenericJointFlag m_flags = GenericJointFlag::None;
-        float m_forceMax = 1.0f; //!< Max force the joint tolerates before breaking (Breakable only).
-        float m_torqueMax = 1.0f; //!< Max torque the joint tolerates before breaking (Breakable only).
+        float m_forceMax = 1.0f; //!< Reaction force that breaks the joint (Breakable only; 0 = never on force).
+        float m_torqueMax = 1.0f; //!< Reaction torque that breaks the joint (Breakable only; 0 = never on torque).
     };
 
     //! Mirrors PhysX::JointLimitProperties. Semantics of m_limitFirst/m_limitSecond

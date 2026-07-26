@@ -3,6 +3,7 @@
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/Component/TransformBus.h>
+#include <AzCore/EBus/Event.h>
 
 #include <AzFramework/Physics/Common/PhysicsJoint.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
@@ -111,5 +112,9 @@ namespace JoltPhysics
 
         AzPhysics::JointHandle m_jointHandle = AzPhysics::InvalidJointHandle;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
+
+        //! Hears the scene remove this component's joint when it breaks, so the stored
+        //! handle is dropped (the slot may be reused) and gameplay is notified.
+        AZ::Event<AzPhysics::JointHandle>::Handler m_jointBreakHandler;
     };
 } // namespace JoltPhysics

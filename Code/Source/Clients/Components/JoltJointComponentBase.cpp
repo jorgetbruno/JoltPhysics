@@ -1,6 +1,8 @@
 #include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltJointComponentBase.h>
 
+#include <Scene/JoltScene.h>
+
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -186,10 +188,31 @@ namespace JoltPhysics
         jointConfiguration->m_debugName = GetEntity()->GetName();
 
         m_jointHandle = scene->AddJoint(jointConfiguration.get(), parentHandle, childHandle);
+
+        if (m_jointHandle != AzPhysics::InvalidJointHandle)
+        {
+            if (auto* joltScene = azrtti_cast<JoltScene*>(scene))
+            {
+                m_jointBreakHandler = AZ::Event<AzPhysics::JointHandle>::Handler(
+                    [this](AzPhysics::JointHandle brokenHandle)
+                    {
+                        if (brokenHandle == m_jointHandle)
+                        {
+                            // The scene already removed the joint; the handle must be
+                            // dropped, not destroyed, or a reused slot would be freed.
+                            m_jointHandle = AzPhysics::InvalidJointHandle;
+                            JoltJointNotificationBus::Event(
+                                GetEntityId(), &JoltJointNotifications::OnJointBroken);
+                        }
+                    });
+                joltScene->RegisterJointBreakHandler(m_jointBreakHandler);
+            }
+        }
     }
 
     void JoltJointComponentBase::DestroyJoint()
     {
+        m_jointBreakHandler.Disconnect();
         if (m_jointHandle != AzPhysics::InvalidJointHandle)
         {
             if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())

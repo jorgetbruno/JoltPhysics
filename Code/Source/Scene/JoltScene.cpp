@@ -3,6 +3,7 @@
 #include <Character/JoltCharacter.h>
 #include <Character/JoltRagdoll.h>
 #include <Joint/JoltJoint.h>
+#include <Joint/JoltJointConfiguration.h>
 #include <Material/JoltMaterialManager.h>
 #include <Shape/JoltHeightfieldUtils.h>
 #include <System/JoltSystem.h>
@@ -212,11 +213,43 @@ namespace JoltPhysics
             }
         }
 
+        ProcessJointBreaking();
+
         FlushEndedSoftBodyContacts();
 
         FlushTransformSync();
         FlushQueuedEvents();
         ClearDeferredDeletions();
+    }
+
+    void JoltScene::ProcessJointBreaking()
+    {
+        if (m_breakableJointCount == 0)
+        {
+            return;
+        }
+
+        // Jolt resets and re-accumulates the constraint impulses every collision step,
+        // so what is readable now covers only the last one.
+        const float stepDeltaTime = m_currentDeltaTime / static_cast<float>(AZStd::max(m_collisionSteps, 1));
+
+        // Collect first: RemoveJoint edits m_joints, and a break handler may add or
+        // remove joints of its own.
+        AZStd::vector<AzPhysics::JointHandle> brokenJoints;
+        for (auto& [crc, jointBase] : m_joints)
+        {
+            if (auto* joint = azrtti_cast<JoltJoint*>(jointBase);
+                joint && joint->ExceedsBreakThreshold(stepDeltaTime))
+            {
+                brokenJoints.push_back(joint->m_jointHandle);
+            }
+        }
+
+        for (AzPhysics::JointHandle handle : brokenJoints)
+        {
+            RemoveJoint(handle);
+            m_jointBreakEvent.Signal(handle);
+        }
     }
 
     void JoltScene::SetEnabled(bool enable)
@@ -711,6 +744,17 @@ namespace JoltPhysics
 
         auto* joint = aznew JoltJoint(this, parentBody, childBody, constraint);
 
+        if (const JointGenericProperties* generic = FindJointGenericProperties(*jointConfig))
+        {
+            joint->ConfigureBreakable(
+                generic->IsFlagSet(JointGenericProperties::GenericJointFlag::Breakable),
+                generic->m_forceMax, generic->m_torqueMax);
+            if (joint->IsBreakable())
+            {
+                ++m_breakableJointCount;
+            }
+        }
+
         AZ::Crc32 jointCrc(jointConfig->m_debugName.c_str());
         AzPhysics::JointHandle handle(jointCrc, jointIndex);
 
@@ -750,6 +794,10 @@ namespace JoltPhysics
             if (auto* joint = azrtti_cast<JoltJoint*>(m_joints[index].second))
             {
                 joint->RemoveFromJoltWorld();
+                if (joint->IsBreakable() && m_breakableJointCount > 0)
+                {
+                    --m_breakableJointCount;
+                }
             }
             m_deferredDeletionsJoints.push_back(m_joints[index].second);
             m_joints[index] = { AZ::Crc32(), nullptr };

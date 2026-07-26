@@ -735,6 +735,111 @@ namespace JoltPhysics
         EXPECT_LT(GetBody(softBox)->GetPosition().GetX() - 2.0f, softMaxSlide - 0.05f);
     }
 
+    TEST_F(JoltJointTests, BreakableJointBreaksUnderExcessForceAndSignalsTheBreak)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 4.0f));
+
+        // The hanging box weighs ~9.81 N; a 5 N break force cannot hold it.
+        JoltFixedJointConfiguration config;
+        config.m_genericProperties.m_flags = JointGenericProperties::GenericJointFlag::Breakable;
+        config.m_genericProperties.m_forceMax = 5.0f;
+        config.m_genericProperties.m_torqueMax = 0.0f; // never break on torque
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 4.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        auto* joltScene = azrtti_cast<JoltScene*>(m_scene);
+        ASSERT_NE(joltScene, nullptr);
+        AzPhysics::JointHandle brokenHandle = AzPhysics::InvalidJointHandle;
+        JoltScene::JointBreakEvent::Handler breakHandler(
+            [&brokenHandle](AzPhysics::JointHandle handle)
+            {
+                brokenHandle = handle;
+            });
+        joltScene->RegisterJointBreakHandler(breakHandler);
+
+        SimulateSteps(120);
+
+        // The break was signalled with this joint's handle, the joint is gone from the
+        // scene, and the box has been falling freely ever since.
+        EXPECT_EQ(brokenHandle, jointHandle);
+        EXPECT_EQ(m_scene->GetJointFromHandle(jointHandle), nullptr);
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        EXPECT_LT(child->GetPosition().GetZ(), 2.0f);
+    }
+
+    TEST_F(JoltJointTests, BreakableJointHoldsBelowItsThreshold)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 4.0f));
+
+        JoltFixedJointConfiguration config;
+        config.m_genericProperties.m_flags = JointGenericProperties::GenericJointFlag::Breakable;
+        config.m_genericProperties.m_forceMax = 50.0f; // well above the ~9.81 N load
+        config.m_genericProperties.m_torqueMax = 0.0f;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 4.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(120);
+
+        EXPECT_NE(m_scene->GetJointFromHandle(jointHandle), nullptr);
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        EXPECT_NEAR(child->GetPosition().GetZ(), 4.0f, 0.1f);
+    }
+
+    TEST_F(JoltJointTests, BreakableJointBreaksOnTorqueAlone)
+    {
+        // A box held 2 m out to the side: gravity applies ~9.81 N of force but
+        // ~19.6 N m of torque about the attachment. Force testing is off in both
+        // rigs, so only the torque threshold separates them.
+        auto MakeCantileverRig = [this](float y, float torqueMax)
+        {
+            const AZ::Vector3 anchorPosition(0.0f, y, 5.0f);
+            const AZ::Vector3 childPosition(2.0f, y, 5.0f);
+            auto anchor = CreateStaticBox(anchorPosition, AZ::Vector3(0.5f, 0.5f, 0.5f));
+            auto child = CreateDynamicBox(childPosition);
+
+            JoltFixedJointConfiguration config;
+            config.m_genericProperties.m_flags = JointGenericProperties::GenericJointFlag::Breakable;
+            config.m_genericProperties.m_forceMax = 0.0f; // never break on force
+            config.m_genericProperties.m_torqueMax = torqueMax;
+            SetFrames(config, anchorPosition, childPosition, anchorPosition);
+            return m_scene->AddJoint(&config, anchor, child);
+        };
+
+        auto weakJoint = MakeCantileverRig(0.0f, 10.0f);
+        auto strongJoint = MakeCantileverRig(20.0f, 100.0f);
+        ASSERT_NE(weakJoint, AzPhysics::InvalidJointHandle);
+        ASSERT_NE(strongJoint, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(120);
+
+        EXPECT_EQ(m_scene->GetJointFromHandle(weakJoint), nullptr);
+        EXPECT_NE(m_scene->GetJointFromHandle(strongJoint), nullptr);
+    }
+
+    TEST_F(JoltJointTests, NonBreakableJointIgnoresBreakThresholds)
+    {
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 4.0f));
+
+        // Thresholds far below the load, but the Breakable flag is not set.
+        JoltFixedJointConfiguration config;
+        config.m_genericProperties.m_forceMax = 0.001f;
+        config.m_genericProperties.m_torqueMax = 0.001f;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 4.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(120);
+
+        EXPECT_NE(m_scene->GetJointFromHandle(jointHandle), nullptr);
+    }
+
     TEST_F(JoltJointTests, BallJointSoftLimitWarnsAndFallsBackToHard)
     {
         auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 6.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));

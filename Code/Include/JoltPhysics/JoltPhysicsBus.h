@@ -59,6 +59,20 @@ namespace JoltPhysics
 
     using JoltJointRequestBus = AZ::EBus<JoltJointRequests>;
 
+    //! Notifications from a joint component, addressed by its entity id.
+    class JoltJointNotifications
+        : public AZ::ComponentBus
+    {
+    public:
+        virtual ~JoltJointNotifications() = default;
+
+        //! The joint broke: its reaction exceeded the configured break force/torque and
+        //! it has been removed from the scene. It will not be recreated.
+        virtual void OnJointBroken() = 0;
+    };
+
+    using JoltJointNotificationBus = AZ::EBus<JoltJointNotifications>;
+
     //! Runtime control of vehicles (AzPhysics has no vehicle interfaces in O3DE 26.05,
     //! so the vehicle surface lives on this gem's own bus).
     class JoltVehicleRequests

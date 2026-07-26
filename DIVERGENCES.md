@@ -177,7 +177,18 @@ feature, trust the topic sections below the milestones.**
   "Editor viewport debug draw".
 - **Rebinding a joint to different bodies requires recreating it**
   (`SetParentBody`/`SetChildBody` only update bookkeeping).
-- **Breakable joints are not implemented** (the `Breakable` flag is parsed but ignored).
+- **Breakable joints are implemented scene-side** (Jolt has no native breakable
+  constraints, unlike PhysX). After every simulation step the scene reads each
+  breakable constraint's accumulated solver impulses, divides by the step duration to
+  get the average reaction force/torque, and removes the joint when either exceeds
+  `Max force`/`Max torque`. A threshold of 0 disables that axis of the test; motor
+  impulses are excluded (a joint should not break from its own capped drive); limit
+  impulses count. Gear and rack-and-pinion reactions are tested against `Max torque`
+  only (the coupling impulse is angular). D6 joints have no generic properties
+  (mirroring PhysX) and cannot break. Gameplay hooks: `JoltScene::RegisterJointBreakHandler`
+  fires with the removed joint's handle, and joint components forward it as
+  `JoltJointNotificationBus::OnJointBroken` on their entity (a broken joint's component
+  drops its handle and does not recreate the joint).
 
 ## M7 (vehicles)
 

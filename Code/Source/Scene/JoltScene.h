@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzCore/EBus/Event.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/containers/queue.h>
 #include <AzCore/std/containers/unordered_set.h>
@@ -86,6 +87,16 @@ namespace JoltPhysics
                                        AzPhysics::SimulatedBodyHandle childBody) override;
         AzPhysics::Joint* GetJointFromHandle(AzPhysics::JointHandle jointHandle) override;
         void RemoveJoint(AzPhysics::JointHandle jointHandle) override;
+
+        //! Fires with the handle of a breakable joint the scene just removed because its
+        //! reaction exceeded the configured break force/torque. The joint is already gone
+        //! when the event fires, so holders of the handle must drop it, not remove it.
+        //! (AzPhysics has no joint events, so this lives on the Jolt scene.)
+        using JointBreakEvent = AZ::Event<AzPhysics::JointHandle>;
+        void RegisterJointBreakHandler(JointBreakEvent::Handler& handler)
+        {
+            handler.Connect(m_jointBreakEvent);
+        }
 
         AzPhysics::SceneQueryHits QueryScene(const AzPhysics::SceneQueryRequest* request) override;
         bool QueryScene(const AzPhysics::SceneQueryRequest* request,
@@ -208,6 +219,7 @@ namespace JoltPhysics
 
         void FlushQueuedEvents();
         void ClearDeferredDeletions();
+        void ProcessJointBreaking();
         void ProcessTriggerEvents();
         void ProcessCollisionEvents();
 
@@ -299,6 +311,10 @@ namespace JoltPhysics
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;
         AZStd::queue<AzPhysics::JointIndex> m_freeJointSlots;
+        //! Count of live breakable joints, so the per-step break check can skip scenes
+        //! that have none.
+        AZ::u32 m_breakableJointCount = 0;
+        JointBreakEvent m_jointBreakEvent;
 
         AzPhysics::SystemEvents::OnConfigurationChangedEvent::Handler m_physicsSystemConfigChanged;
 

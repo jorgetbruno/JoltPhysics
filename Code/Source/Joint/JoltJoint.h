@@ -13,6 +13,7 @@ namespace JPH
 namespace JoltPhysics
 {
     class JoltScene;
+    struct JointGenericProperties;
 
     //! AzPhysics::Joint implementation wrapping a JPH::Constraint.
     class JoltJoint : public AzPhysics::Joint
@@ -34,6 +35,19 @@ namespace JoltPhysics
 
         JPH::Constraint* GetConstraint() const { return m_constraint; }
 
+        //! Marks the joint breakable. The scene tests it after every simulation step and
+        //! removes it when its reaction exceeds a threshold. A threshold of zero or less
+        //! disables that axis of the test (e.g. break on torque alone).
+        void ConfigureBreakable(bool breakable, float forceMax, float torqueMax);
+        bool IsBreakable() const { return m_breakable; }
+
+        //! Whether the constraint reaction of the last completed step exceeded the break
+        //! thresholds. Jolt accumulates the solver impulses per constraint; dividing by
+        //! the step duration turns them into the average reaction force/torque of the
+        //! step. Motor impulses are deliberately excluded - a joint should not break
+        //! from its own capped drive.
+        bool ExceedsBreakThreshold(float stepDeltaTime) const;
+
         // AzPhysics::Joint
         AZ::Crc32 GetNativeType() const override;
         void* GetNativePointer() const override;
@@ -47,7 +61,15 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyHandle m_parentBody = AzPhysics::InvalidSimulatedBodyHandle;
         AzPhysics::SimulatedBodyHandle m_childBody = AzPhysics::InvalidSimulatedBodyHandle;
         JPH::Constraint* m_constraint = nullptr;
+
+        bool m_breakable = false;
+        float m_breakForceMax = 0.0f;
+        float m_breakTorqueMax = 0.0f;
     };
+
+    //! The generic joint properties of a configuration, or null for types without them
+    //! (the D6 configuration mirrors PhysX's, which has none).
+    const JointGenericProperties* FindJointGenericProperties(const AzPhysics::JointConfiguration& configuration);
 
     //! Builds the JPH constraint for an AzPhysics joint configuration. Returns nullptr
     //! for unsupported configuration types. Joint frames come from the configuration's

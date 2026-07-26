@@ -72,6 +72,142 @@ namespace JoltPhysics
         m_childBody = childBody;
     }
 
+    void JoltJoint::ConfigureBreakable(bool breakable, float forceMax, float torqueMax)
+    {
+        m_breakable = breakable;
+        m_breakForceMax = forceMax;
+        m_breakTorqueMax = torqueMax;
+    }
+
+    bool JoltJoint::ExceedsBreakThreshold(float stepDeltaTime) const
+    {
+        if (!m_breakable || !m_constraint || stepDeltaTime <= 0.0f)
+        {
+            return false;
+        }
+
+        const auto square = [](float value)
+        {
+            return value * value;
+        };
+
+        // Accumulated solver impulses of the last step, split into the translational
+        // part (N s) and the rotational part (N m s). Limit impulses count - a body
+        // slamming into a limit is exactly the load that should break a joint.
+        float forceImpulseSq = 0.0f;
+        float torqueImpulseSq = 0.0f;
+        switch (m_constraint->GetSubType())
+        {
+        case JPH::EConstraintSubType::Fixed:
+        {
+            const auto* fixed = static_cast<const JPH::FixedConstraint*>(m_constraint);
+            forceImpulseSq = fixed->GetTotalLambdaPosition().LengthSq();
+            torqueImpulseSq = fixed->GetTotalLambdaRotation().LengthSq();
+            break;
+        }
+        case JPH::EConstraintSubType::Hinge:
+        {
+            const auto* hinge = static_cast<const JPH::HingeConstraint*>(m_constraint);
+            forceImpulseSq = hinge->GetTotalLambdaPosition().LengthSq();
+            const JPH::Vector<2> rotation = hinge->GetTotalLambdaRotation();
+            torqueImpulseSq =
+                square(rotation[0]) + square(rotation[1]) + square(hinge->GetTotalLambdaRotationLimits());
+            break;
+        }
+        case JPH::EConstraintSubType::Slider:
+        {
+            const auto* slider = static_cast<const JPH::SliderConstraint*>(m_constraint);
+            const JPH::Vector<2> position = slider->GetTotalLambdaPosition();
+            forceImpulseSq =
+                square(position[0]) + square(position[1]) + square(slider->GetTotalLambdaPositionLimits());
+            torqueImpulseSq = slider->GetTotalLambdaRotation().LengthSq();
+            break;
+        }
+        case JPH::EConstraintSubType::Distance:
+        {
+            const auto* distance = static_cast<const JPH::DistanceConstraint*>(m_constraint);
+            forceImpulseSq = square(distance->GetTotalLambdaPosition());
+            break;
+        }
+        case JPH::EConstraintSubType::Cone:
+        {
+            const auto* cone = static_cast<const JPH::ConeConstraint*>(m_constraint);
+            forceImpulseSq = cone->GetTotalLambdaPosition().LengthSq();
+            torqueImpulseSq = square(cone->GetTotalLambdaRotation());
+            break;
+        }
+        case JPH::EConstraintSubType::SwingTwist:
+        {
+            const auto* swingTwist = static_cast<const JPH::SwingTwistConstraint*>(m_constraint);
+            forceImpulseSq = swingTwist->GetTotalLambdaPosition().LengthSq();
+            torqueImpulseSq = square(swingTwist->GetTotalLambdaTwist()) +
+                square(swingTwist->GetTotalLambdaSwingY()) + square(swingTwist->GetTotalLambdaSwingZ());
+            break;
+        }
+        case JPH::EConstraintSubType::Gear:
+        {
+            // The coupling impulse is angular on both gears; test it as torque.
+            torqueImpulseSq = square(static_cast<const JPH::GearConstraint*>(m_constraint)->GetTotalLambda());
+            break;
+        }
+        case JPH::EConstraintSubType::RackAndPinion:
+        {
+            // Mixed units (torque on the pinion, force on the rack); tested as the
+            // torque on the pinion, which is where a real pinion strips.
+            torqueImpulseSq =
+                square(static_cast<const JPH::RackAndPinionConstraint*>(m_constraint)->GetTotalLambda());
+            break;
+        }
+        default:
+            return false;
+        }
+
+        const float invDtSq = 1.0f / square(stepDeltaTime);
+        return (m_breakForceMax > 0.0f && forceImpulseSq * invDtSq > square(m_breakForceMax)) ||
+            (m_breakTorqueMax > 0.0f && torqueImpulseSq * invDtSq > square(m_breakTorqueMax));
+    }
+
+    const JointGenericProperties* FindJointGenericProperties(const AzPhysics::JointConfiguration& configuration)
+    {
+        if (const auto* config = azrtti_cast<const JoltFixedJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltHingeJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltPrismaticJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltDistanceJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltConeJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltSwingTwistJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltBallJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltGearJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        if (const auto* config = azrtti_cast<const JoltRackAndPinionJointConfiguration*>(&configuration))
+        {
+            return &config->m_genericProperties;
+        }
+        return nullptr;
+    }
+
     namespace
     {
         JPH::Vec3 AxisInLocalSpace(const AZ::Quaternion& localRotation, const AZ::Vector3& axis)

@@ -7,6 +7,12 @@
 
 namespace JoltPhysics
 {
+    AZ::Crc32 JointGenericProperties::GetBreakableVisibility() const
+    {
+        return IsFlagSet(GenericJointFlag::Breakable) ? AZ::Edit::PropertyVisibility::Show
+                                                      : AZ::Edit::PropertyVisibility::Hide;
+    }
+
     void JointGenericProperties::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -28,12 +34,15 @@ namespace JoltPhysics
                         ->EnumAttribute(JointGenericProperties::GenericJointFlag::None, "None")
                         ->EnumAttribute(JointGenericProperties::GenericJointFlag::Breakable, "Breakable")
                         ->EnumAttribute(JointGenericProperties::GenericJointFlag::SelfCollide, "Self-collide")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointGenericProperties::m_forceMax,
-                        "Max force", "Force at which a breakable joint breaks.")
+                        "Max force", "Reaction force (N) at which the joint breaks and is removed. 0 = never break on force.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointGenericProperties::GetBreakableVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JointGenericProperties::m_torqueMax,
-                        "Max torque", "Torque at which a breakable joint breaks.")
+                        "Max torque", "Reaction torque (N m) at which the joint breaks and is removed. 0 = never break on torque.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JointGenericProperties::GetBreakableVisibility)
                     ;
             }
         }
