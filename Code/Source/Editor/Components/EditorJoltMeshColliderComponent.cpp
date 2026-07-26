@@ -1,6 +1,7 @@
 #include <Editor/Components/EditorJoltMeshColliderComponent.h>
 
 #include <AzCore/Component/TransformBus.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -59,13 +60,42 @@ namespace JoltPhysics
 
         m_debugLinesDirty = true;
 
-        // First activation on a freshly added component: bake as soon as geometry is
-        // available. Quiet on failure - the render mesh asset may simply not be loaded
-        // yet, in which case the user bakes explicitly via the button.
+        // No baked data yet: keep trying each editor tick. The immediate attempt in
+        // the old code lost the race against the render mesh's async asset load on
+        // almost every level open, and nothing ever retried - so colliders stayed
+        // empty until someone found the bake button.
         if (m_shapeConfiguration.GetCookedMeshData().empty())
         {
-            BakeFromRenderMesh(/*warnOnFailure*/ false);
+            AZ::TickBus::Handler::BusConnect();
         }
+    }
+
+    void EditorJoltMeshColliderComponent::Deactivate()
+    {
+        AZ::TickBus::Handler::BusDisconnect();
+        EditorJoltColliderComponentBase::Deactivate();
+    }
+
+    void EditorJoltMeshColliderComponent::OnTick(
+        [[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    {
+        // Quiet: "the mesh is not ready yet" is the expected state here, and the mesh
+        // component already logs its own warning when asked too early.
+        if (BakeFromRenderMesh(/*warnOnFailure*/ false))
+        {
+            MarkBakedDataDirty();
+            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
+                "Save the level to keep it.\n",
+                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+                m_shapeConfiguration.GetCookedMeshData().size() / 1024);
+            AZ::TickBus::Handler::BusDisconnect();
+        }
+    }
+
+    void EditorJoltMeshColliderComponent::MarkBakedDataDirty()
+    {
+        AzToolsFramework::ScopedUndoBatch undoBatch("Bake collision mesh");
+        AzToolsFramework::ScopedUndoBatch::MarkEntityDirty(GetEntityId());
     }
 
     bool EditorJoltMeshColliderComponent::BakeFromRenderMesh(bool warnOnFailure)
@@ -93,7 +123,18 @@ namespace JoltPhysics
 
     AZ::u32 EditorJoltMeshColliderComponent::OnBakeButtonPressed()
     {
-        BakeFromRenderMesh(/*warnOnFailure*/ true);
+        if (BakeFromRenderMesh(/*warnOnFailure*/ true))
+        {
+            // Success used to be silent, which reads as the button doing nothing when
+            // the mesh happens to be off screen. Say what happened, and mark the entity
+            // dirty so saving the level actually keeps the result.
+            MarkBakedDataDirty();
+            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
+                "Save the level to keep it.\n",
+                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+                m_shapeConfiguration.GetCookedMeshData().size() / 1024);
+            AZ::TickBus::Handler::BusDisconnect();
+        }
         return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
     }
 

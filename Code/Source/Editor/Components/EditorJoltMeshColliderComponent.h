@@ -1,5 +1,7 @@
 #pragma once
 
+#include <AzCore/Component/TickBus.h>
+
 #include <Editor/Components/EditorJoltColliderComponentBase.h>
 
 #include <AzFramework/Physics/ShapeConfiguration.h>
@@ -15,6 +17,7 @@ namespace JoltPhysics
     //! mesh changes).
     class EditorJoltMeshColliderComponent
         : public EditorJoltColliderComponentBase
+        , private AZ::TickBus::Handler
     {
     public:
         AZ_COMPONENT(EditorJoltMeshColliderComponent, "{F7A8B9C0-D1E2-4F30-B4C5-D6E7F8A9B0C1}", EditorJoltColliderComponentBase);
@@ -23,6 +26,7 @@ namespace JoltPhysics
 
         // EditorComponentBase
         void Activate() override;
+        void Deactivate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     protected:
@@ -31,9 +35,21 @@ namespace JoltPhysics
         AZ::Aabb GetLocalShapeBounds() const override;
 
     private:
+        // AZ::TickBus - connected only while there is no baked data yet. The render
+        // mesh's asset loads asynchronously, so the bake this component attempts on
+        // activation usually loses the race; retrying each editor tick until the mesh
+        // can answer is what makes a freshly added (or freshly authored) collider bake
+        // itself instead of waiting for someone to find the button.
+        void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
+
         //! Cooks the entity's current render geometry into m_shapeConfiguration.
         //! Returns false (optionally warning) when no geometry is available yet.
         bool BakeFromRenderMesh(bool warnOnFailure);
+
+        //! A bake changed serialized component data, so the level has to know: without
+        //! the dirty mark, saving skips the entity and the baked mesh dies with the
+        //! session - the level keeps warning "no baked collision mesh" on every play.
+        void MarkBakedDataDirty();
 
         AZ::u32 OnBakeButtonPressed();
         AZ::u32 OnMeshTypeChanged();
