@@ -70,6 +70,68 @@ namespace JoltPhysicsTests
         EXPECT_TRUE(loadedGroup.IsSet(AzPhysics::CollisionLayer(0)));
     }
 
+    TEST(JoltSettingsRegistryTest, SystemConfiguration_SeededPresetsDoNotDuplicateOnRoundTrip)
+    {
+        // The saved configuration already holds the seeded All and None, because it is
+        // itself a JoltSystemConfiguration. Loading deserializes into another seeded
+        // one, and the JSON serializer appends to vectors rather than replacing them,
+        // so without de-duplication the preset list grows by two every round trip.
+        JoltSystemConfiguration saved;
+        const size_t seededCount = saved.m_collisionConfig.m_collisionGroups.GetPresets().size();
+        ASSERT_EQ(2u, seededCount); // All and None
+
+        MergeConfigIntoSettingsRegistry(saved, JoltSettingsRegistryManager::SystemConfigPath);
+
+        JoltSettingsRegistryManager manager;
+        const auto loaded = manager.LoadSystemConfiguration();
+        ASSERT_TRUE(loaded.has_value());
+
+        const auto& presets = loaded->m_collisionConfig.m_collisionGroups.GetPresets();
+        EXPECT_EQ(seededCount, presets.size());
+
+        // Both are still resolvable, and None still means "collides with nothing".
+        EXPECT_EQ(
+            0u,
+            loaded->m_collisionConfig.m_collisionGroups.FindGroupById(JoltSystemConfiguration::NoneGroupId).GetMask());
+        EXPECT_NE(
+            0u,
+            loaded->m_collisionConfig.m_collisionGroups.FindGroupById(JoltSystemConfiguration::AllGroupId).GetMask());
+    }
+
+    TEST(JoltSettingsRegistryTest, SystemConfiguration_UserPresetsSurviveDeduplication)
+    {
+        JoltSystemConfiguration saved;
+        AzPhysics::CollisionGroup custom = AzPhysics::CollisionGroup::All;
+        custom.SetLayer(AzPhysics::CollisionLayer(3), false);
+        const auto customId = saved.m_collisionConfig.m_collisionGroups.CreateGroup("Custom", custom);
+
+        MergeConfigIntoSettingsRegistry(saved, JoltSettingsRegistryManager::SystemConfigPath);
+
+        JoltSettingsRegistryManager manager;
+        const auto loaded = manager.LoadSystemConfiguration();
+        ASSERT_TRUE(loaded.has_value());
+
+        // De-duplication keys on the preset id, so a group the user added is untouched.
+        EXPECT_EQ(3u, loaded->m_collisionConfig.m_collisionGroups.GetPresets().size());
+        EXPECT_FALSE(loaded->m_collisionConfig.m_collisionGroups.FindGroupById(customId)
+                         .IsSet(AzPhysics::CollisionLayer(3)));
+    }
+
+    //! An id that resolves to nothing - unset, or left by a deleted preset - answers
+    //! CollisionGroup::All. This is what made "Collides With" look like it did nothing:
+    //! a collider that was never given a group collides with everything, so the control
+    //! has to show All rather than a blank the user cannot meaningfully change away from.
+    TEST(JoltSettingsRegistryTest, AnUnsetCollisionGroupIdResolvesToAll)
+    {
+        const JoltSystemConfiguration config;
+        const AzPhysics::CollisionGroups::Id unsetId;
+
+        EXPECT_TRUE(config.m_collisionConfig.m_collisionGroups.FindGroupNameById(unsetId).empty());
+        EXPECT_EQ(
+            AzPhysics::CollisionGroup::All.GetMask(),
+            config.m_collisionConfig.m_collisionGroups.FindGroupById(unsetId).GetMask());
+    }
+
     TEST(JoltSettingsRegistryTest, DefaultSceneConfiguration_RoundTripsThroughSettingsRegistry)
     {
         AzPhysics::SceneConfiguration saved;

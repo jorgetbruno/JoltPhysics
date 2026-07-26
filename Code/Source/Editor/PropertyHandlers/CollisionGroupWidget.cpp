@@ -4,6 +4,8 @@
 #include <AzFramework/Physics/PropertyTypes.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
+#include <JoltPhysics/Configuration/JoltConfiguration.h>
+
 #include <Editor/ConfigurationWindow/JoltConfigurationWindowBus.h>
 #include <Editor/PropertyHandlers/CollisionPropertyUtils.h>
 
@@ -101,11 +103,27 @@ namespace JoltPhysics::Editor
 
     AZStd::string CollisionGroupWidget::GetNameFromGroup(const AzPhysics::CollisionGroups::Id& groupId)
     {
-        if (const AzPhysics::CollisionConfiguration* collisionConfiguration = GetCollisionConfiguration())
+        const AzPhysics::CollisionConfiguration* collisionConfiguration = GetCollisionConfiguration();
+        if (!collisionConfiguration)
         {
-            return collisionConfiguration->m_collisionGroups.FindGroupNameById(groupId);
+            return {};
         }
-        return {};
+
+        AZStd::string name = collisionConfiguration->m_collisionGroups.FindGroupNameById(groupId);
+        if (!name.empty())
+        {
+            return name;
+        }
+
+        // An id that resolves to nothing - an unset one on a collider that was never
+        // given a group, or one left behind by a deleted preset - is not an error:
+        // AzPhysics answers CollisionGroup::All for any id it cannot find, so that is
+        // what the object really collides with and that is what has to be shown.
+        //
+        // Showing a blank instead let the control disagree with the simulation, and
+        // worse, it made picking the entry the control appeared to be on count as no
+        // change, so nothing was written and the choice silently did nothing.
+        return collisionConfiguration->m_collisionGroups.FindGroupNameById(JoltSystemConfiguration::AllGroupId);
     }
 
     AZStd::vector<AZStd::string> CollisionGroupWidget::GetGroupNames()
