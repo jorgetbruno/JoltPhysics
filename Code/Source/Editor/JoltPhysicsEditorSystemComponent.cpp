@@ -4,6 +4,8 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
 
+#include <AzCore/Interface/Interface.h>
+#include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzToolsFramework/API/ViewPaneOptions.h>
 
 #include <Editor/ConfigurationWindow/JoltConfigurationWidget.h>
@@ -68,10 +70,30 @@ namespace JoltPhysics
         AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
 
         Editor::RegisterPropertyTypes();
+
+        // The collision layer/group dropdowns rebuild their entries from the live
+        // configuration in ReadValuesIntoGUI, but the inspector only calls that when
+        // it refreshes - so a layer renamed in the configuration window would keep its
+        // old name in panels that are already open until they were poked some other
+        // way. Every configuration edit funnels through UpdateConfiguration, which
+        // signals this event.
+        m_onConfigurationChangedHandler = AzPhysics::SystemEvents::OnConfigurationChangedEvent::Handler(
+            []([[maybe_unused]] const AzPhysics::SystemConfiguration* config)
+            {
+                AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(
+                    &AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay,
+                    AzToolsFramework::Refresh_AttributesAndValues);
+            });
+        if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
+        {
+            physicsSystem->RegisterSystemConfigurationChangedEvent(m_onConfigurationChangedHandler);
+        }
     }
 
     void JoltPhysicsEditorSystemComponent::Deactivate()
     {
+        m_onConfigurationChangedHandler.Disconnect();
+
         AzToolsFramework::UnregisterViewPane(Editor::ConfigurationWindowName);
 
         Editor::UnregisterPropertyTypes();

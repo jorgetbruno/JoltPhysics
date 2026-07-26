@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzCore/Component/Component.h>
+#include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
@@ -33,6 +34,12 @@ namespace JoltPhysics
 
         // AzToolsFramework::EditorEvents
         void NotifyRegisterViews() override;
+
+    private:
+        //! Refreshes open property grids when the physics configuration changes: the
+        //! collision layer/group dropdowns list names from the live configuration, so
+        //! a rename in the configuration window must reach panels already showing them.
+        AzPhysics::SystemEvents::OnConfigurationChangedEvent::Handler m_onConfigurationChangedHandler;
     };
 
 } // namespace JoltPhysics
