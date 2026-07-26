@@ -78,8 +78,9 @@ namespace JoltPhysics
             settings.mUp = Conversions::ToJolt(m_configuration.m_upDirection);
             settings.mMaxSlopeAngle = AZ::DegToRad(m_slopeLimitDegrees);
             settings.mShape = m_shape;
-            settings.mLayer =
+            m_objectLayer =
                 AcquireObjectLayer(m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true);
+            settings.mLayer = m_objectLayer;
             // The character is driven entirely by the requested velocity (same contract as
             // the virtual backend), so Jolt's own gravity is disabled. The supporting
             // volume accepts contacts below the centre; steep contacts are still rejected
@@ -108,8 +109,9 @@ namespace JoltPhysics
         // The inner body makes the character visible to the simulation: dynamic bodies
         // are blocked/pushed by it and sensors fire trigger events for it.
         settings.mInnerBodyShape = m_shape;
-        settings.mInnerBodyLayer =
+        m_objectLayer =
             AcquireObjectLayer(m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true);
+        settings.mInnerBodyLayer = m_objectLayer;
         settings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
         m_character = AZStd::make_unique<JPH::CharacterVirtual>(
@@ -366,12 +368,18 @@ namespace JoltPhysics
         updateSettings.mStickToFloorStepDown = -up * m_stepHeight;
         updateSettings.mWalkStairsStepUp = up * m_stepHeight;
 
+        // Filtered by the character's own object layer. A CharacterVirtual sweeps its
+        // movement itself instead of going through the simulation, so a default-
+        // constructed filter here would accept every layer and the configured collision
+        // layer / "collides with" group would only ever affect the inner body - the
+        // character would still walk into everything.
+        JPH::PhysicsSystem* physicsSystem = m_scene->GetJoltPhysicsSystem();
         m_character->ExtendedUpdate(
             deltaTime,
             Conversions::ToJolt(m_scene->GetGravity()),
             updateSettings,
-            JPH::BroadPhaseLayerFilter(),
-            JPH::ObjectLayerFilter(),
+            physicsSystem->GetDefaultBroadPhaseLayerFilter(m_objectLayer),
+            physicsSystem->GetDefaultLayerFilter(m_objectLayer),
             JPH::BodyFilter(),
             JPH::ShapeFilter(),
             *GetJoltSystem()->GetJoltAllocator());
@@ -406,7 +414,9 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltCharacter::GetPosition() const
     {
-        return GetCenterPosition();
+        // Must agree with GetTransform, which reports the base - they are the same
+        // concept on SimulatedBody, and the entity transform tracks both.
+        return GetBasePosition();
     }
 
     AZ::Quaternion JoltCharacter::GetOrientation() const

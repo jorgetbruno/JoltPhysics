@@ -132,6 +132,16 @@ feature, trust the topic sections below the milestones.**
   is stored but not enforced.* Both character backends now resolve their layer and
   group through `AcquireObjectLayer`, so the shared object-layer rule applies to
   them like any other body. Sensors still never block movement.
+- **A virtual character's layer has to be applied twice.** `CharacterVirtual` sweeps
+  its own movement instead of going through the simulation, so the object layer
+  reaches its inner body through `mInnerBodyLayer` but reaches the sweep only via the
+  filters handed to `ExtendedUpdate`. Passing default-constructed filters there — as
+  the gem did until this was found — accepts every layer, so the character walked
+  through everything while other bodies still saw it correctly. The rigid backend has
+  no such split; it collides through the simulation like any body.
+- **`GetPosition` and `GetTransform` both report the base.** They are the same concept
+  on `SimulatedBody`, so they must agree; reading one and writing the other would
+  otherwise shift a character by half a capsule.
 - **Body-level `RayCast` on a character returns an empty hit** (use scene queries).
 - **`AttachShape` on a character is unsupported.** A `Physics::Shape` wrapper exists
   now; what is missing is a way to recombine a character's shape at runtime, since

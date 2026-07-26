@@ -2,12 +2,14 @@
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
+#include <Character/JoltCharacter.h>
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
+#include <AzFramework/Physics/Character.h>
 #include <AzFramework/Physics/Ragdoll.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
@@ -84,6 +86,39 @@ namespace JoltPhysics
             staticConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f); // top surface at z=0
             staticConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, shapeConfig);
             return m_scene->AddSimulatedBody(&staticConfig);
+        }
+
+        //! Capsule character on the given collision layer and group. Driven downwards
+        //! each tick, because a character moves only when asked to.
+        AzPhysics::SimulatedBodyHandle CreateCharacterOnLayer(
+            AZ::u8 collisionLayer, const AZStd::string& collisionGroupName, AZ::u64 collisionGroupMask,
+            bool rigidBodyBacked)
+        {
+            JoltCharacterConfiguration config;
+            config.m_position = AZ::Vector3(0.0f, 0.0f, 2.0f);
+            config.m_debugName = "FilteringCharacter";
+            config.m_collisionLayer = AzPhysics::CollisionLayer(collisionLayer);
+            config.m_collisionGroupId =
+                m_system->CreateCollisionGroupPreset(collisionGroupName, AzPhysics::CollisionGroup(collisionGroupMask));
+            config.m_shapeConfig = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+            config.m_rigidBodyCharacter = rigidBodyBacked;
+            return m_scene->AddSimulatedBody(&config);
+        }
+
+        //! Walks a character straight down for the given time, one request per tick.
+        void DriveCharacterDown(AzPhysics::SimulatedBodyHandle handle, float seconds)
+        {
+            auto* character = azdynamic_cast<Physics::Character*>(m_scene->GetSimulatedBodyFromHandle(handle));
+            ASSERT_NE(character, nullptr);
+
+            const float fixedDeltaTime = 1.0f / 60.0f;
+            const int steps = static_cast<int>(seconds / fixedDeltaTime);
+            for (int i = 0; i < steps; ++i)
+            {
+                character->AddVelocityForTick(AZ::Vector3(0.0f, 0.0f, -4.0f));
+                m_scene->StartSimulation(fixedDeltaTime);
+                m_scene->FinishSimulation();
+            }
         }
 
         //! Two-node ragdoll whose colliders use the given collision layer and group.
@@ -200,6 +235,52 @@ namespace JoltPhysics
             ragdoll->EnableSimulation(config.m_initialState);
         }
         return handle;
+    }
+
+    // A CharacterVirtual sweeps its own movement instead of going through the
+    // simulation, so its collision layer only reaches that sweep if the filters are
+    // handed to ExtendedUpdate. These cover both backends so the two agree.
+
+    TEST_F(JoltCollisionFilteringTests, VirtualCharacterStandsOnASlabItsGroupIncludes)
+    {
+        CreateSlab("SlabGroup", /*mask*/ 0b11);
+        auto character = CreateCharacterOnLayer(/*layer*/ 1, "CharacterGroup", /*mask*/ 0b11, false);
+
+        DriveCharacterDown(character, 1.5f);
+
+        // Base rests on the slab surface at z=0.
+        EXPECT_NEAR(GetBodyZ(character), 0.0f, 0.1f);
+    }
+
+    TEST_F(JoltCollisionFilteringTests, VirtualCharacterFallsThroughWhenItsGroupExcludesTheSlabLayer)
+    {
+        CreateSlab("SlabGroup", /*mask*/ 0b11, /*layer*/ 0);
+        // Collides with layer 1 only, so the slab on layer 0 must not stop it.
+        auto character = CreateCharacterOnLayer(/*layer*/ 1, "CharacterGroup", /*mask*/ 0b10, false);
+
+        DriveCharacterDown(character, 1.5f);
+
+        EXPECT_LT(GetBodyZ(character), -2.0f);
+    }
+
+    TEST_F(JoltCollisionFilteringTests, VirtualCharacterFallsThroughWhenTheSlabGroupExcludesItsLayer)
+    {
+        CreateSlab("SlabGroup", /*mask*/ 0b01); // contains only layer 0
+        auto character = CreateCharacterOnLayer(/*layer*/ 1, "CharacterGroup", /*mask*/ 0b11, false);
+
+        DriveCharacterDown(character, 1.5f);
+
+        EXPECT_LT(GetBodyZ(character), -2.0f);
+    }
+
+    TEST_F(JoltCollisionFilteringTests, RigidBodyCharacterRespectsTheSameFiltering)
+    {
+        CreateSlab("SlabGroup", /*mask*/ 0b11, /*layer*/ 0);
+        auto character = CreateCharacterOnLayer(/*layer*/ 1, "CharacterGroup", /*mask*/ 0b10, true);
+
+        DriveCharacterDown(character, 1.5f);
+
+        EXPECT_LT(GetBodyZ(character), -2.0f);
     }
 
     TEST_F(JoltCollisionFilteringTests, RagdollPartsRespectTheirCollisionLayer)

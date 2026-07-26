@@ -419,6 +419,19 @@ namespace JoltPhysics
         EXPECT_TRUE(character->GetCenterPosition().IsClose(base + AZ::Vector3(0.0f, 0.0f, 0.9f), 1e-3f));
     }
 
+    TEST_F(JoltCharacterTests, GetPositionAgreesWithGetTransform)
+    {
+        const AZ::Vector3 base(0.0f, 0.0f, 5.0f);
+        auto characterHandle = CreateCharacter(base);
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // Both are the same concept on SimulatedBody; a caller reading one and writing
+        // the other must not shift the character by half a capsule.
+        EXPECT_TRUE(character->GetPosition().IsClose(character->GetTransform().GetTranslation(), 1e-3f));
+        EXPECT_TRUE(character->GetPosition().IsClose(base, 1e-3f));
+    }
+
     TEST_F(JoltCharacterTests, ConfiguredPositionIsTheBase)
     {
         // Created at the origin, so the capsule stands on z=0 and reaches z=1.8 rather

@@ -117,6 +117,12 @@ namespace JoltPhysics
         AZStd::unique_ptr<JPH::CharacterVirtual> m_character; //!< Virtual backend.
         JPH::Ref<JPH::Character> m_rigidBody;                 //!< Rigid-body backend.
         JPH::RefConst<JPH::Shape> m_shape;
+
+        //! The object layer resolved from the configured collision layer and group.
+        //! CharacterVirtual sweeps its own movement rather than going through the
+        //! simulation, so this has to be handed to ExtendedUpdate as a filter or the
+        //! character's collision layer would only ever affect its inner body.
+        JPH::ObjectLayer m_objectLayer = 0;
         JoltScene* m_scene = nullptr;
 
         AZ::Quaternion m_orientation = AZ::Quaternion::CreateIdentity();
