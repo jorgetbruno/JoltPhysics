@@ -86,6 +86,9 @@ namespace JoltPhysics
             // as ground by the slope check.
             settings.mGravityFactor = 0.0f;
             settings.mSupportingVolume = JPH::Plane(settings.mUp, -1.0e10f);
+            // Characters walk over meshes and heightfields constantly, so ghost contacts
+            // on triangle seams are felt here more than anywhere else.
+            settings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
             m_rigidBody = new JPH::Character(
                 &settings,
@@ -107,6 +110,7 @@ namespace JoltPhysics
         settings.mInnerBodyShape = m_shape;
         settings.mInnerBodyLayer =
             AcquireObjectLayer(m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true);
+        settings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
         m_character = AZStd::make_unique<JPH::CharacterVirtual>(
             &settings,

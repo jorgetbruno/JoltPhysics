@@ -153,6 +153,9 @@ namespace JoltPhysics
         settings.mPointVelocitySleepThreshold = config.m_pointVelocitySleepThreshold;
         settings.mAllowSleeping = config.m_allowSleeping;
         settings.mDeterministicSimulation = config.m_deterministicSimulation;
+        // Jolt stores this squared; the configuration exposes the plain distance.
+        settings.mInternalEdgeRemovalVertexToleranceSq =
+            config.m_internalEdgeRemovalTolerance * config.m_internalEdgeRemovalTolerance;
         m_physicsSystem->SetPhysicsSettings(settings);
     }
 

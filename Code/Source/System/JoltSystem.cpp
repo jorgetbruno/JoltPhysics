@@ -483,6 +483,15 @@ namespace JoltPhysics
         return static_cast<JoltSystem*>(AZ::Interface<AzPhysics::SystemInterface>::Get());
     }
 
+    bool UseEnhancedInternalEdgeRemoval()
+    {
+        if (auto* joltSystem = GetJoltSystem())
+        {
+            return joltSystem->GetJoltConfiguration().m_enhancedInternalEdgeRemoval;
+        }
+        return JoltSystemConfiguration().m_enhancedInternalEdgeRemoval;
+    }
+
 } // namespace JoltPhysics
 
 namespace JoltPhysics
@@ -538,6 +547,8 @@ namespace JoltPhysics
                 ->Field("AllowSleeping", &JoltSystemConfiguration::m_allowSleeping)
                 ->Field("DeterministicSimulation", &JoltSystemConfiguration::m_deterministicSimulation)
                 ->Field("CollisionSteps", &JoltSystemConfiguration::m_collisionSteps)
+                ->Field("EnhancedInternalEdgeRemoval", &JoltSystemConfiguration::m_enhancedInternalEdgeRemoval)
+                ->Field("InternalEdgeRemovalTolerance", &JoltSystemConfiguration::m_internalEdgeRemovalTolerance)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -601,6 +612,17 @@ namespace JoltPhysics
                         "behavior at proportional CPU cost.")
                         ->Attribute(AZ::Edit::Attributes::Min, 1)
                         ->Attribute(AZ::Edit::Attributes::Max, 8)
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSystemConfiguration::m_enhancedInternalEdgeRemoval,
+                        "Enhanced Internal Edge Removal",
+                        "Suppress ghost contacts against the internal edges of meshes and heightfields, so bodies "
+                        "and characters slide over them smoothly instead of catching on triangle seams. Costs a "
+                        "little performance; applied to moving bodies, which is enough for the pair.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSystemConfiguration::m_internalEdgeRemovalTolerance,
+                        "Internal Edge Tolerance",
+                        "How close two vertices must be for the edge between them to count as shared. Raise it if "
+                        "ghost contacts persist on a mesh with imprecise vertices.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
                     ;
             }
         }

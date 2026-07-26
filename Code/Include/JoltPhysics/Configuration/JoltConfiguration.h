@@ -59,6 +59,23 @@ namespace JoltPhysics
         bool m_allowSleeping = true; //!< Whether bodies may sleep at all.
         bool m_deterministicSimulation = true; //!< Deterministic stepping; turning it off buys performance.
 
+        //! Extra work to suppress "ghost" contacts against the internal edges of a mesh
+        //! or heightfield - the seams between triangles, which are not real surfaces but
+        //! which a sliding body can still catch on. On by default: the artefact is a
+        //! correctness problem that is very hard to diagnose from content, and Jolt only
+        //! defaults it off because it costs a little performance.
+        //!
+        //! Jolt decides per contact pair with an OR (Body::GetEnhancedInternalEdgeRemovalWithBody),
+        //! so this is applied to the bodies that move - dynamic/kinematic rigid bodies and
+        //! characters. Static bodies gain nothing from carrying the flag themselves.
+        bool m_enhancedInternalEdgeRemoval = true;
+
+        //! How close two vertices must be before the edge-removal algorithm treats them as
+        //! the same vertex, and therefore the edge between them as shared (m). Jolt stores
+        //! this squared; it is exposed unsquared because that is the unit an author can
+        //! reason about. The default is Jolt's own (1e-4 m, i.e. 1e-8 squared).
+        float m_internalEdgeRemovalTolerance = 1.0e-4f;
+
         //! Jolt collision (sub-)steps per simulation update, for every scene. Raising
         //! it improves fast object behavior at proportional cost.
         //!

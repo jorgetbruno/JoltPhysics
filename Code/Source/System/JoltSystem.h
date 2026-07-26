@@ -118,4 +118,9 @@ namespace JoltPhysics
 
     JoltSystem* GetJoltSystem();
 
+    //! Whether bodies should be created with enhanced internal edge removal, per the
+    //! system configuration. Falls back to the configuration default when no system is
+    //! available, which is the case for tests that build bodies against a bare scene.
+    bool UseEnhancedInternalEdgeRemoval();
+
 } // namespace JoltPhysics

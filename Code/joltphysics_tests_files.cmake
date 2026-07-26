@@ -5,6 +5,7 @@ set(FILES
     Tests/JoltSystemTests.cpp
     Tests/JoltSettingsRegistryTests.cpp
     Tests/JoltSolverSettingsTests.cpp
+    Tests/JoltInternalEdgeRemovalTests.cpp
     Tests/JoltSceneTests.cpp
     Tests/JoltComponentSerializationTests.cpp
     Tests/JoltHeightfieldTests.cpp

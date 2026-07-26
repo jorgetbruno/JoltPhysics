@@ -6,6 +6,7 @@
 #include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
+#include <System/JoltSystem.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/std/algorithm.h>
@@ -129,6 +130,9 @@ namespace JoltPhysics
         bodySettings.mAngularDamping = m_configuration.m_angularDamping;
         bodySettings.mMaxAngularVelocity = m_configuration.m_maxAngularVelocity;
         bodySettings.mGravityFactor = m_configuration.m_gravityEnabled ? 1.0f : 0.0f;
+        // Only the moving body needs the flag: Jolt ORs it across the contact pair, so
+        // this covers a dynamic body sliding over a static mesh or heightfield.
+        bodySettings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
         if (m_configuration.m_mass > 0.0f)
         {

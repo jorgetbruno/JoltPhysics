@@ -553,6 +553,27 @@ feature, trust the topic sections below the milestones.**
   masks when they are recreated (e.g. entering game mode). Gravity edits do apply
   live via the default-scene-configuration-changed event.
 
+## Enhanced internal edge removal
+
+- **On by default, unlike Jolt.** Jolt ships `mEnhancedInternalEdgeRemoval` off because
+  it costs a little performance. The gem turns it on: ghost contacts against the seams
+  between a mesh's or heightfield's triangles are a correctness problem an author
+  cannot diagnose from content — a character catching on flat ground looks like a bug
+  in the level, not a physics setting. It is exposed in the configuration window for
+  anyone who wants the performance back.
+- **Applied to the bodies that move**, not to statics. Jolt decides per contact pair
+  with an OR (`Body::GetEnhancedInternalEdgeRemovalWithBody`), so setting it on the
+  dynamic or kinematic body covers it sliding over a static mesh; putting it on the
+  mesh as well would cost without buying anything. Both character backends get it too —
+  `CharacterVirtual` carries the flag itself, and Jolt's rigid `Character` passes it
+  through to the body it creates.
+- **The vertex tolerance is exposed unsquared.** Jolt stores
+  `mInternalEdgeRemovalVertexToleranceSq`; the configuration takes a plain distance in
+  metres because that is the unit an author can reason about, and the scene squares it.
+  Only reachable at all since Jolt 5.6.0 made it configurable.
+- **No PhysX counterpart.** PhysX has its own mesh-contact handling, so there is no
+  compatible setting to mirror; this is a Jolt-specific addition to the configuration.
+
 ## Solver settings
 
 - **The tunable subset of `JPH::PhysicsSettings` is exposed** in the configuration
