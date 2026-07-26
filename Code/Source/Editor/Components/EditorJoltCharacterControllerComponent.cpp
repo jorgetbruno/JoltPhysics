@@ -152,12 +152,12 @@ namespace JoltPhysics
             return;
         }
 
-        // The character shape is centred on the entity origin and Z-aligned in local
-        // space; scale is deliberately dropped so the preview matches the capsule the
-        // runtime builds from Height/Radius.
-        AZ::Transform worldTransform = GetManipulatorSpace();
+        // The entity sits at the character's base, so the capsule stands on the origin
+        // rather than being centred on it - see JoltCharacter::BaseToCenter.
+        const AZ::Transform capsuleTransform =
+            GetManipulatorSpace() * AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 0.5f * height));
 
-        EditorDebugDraw::DrawWireCapsule(debugDisplay, worldTransform, radius, height);
+        EditorDebugDraw::DrawWireCapsule(debugDisplay, capsuleTransform, radius, height);
     }
 
     float EditorJoltCharacterControllerComponent::GetHeight() const
@@ -218,8 +218,9 @@ namespace JoltPhysics
             return AZ::Aabb::CreateNull();
         }
 
+        // Centred half a height up, matching where the capsule is drawn.
         const AZ::Aabb localBounds = AZ::Aabb::CreateCenterHalfExtents(
-            AZ::Vector3::CreateZero(), AZ::Vector3(radius, radius, 0.5f * height));
+            AZ::Vector3(0.0f, 0.0f, 0.5f * height), AZ::Vector3(radius, radius, 0.5f * height));
         return localBounds.GetTransformedAabb(GetManipulatorSpace());
     }
 

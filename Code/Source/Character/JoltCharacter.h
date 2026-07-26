@@ -102,6 +102,15 @@ namespace JoltPhysics
         //! shape's bottom, used for base<->center conversions.
         float GetBottomOffset() const;
 
+        //! Converts a base (feet) position to the shape centre Jolt positions bodies by.
+        //!
+        //! O3DE places a character by its base, not its centre: Physics::Character makes
+        //! SetBasePosition writable while GetCenterPosition is read-only, and the PhysX
+        //! backend maps the entity transform onto PxController's foot position. Jolt has
+        //! no such notion - a CharacterVirtual sits at its shape centre - so every
+        //! entity-facing position crosses this conversion.
+        AZ::Vector3 BaseToCenter(const AZ::Vector3& basePosition) const;
+
         Physics::CharacterConfiguration m_configuration;
         bool m_rigidBodyCharacter = false;
 

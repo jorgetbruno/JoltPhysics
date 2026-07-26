@@ -68,7 +68,8 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&boxConfig);
         }
 
-        //! Creates a 1.8 m x 0.3 m capsule character; position is the capsule center.
+        //! Creates a 1.8 m x 0.3 m capsule character; position is the capsule base (feet),
+        //! which is how O3DE places characters - see JoltCharacter::BaseToCenter.
         AzPhysics::SimulatedBodyHandle CreateCharacter(
             const AZ::Vector3& position, float slopeLimitDegrees = 30.0f, float stepHeight = 0.5f)
         {
@@ -189,7 +190,7 @@ namespace JoltPhysics
         // 0.3 m tall, 4 m deep platform (top surface at z=0.3, spans x in [1.5, 5.5]).
         CreateStaticBox(AZ::Vector3(3.5f, 0.0f, 0.15f), AZ::Vector3(4.0f, 4.0f, 0.3f));
 
-        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 1.0f), 30.0f, 0.5f /* step height */);
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.1f), 30.0f, 0.5f /* step height */);
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
@@ -208,7 +209,7 @@ namespace JoltPhysics
         // 0.6 m tall step at x=2 (top surface at z=0.6).
         CreateStaticBox(AZ::Vector3(2.0f, 0.0f, 0.3f), AZ::Vector3(1.0f, 4.0f, 0.6f));
 
-        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 1.0f), 30.0f, 0.4f /* step height */);
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.1f), 30.0f, 0.4f /* step height */);
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
@@ -340,7 +341,7 @@ namespace JoltPhysics
     TEST_F(JoltCharacterTests, RigidBodyCharacterWalksForward)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
-        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f)); // start resting on the floor
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f)); // start resting on the floor
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
@@ -354,11 +355,11 @@ namespace JoltPhysics
     TEST_F(JoltCharacterTests, PerBodyRayCastHitsTheCharacterCapsule)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
-        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
-        // Straight down onto the top of the 1.8 m capsule centred at z=0.9.
+        // Straight down onto the top of the 1.8 m capsule standing on the floor.
         AzPhysics::RayCastRequest request;
         request.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
         request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
@@ -379,7 +380,7 @@ namespace JoltPhysics
     TEST_F(JoltCharacterTests, RigidBodyCharacterPerBodyRayCastHitsTheCapsule)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
-        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
@@ -397,6 +398,84 @@ namespace JoltPhysics
 
         request.m_start = AZ::Vector3(3.0f, 0.0f, 5.0f);
         EXPECT_FALSE(static_cast<bool>(character->RayCast(request)));
+    }
+
+    // O3DE places a character by its base, not its shape centre: Physics::Character
+    // makes SetBasePosition writable while GetCenterPosition is read-only, and the
+    // PhysX backend maps the entity transform onto PxController's foot position. The
+    // transform this body reports is what the component writes to the entity, so it
+    // has to agree with GetBasePosition or the two drift by half a capsule.
+
+    TEST_F(JoltCharacterTests, TransformTracksTheBaseNotTheCentre)
+    {
+        const AZ::Vector3 base(1.0f, 2.0f, 3.0f);
+        auto characterHandle = CreateCharacter(base);
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        EXPECT_TRUE(character->GetTransform().GetTranslation().IsClose(base, 1e-3f));
+        EXPECT_TRUE(character->GetBasePosition().IsClose(base, 1e-3f));
+        // Half the 1.8 m capsule above the feet.
+        EXPECT_TRUE(character->GetCenterPosition().IsClose(base + AZ::Vector3(0.0f, 0.0f, 0.9f), 1e-3f));
+    }
+
+    TEST_F(JoltCharacterTests, ConfiguredPositionIsTheBase)
+    {
+        // Created at the origin, so the capsule stands on z=0 and reaches z=1.8 rather
+        // than straddling the origin.
+        auto characterHandle = CreateCharacter(AZ::Vector3::CreateZero());
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        EXPECT_NEAR(character->GetBasePosition().GetZ(), 0.0f, 1e-3f);
+        EXPECT_NEAR(character->GetCenterPosition().GetZ(), 0.9f, 1e-3f);
+    }
+
+    TEST_F(JoltCharacterTests, SetTransformAndSetBasePositionAgree)
+    {
+        auto characterHandle = CreateCharacter(AZ::Vector3::CreateZero());
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        const AZ::Vector3 target(4.0f, -1.0f, 2.0f);
+
+        character->SetTransform(AZ::Transform::CreateTranslation(target));
+        const AZ::Vector3 viaTransform = character->GetCenterPosition();
+
+        character->SetBasePosition(target);
+        const AZ::Vector3 viaBasePosition = character->GetCenterPosition();
+
+        // Setting the transform and setting the base position must place the body
+        // identically; before the base convention landed these differed by 0.9 m.
+        EXPECT_TRUE(viaTransform.IsClose(viaBasePosition, 1e-3f));
+        EXPECT_TRUE(character->GetTransform().GetTranslation().IsClose(target, 1e-3f));
+    }
+
+    TEST_F(JoltCharacterTests, RigidBodyCharacterUsesTheSameBaseConvention)
+    {
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3::CreateZero());
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        EXPECT_NEAR(character->GetBasePosition().GetZ(), 0.0f, 1e-3f);
+        EXPECT_NEAR(character->GetCenterPosition().GetZ(), 0.9f, 1e-3f);
+        EXPECT_TRUE(character->GetTransform().GetTranslation().IsClose(AZ::Vector3::CreateZero(), 1e-3f));
+    }
+
+    TEST_F(JoltCharacterTests, ACharacterDroppedOntoTheFloorEndsWithItsFeetOnIt)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 2.0f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // Drive it down onto the floor, whose top surface is z=0.
+        WalkCharacter(character, AZ::Vector3(0.0f, 0.0f, -4.0f), 2.0f);
+
+        // The whole point of the base convention: the reported position is where the
+        // character stands, so it matches the surface it is standing on.
+        EXPECT_NEAR(character->GetBasePosition().GetZ(), 0.0f, 0.05f);
+        EXPECT_NEAR(character->GetTransform().GetTranslation().GetZ(), 0.0f, 0.05f);
     }
 
 } // namespace JoltPhysics

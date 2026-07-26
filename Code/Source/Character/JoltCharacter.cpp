@@ -89,7 +89,7 @@ namespace JoltPhysics
 
             m_rigidBody = new JPH::Character(
                 &settings,
-                Conversions::ToJoltR(m_configuration.m_position),
+                Conversions::ToJoltR(BaseToCenter(m_configuration.m_position)),
                 Conversions::ToJolt(m_configuration.m_orientation),
                 /*userData*/ 0,
                 m_scene->GetJoltPhysicsSystem());
@@ -110,7 +110,7 @@ namespace JoltPhysics
 
         m_character = AZStd::make_unique<JPH::CharacterVirtual>(
             &settings,
-            Conversions::ToJoltR(m_configuration.m_position),
+            Conversions::ToJoltR(BaseToCenter(m_configuration.m_position)),
             Conversions::ToJolt(m_configuration.m_orientation),
             m_scene->GetJoltPhysicsSystem());
 
@@ -152,6 +152,13 @@ namespace JoltPhysics
         return m_shape ? m_shape->GetLocalBounds().mMin.GetZ() : 0.0f;
     }
 
+    AZ::Vector3 JoltCharacter::BaseToCenter(const AZ::Vector3& basePosition) const
+    {
+        // GetBottomOffset is negative for a shape centred on its origin, so this lifts
+        // the centre above the feet.
+        return basePosition - m_configuration.m_upDirection * GetBottomOffset();
+    }
+
     AZ::Vector3 JoltCharacter::GetBasePosition() const
     {
         return GetCenterPosition() + m_configuration.m_upDirection * GetBottomOffset();
@@ -159,7 +166,7 @@ namespace JoltPhysics
 
     void JoltCharacter::SetBasePosition(const AZ::Vector3& position)
     {
-        const AZ::Vector3 center = position - m_configuration.m_upDirection * GetBottomOffset();
+        const AZ::Vector3 center = BaseToCenter(position);
         if (m_rigidBody)
         {
             m_rigidBody->SetPosition(Conversions::ToJoltR(center));
@@ -193,7 +200,9 @@ namespace JoltPhysics
         }
         if (!m_character)
         {
-            return m_configuration.m_position;
+            // Nothing created yet, so answer from the configuration - which holds a base
+            // position. With no shape the offset is zero and this degrades to the base.
+            return BaseToCenter(m_configuration.m_position);
         }
         const JPH::RVec3 position = m_character->GetPosition();
         return AZ::Vector3(
@@ -381,21 +390,14 @@ namespace JoltPhysics
 
     AZ::Transform JoltCharacter::GetTransform() const
     {
-        return AZ::Transform::CreateFromQuaternionAndTranslation(m_orientation, GetCenterPosition());
+        // The entity transform tracks the base, not the shape centre - see BaseToCenter.
+        return AZ::Transform::CreateFromQuaternionAndTranslation(m_orientation, GetBasePosition());
     }
 
     void JoltCharacter::SetTransform(const AZ::Transform& transform)
     {
         SetRotation(transform.GetRotation());
-        if (m_rigidBody)
-        {
-            m_rigidBody->SetPosition(Conversions::ToJoltR(transform.GetTranslation()));
-            return;
-        }
-        if (m_character)
-        {
-            m_character->SetPosition(Conversions::ToJoltR(transform.GetTranslation()));
-        }
+        SetBasePosition(transform.GetTranslation());
     }
 
     AZ::Vector3 JoltCharacter::GetPosition() const

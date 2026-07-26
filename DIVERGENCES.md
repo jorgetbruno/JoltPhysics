@@ -107,6 +107,19 @@ feature, trust the topic sections below the milestones.**
 
 ## M5 (character controllers)
 
+- **A character is positioned by its base, not its shape centre** — matching PhysX and
+  the rest of O3DE. `Physics::Character` makes `SetBasePosition` writable while
+  `GetCenterPosition` is read-only, and the PhysX backend maps the entity transform
+  onto `PxController`'s foot position. Jolt has no such notion (a `CharacterVirtual`
+  sits at its shape centre), so `JoltCharacter::BaseToCenter` converts on every
+  entity-facing path: creation, `GetTransform`/`SetTransform` (which is what the
+  component syncs to and from the entity), and the `GetCenterPosition` fallback.
+  `CharacterConfiguration::m_position` is therefore a base position too. Until this
+  landed the component treated the entity origin as the capsule centre, so a
+  character stood half a capsule below where PhysX would put it, and
+  `SetBasePosition` disagreed with the entity transform by the same amount.
+- **The offset is taken from the shape's own bounds** (`GetBottomOffset`), not from
+  the capsule height, so it stays correct for whatever shape drives the character.
 - **Requested velocities are applied by the scene at simulation start**, not via an
   `OnSceneSimulationStart` event handler like the PhysX gem; per-tick and per-physics-
   step velocity requests coincide in this backend (both are applied and flushed on the
@@ -458,8 +471,9 @@ feature, trust the topic sections below the milestones.**
   four manipulator buses directly and reuses the capsule clamping rule (height held
   at or above twice the radius, radius at or below half the height). PhysX's
   character controller has no equivalent mode. Two differences from a collider:
-  the capsule is always centred on the entity, so `SetTranslationOffset` is inert
-  and the offset manipulator has nothing to move; and an explicitly assigned
+  the capsule is pinned to the entity — it stands on the origin rather than being
+  centred on it, per the base-position convention above — so `SetTranslationOffset`
+  is inert and the offset manipulator has nothing to move; and an explicitly assigned
   `ShapeConfiguration` outranks Height/Radius at runtime, so when a non-capsule
   shape drives the character the component reports no selection bounds and draws
   nothing rather than showing a capsule that would not match.
