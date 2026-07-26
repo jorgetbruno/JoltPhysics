@@ -460,9 +460,8 @@ feature, trust the topic sections below the milestones.**
 - **Editor colliders draw their shape wireframe in the Edit viewport** (green),
   and the runtime collider base also draws (teal) for entities in prefabs saved
   before the split — `GenericComponentWrapper` forwards `DisplayEntityViewport` to
-  the wrapped component even though it never activates it. Heightfield/mesh shapes
-  are not drawn (the terrain provider already visualizes the surface; mesh geometry
-  is not cheaply available). Game-mode debug draw (`jolt_Debug 1`) works for both.
+  the wrapped component even though it never activates it. Game-mode debug draw
+  (`jolt_Debug 1`) works for both.
 - **The runtime components no longer appear in the Add Component menu** (their
   `AppearsInAddComponentMenu` attribute was removed). This matches PhysX, where
   only the editor components are addable. Runtime components remain registered so
@@ -493,10 +492,11 @@ feature, trust the topic sections below the milestones.**
   total including both caps, so height is held at or above twice the radius and
   radius at or below half the height — otherwise a drag could produce a capsule
   the backend has to reject.
-- **Heightfield, mesh and compound colliders have no component mode.** They share
-  the same editor base but leave its shape-bounds hook at its default, so they
-  report no selection bounds and get no Edit button — the same reason they are not
-  drawn in the viewport, their geometry is not cheaply available here.
+- **Heightfield, mesh and compound colliders have no component mode**, and so no
+  Edit button: their geometry comes from a baked blob, a terrain provider or the
+  child entities, none of which a manipulator could drag. The mesh and heightfield
+  colliders do report selection bounds (see below), so they are still clickable in
+  the viewport; the compound colliders do not, having no geometry of their own.
 - **The character controller joins `CapsuleComponentMode` too**, even though it is
   not a collider and does not derive from the collider base. It answers the same
   four manipulator buses directly and reuses the capsule clamping rule (height held
@@ -537,10 +537,26 @@ feature, trust the topic sections below the milestones.**
 - **The rigid body draws its centre of mass only when set manually.** With
   `ComputeCenterOfMass` on, the real centre comes from the shapes and is not known
   at edit time, so drawing the stale offset would be actively misleading.
-- **Static rigid bodies, heightfield and compound colliders still draw nothing**,
-  deliberately: a static rigid body has no geometry of its own, a compound's
-  children draw their own wireframes, and the heightfield surface is already drawn
-  by whatever provides it.
+- **The heightfield collider draws the collision surface it is actually given**,
+  read from `Physics::HeightfieldProviderRequestsBus` — which is not necessarily
+  what the terrain renders, and seeing the difference is the point. Jolt
+  heightfields are Y-up and `JoltHeightfieldUtils::WrapZUp` rotates them, so the
+  grid runs along +X and -Y from the entity origin; `EditorColliderGeometry`
+  computes sample positions to match, and a test pins them against the triangles of
+  a real wrapped shape. Grids are strided to at most 64 lines per axis (a 513-sample
+  terrain would otherwise be half a million segments) while always drawing the last
+  row and column, so the wireframe still reaches the collider's edge. The grid is
+  cached and refreshed on `HeightfieldProviderNotificationBus`, since `GetHeights`
+  copies megabytes; a provider that mutates silently leaves the wireframe stale
+  until it announces a change (the runtime component polls on tick for that case,
+  which is too expensive to do per viewport frame).
+- **Mesh and heightfield colliders report selection bounds**, so they can be picked
+  in the viewport: the mesh collider's come from the same triangle walk that builds
+  its wireframe, the heightfield's from the grid extent and its height range.
+- **Static rigid bodies and compound colliders still draw nothing**, deliberately:
+  a static rigid body has no geometry of its own, and a compound's children are
+  separate entities that draw and are picked as themselves — bounds on the parent
+  would put an invisible pick target over all of them.
 
 ## Configuration window and collision property editors
 

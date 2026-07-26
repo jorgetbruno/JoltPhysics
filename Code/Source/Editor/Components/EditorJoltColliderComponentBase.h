@@ -65,9 +65,9 @@ namespace JoltPhysics
         //! places and orients it for selection, so this needs no entity transform.
         //!
         //! Defaults to a null Aabb, which is what the selection bus itself answers when a
-        //! component has no bounds to offer. The heightfield, mesh and compound colliders
-        //! leave it at that: their geometry is not cheaply available here, which is the
-        //! same reason they are not drawn in the viewport.
+        //! component has no bounds to offer. The compound colliders leave it at that:
+        //! they have no geometry of their own, only their child entities' colliders,
+        //! which draw and are picked as the separate entities they are.
         virtual AZ::Aabb GetLocalShapeBounds() const
         {
             return AZ::Aabb::CreateNull();

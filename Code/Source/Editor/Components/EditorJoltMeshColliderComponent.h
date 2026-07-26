@@ -28,6 +28,7 @@ namespace JoltPhysics
     protected:
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
+        AZ::Aabb GetLocalShapeBounds() const override;
 
     private:
         //! Cooks the entity's current render geometry into m_shapeConfiguration.
@@ -47,6 +48,7 @@ namespace JoltPhysics
         //! Edge list (point pairs, entity-local space) of the baked mesh, for viewport drawing.
         mutable AZStd::vector<AZ::Vector3> m_debugLines;
         mutable AZStd::vector<AZ::Vector3> m_debugLinesWorld; //!< Per-frame transformed scratch.
+        mutable AZ::Aabb m_debugBounds = AZ::Aabb::CreateNull(); //!< Bounds of the same vertices.
         mutable bool m_debugLinesDirty = true;
     };
 } // namespace JoltPhysics

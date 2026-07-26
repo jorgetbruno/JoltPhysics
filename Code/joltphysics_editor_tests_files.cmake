@@ -5,4 +5,5 @@ set(FILES
     Tests/JoltEditorDebugDrawTests.cpp
     Tests/JoltCharacterControllerComponentModeTests.cpp
     Tests/JoltEditorColliderSerializationTests.cpp
+    Tests/JoltEditorColliderGeometryTests.cpp
 )

@@ -7,6 +7,7 @@
 #include <AzFramework/Visibility/VisibleGeometryBus.h>
 
 #include <Clients/Components/JoltMeshColliderComponent.h>
+#include <Editor/Components/EditorJoltColliderGeometryUtils.h>
 #include <Shape/JoltMeshUtils.h>
 #include <Utils/ReflectionUtils.h>
 
@@ -125,6 +126,7 @@ namespace JoltPhysics
     void EditorJoltMeshColliderComponent::RebuildDebugLines() const
     {
         m_debugLines.clear();
+        m_debugBounds = AZ::Aabb::CreateNull();
         m_debugLinesDirty = false;
 
         const AZStd::vector<AZ::u8>& cookedData = m_shapeConfiguration.GetCookedMeshData();
@@ -139,33 +141,19 @@ namespace JoltPhysics
             (m_shapeConfiguration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
             ? JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData)
             : JoltMeshUtils::CreateMeshShapeFromCookedData(cookedData);
-        if (!shape)
-        {
-            return;
-        }
 
-        JPH::Shape::GetTrianglesContext context;
-        shape->GetTrianglesStart(
-            context, shape->GetLocalBounds(), JPH::Vec3::sZero(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
+        EditorColliderGeometry::BuildShapeWireframe(shape.GetPtr(), m_debugLines, m_debugBounds);
+    }
 
-        constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
-        JPH::Float3 buffer[batchSize * 3];
-        int triangleCount = 0;
-        while ((triangleCount = shape->GetTrianglesNext(context, batchSize, buffer)) > 0)
+    AZ::Aabb EditorJoltMeshColliderComponent::GetLocalShapeBounds() const
+    {
+        // The baked triangles are the only description of this collider's extent, so the
+        // same pass that builds the wireframe supplies what the viewport picks against.
+        if (m_debugLinesDirty)
         {
-            for (int t = 0; t < triangleCount; ++t)
-            {
-                const AZ::Vector3 v0(buffer[t * 3 + 0].x, buffer[t * 3 + 0].y, buffer[t * 3 + 0].z);
-                const AZ::Vector3 v1(buffer[t * 3 + 1].x, buffer[t * 3 + 1].y, buffer[t * 3 + 1].z);
-                const AZ::Vector3 v2(buffer[t * 3 + 2].x, buffer[t * 3 + 2].y, buffer[t * 3 + 2].z);
-                m_debugLines.push_back(v0);
-                m_debugLines.push_back(v1);
-                m_debugLines.push_back(v1);
-                m_debugLines.push_back(v2);
-                m_debugLines.push_back(v2);
-                m_debugLines.push_back(v0);
-            }
+            RebuildDebugLines();
         }
+        return m_debugBounds;
     }
 
     void EditorJoltMeshColliderComponent::DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const
