@@ -9,7 +9,7 @@ endif()
 
 # JoltPhysics version configuration
 set(JOLTPHYSICS_GIT_REPO "https://github.com/jrouwe/JoltPhysics")
-set(JOLTPHYSICS_GIT_TAG "v5.5.0")
+set(JOLTPHYSICS_GIT_TAG "v5.6.0")
 
 option(JOLTPHYSICS_USE_EXTERNAL "Use externally provided JoltPhysics library instead of FetchContent" OFF)
 option(JOLTPHYSICS_EXTERNAL_PATH "Path to external JoltPhysics installation" "")

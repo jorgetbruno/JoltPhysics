@@ -138,8 +138,10 @@ feature, trust the topic sections below the milestones.**
 - **Runtime joint control is exposed through `JoltJointRequestBus`** (this gem's own
   bus) mirroring the PhysX gem's `JointRequestBus` surface, since AzPhysics defines no
   joint control bus and the PhysX bus lives in the PhysX gem.
-- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
-  visualization and auto-configuration); joints are configured explicitly.
+- **`AzPhysics::JointHelpersInterface` is not implemented** (joint auto-configuration);
+  joints are configured explicitly. Editor joint-limit visualization does exist, but
+  through this gem's own `DrawJointLimits` rather than that interface — see
+  "Editor viewport debug draw".
 - **Rebinding a joint to different bodies requires recreating it**
   (`SetParentBody`/`SetChildBody` only update bookkeeping).
 - **Breakable joints are not implemented** (the `Breakable` flag is parsed but ignored).
@@ -562,13 +564,18 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
   constraint additionally needs spline authoring. Wrapped: fixed, point (exposed as
   "ball"), distance, hinge, slider (exposed as "prismatic"), cone, swing-twist,
   six-DOF (exposed as "D6"), gear and rack-and-pinion.
-- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
-  visualization and auto-configuration) — also noted under M6.
+- **`AzPhysics::JointHelpersInterface` is not implemented** (joint auto-configuration)
+  — also noted under M6. Joint-limit visualization is covered by this gem's own
+  `DrawJointLimits`, not by that interface.
 - **Jolt's own scene serialization (`PhysicsScene`, `ObjectStream`) is not used.**
   Scenes are built from O3DE entities; there is no import/export of Jolt's native
   scene format.
-- **Hair does not exist in Jolt 5.5.0** and needs a Jolt upgrade before it could be
-  wrapped at all.
+- **Hair exists in Jolt 5.6.0 but is not wrapped.** `Jolt/Physics/Hair/` is a
+  strand-based simulation that runs on the GPU through Jolt's new compute layer
+  (`Jolt/Compute/`, with DX12/Vulkan/Metal backends), so wrapping it means standing
+  that compute path up next to Atom's own device rather than just binding an API.
+  Jolt's own notes call it work in progress. Environment collision currently
+  supports only convex hulls and compound shapes.
 - **Buoyancy lives in the separate JoltBuoyancy gem**, which drives
   `Body::ApplyBuoyancyImpulse` from a step listener. It is deliberately outside
   this gem — see the reasoning under "Soft bodies".
