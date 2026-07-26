@@ -760,12 +760,14 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
 - **Jolt's own scene serialization (`PhysicsScene`, `ObjectStream`) is not used.**
   Scenes are built from O3DE entities; there is no import/export of Jolt's native
   scene format.
-- **Hair exists in Jolt 5.6.0 but is not wrapped.** `Jolt/Physics/Hair/` is a
-  strand-based simulation that runs on the GPU through Jolt's new compute layer
-  (`Jolt/Compute/`, with DX12/Vulkan/Metal backends), so wrapping it means standing
-  that compute path up next to Atom's own device rather than just binding an API.
-  Jolt's own notes call it work in progress. Environment collision currently
-  supports only convex hulls and compound shapes.
+- **Hair is wrapped by the separate JoltHair gem, not by this one.** It runs Jolt's
+  GPU strand solver on Atom's DirectX 12 device (proven working in the editor,
+  2026-07-26), reaching this gem's backend through `JoltPhysicsSystemRequests` like
+  JoltBuoyancy and JoltSoftBody do. It is a separate gem deliberately: hair needs the
+  renderer's device, and this gem has no Atom dependency to keep - a dedicated server
+  links physics, not hair. Jolt's own notes still call the solver work in progress,
+  and environment collision supports only convex hulls and compound shapes - a hair
+  strand ignores a plain box collider.
 - **Buoyancy lives in the separate JoltBuoyancy gem**, which drives
   `Body::ApplyBuoyancyImpulse` from a step listener. It is deliberately outside
   this gem — see the reasoning under "Soft bodies".
