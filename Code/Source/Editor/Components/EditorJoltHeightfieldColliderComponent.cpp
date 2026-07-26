@@ -61,12 +61,10 @@ namespace JoltPhysics
         m_dirty = true;
     }
 
-    void EditorJoltHeightfieldColliderComponent::RefreshFromProvider() const
+    void EditorJoltHeightfieldColliderComponent::ReadGridFromProvider(
+        EditorColliderGeometry::HeightfieldGrid& outGrid) const
     {
-        m_dirty = false;
-        m_grid = EditorColliderGeometry::HeightfieldGrid();
-        m_wireframeLines.clear();
-        m_localBounds = AZ::Aabb::CreateNull();
+        outGrid = EditorColliderGeometry::HeightfieldGrid();
 
         size_t numColumns = 0;
         size_t numRows = 0;
@@ -83,10 +81,16 @@ namespace JoltPhysics
         Physics::HeightfieldProviderRequestsBus::EventResult(
             heights, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeights);
 
-        m_grid.m_columns = static_cast<AZ::u32>(numColumns);
-        m_grid.m_rows = static_cast<AZ::u32>(numRows);
-        m_grid.m_spacing = gridSpacing;
-        m_grid.m_heights = AZStd::move(heights);
+        outGrid.m_columns = static_cast<AZ::u32>(numColumns);
+        outGrid.m_rows = static_cast<AZ::u32>(numRows);
+        outGrid.m_spacing = gridSpacing;
+        outGrid.m_heights = AZStd::move(heights);
+    }
+
+    void EditorJoltHeightfieldColliderComponent::RebuildFromGrid() const
+    {
+        m_wireframeLines.clear();
+        m_localBounds = AZ::Aabb::CreateNull();
 
         if (!m_grid.IsValid())
         {
@@ -100,12 +104,46 @@ namespace JoltPhysics
         m_localBounds = EditorColliderGeometry::ComputeHeightfieldBounds(m_grid);
     }
 
-    void EditorJoltHeightfieldColliderComponent::DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const
+    void EditorJoltHeightfieldColliderComponent::RefreshFromProvider() const
+    {
+        m_dirty = false;
+        m_drawsSincePoll = 0;
+        ReadGridFromProvider(m_grid);
+        RebuildFromGrid();
+    }
+
+    void EditorJoltHeightfieldColliderComponent::RefreshIfStale() const
     {
         if (m_dirty)
         {
             RefreshFromProvider();
+            return;
         }
+
+        if (++m_drawsSincePoll < DrawsBetweenProviderPolls)
+        {
+            return;
+        }
+        m_drawsSincePoll = 0;
+
+        // Nothing announced a change, so the only way to find one is to go and look.
+        // Rebuilding is the expensive half though, so a terrain that is simply sitting
+        // there costs a read and a compare and no more.
+        EditorColliderGeometry::HeightfieldGrid latest;
+        ReadGridFromProvider(latest);
+        if (latest.m_columns == m_grid.m_columns && latest.m_rows == m_grid.m_rows &&
+            latest.m_spacing.IsClose(m_grid.m_spacing) && latest.m_heights == m_grid.m_heights)
+        {
+            return;
+        }
+
+        m_grid = AZStd::move(latest);
+        RebuildFromGrid();
+    }
+
+    void EditorJoltHeightfieldColliderComponent::DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const
+    {
+        RefreshIfStale();
         if (m_wireframeLines.empty())
         {
             return;
@@ -123,6 +161,9 @@ namespace JoltPhysics
 
     AZ::Aabb EditorJoltHeightfieldColliderComponent::GetLocalShapeBounds() const
     {
+        // Only the announced case here, not the periodic re-read: selection queries can
+        // come in bursts and are not a reason to go copying a terrain-sized grid. The
+        // draw path polls, and a heightfield being picked is one being drawn.
         if (m_dirty)
         {
             RefreshFromProvider();

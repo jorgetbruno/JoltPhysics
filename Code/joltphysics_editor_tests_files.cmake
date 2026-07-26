@@ -8,4 +8,5 @@ set(FILES
     Tests/JoltEditorColliderGeometryTests.cpp
     Tests/JoltJointComponentModeTests.cpp
     Tests/JoltVehicleComponentModeTests.cpp
+    Tests/JoltEditorHeightfieldDrawTests.cpp
 )

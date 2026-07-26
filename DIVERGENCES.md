@@ -594,11 +594,19 @@ feature, trust the topic sections below the milestones.**
   computes sample positions to match, and a test pins them against the triangles of
   a real wrapped shape. Grids are strided to at most 64 lines per axis (a 513-sample
   terrain would otherwise be half a million segments) while always drawing the last
-  row and column, so the wireframe still reaches the collider's edge. The grid is
-  cached and refreshed on `HeightfieldProviderNotificationBus`, since `GetHeights`
-  copies megabytes; a provider that mutates silently leaves the wireframe stale
-  until it announces a change (the runtime component polls on tick for that case,
-  which is too expensive to do per viewport frame).
+  row and column, so the wireframe still reaches the collider's edge.
+- **The drawn grid is cached, and refreshed two ways.** `GetHeights` copies the whole
+  grid - megabytes for a terrain - so it is not called per frame. A provider that
+  announces its edits on `HeightfieldProviderNotificationBus` refreshes the cache on
+  the next frame. A provider that mutates silently is caught by a re-read every 15
+  draws (about four times a second at 60 fps), which bounds the staleness rather than
+  leaving it indefinite. Detecting a silent change cannot be made cheaper: the
+  provider interface exposes no revision or hash, so "did this change?" and "give me
+  the data" are the same call. What the throttle does buy is that the *rebuild* - the
+  expensive half - only happens when the grid really differs, and that the polling is
+  counted in draws, so a heightfield nobody is looking at is never re-read at all.
+  Selection queries deliberately do not poll; they can arrive in bursts, and anything
+  being picked is also being drawn.
 - **Mesh and heightfield colliders report selection bounds**, so they can be picked
   in the viewport: the mesh collider's come from the same triangle walk that builds
   its wireframe, the heightfield's from the grid extent and its height range.
