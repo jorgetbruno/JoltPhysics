@@ -43,8 +43,15 @@ namespace JoltPhysics::Editor
 
         connect(picker, &widget_t::valueChanged, this, [picker]()
             {
+                // RequestWrite opens the property-modification undo batch;
+                // OnEditingFinished closes it. A combo box edit is atomic, so both are
+                // sent together (as the engine's GenericComboBoxHandler does). Without
+                // the second the batch stays open: undo warns "Cannot Undo while
+                // Recording" and the level can no longer be saved.
                 AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(
                     &AzToolsFramework::PropertyEditorGUIMessages::RequestWrite, picker);
+                AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(
+                    &AzToolsFramework::PropertyEditorGUIMessages::OnEditingFinished, picker);
             });
 
         return picker;
