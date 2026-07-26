@@ -426,7 +426,7 @@ feature, trust the topic sections below the milestones.**
   wrapped by `GenericComponentWrapper` in the editor and instantiate into the game
   entity as before).
 
-## Collider component modes
+## Component modes
 
 - **The primitive colliders use AzToolsFramework's own component modes** rather
   than the hand-written ones PhysX carries. 26.05 ships `BoxComponentMode`,
@@ -453,6 +453,16 @@ feature, trust the topic sections below the milestones.**
   the same editor base but leave its shape-bounds hook at its default, so they
   report no selection bounds and get no Edit button — the same reason they are not
   drawn in the viewport, their geometry is not cheaply available here.
+- **The character controller joins `CapsuleComponentMode` too**, even though it is
+  not a collider and does not derive from the collider base. It answers the same
+  four manipulator buses directly and reuses the capsule clamping rule (height held
+  at or above twice the radius, radius at or below half the height). PhysX's
+  character controller has no equivalent mode. Two differences from a collider:
+  the capsule is always centred on the entity, so `SetTranslationOffset` is inert
+  and the offset manipulator has nothing to move; and an explicitly assigned
+  `ShapeConfiguration` outranks Height/Radius at runtime, so when a non-capsule
+  shape drives the character the component reports no selection bounds and draws
+  nothing rather than showing a capsule that would not match.
 
 ## Editor viewport debug draw
 
