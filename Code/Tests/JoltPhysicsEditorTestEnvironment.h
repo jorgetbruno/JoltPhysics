@@ -2,14 +2,12 @@
 
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/std/containers/vector.h>
 #include <AzTest/GemTestEnvironment.h>
 #include <AzFramework/Application/Application.h>
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
 
 #include <Editor/EditorComponentDescriptors.h>
-#include <Editor/Components/EditorJoltBoxColliderComponent.h>
-#include <Editor/Components/EditorJoltCharacterControllerComponent.h>
-#include <Editor/Components/EditorJoltHingeJointComponent.h>
 
 namespace JoltPhysics
 {
@@ -40,21 +38,17 @@ namespace JoltPhysics
 
         void AddGemsAndComponents() override
         {
-            // The components under test. Registered individually rather than through
-            // GetEditorDescriptors(): some other editor descriptor crashes this
-            // environment's teardown (tracked separately - the hinge joint added here
-            // is not one of them), and each component's Reflect pulls in the
-            // configuration types it needs via ReflectOnce, so the subset stays
-            // serialization-complete for these tests.
-            //
-            // Passed as a named array: a braced list makes overload resolution try
+            // The gem's full editor descriptor list, so the tests see the same
+            // reflection the editor does. This used to be a hand-picked subset because
+            // the full list segfaulted teardown; the cause was a test that deleted a
+            // descriptor singleton it did not own, leaving the application to release
+            // freed memory - see JoltPhysicsEditorSystemComponentTests.
+            const AZStd::list<AZ::ComponentDescriptor*> descriptorList = GetEditorDescriptors();
+
+            // Copied into a named vector: a braced list makes overload resolution try
             // span's is_array_convertible, which forms ComponentDescriptor(*)[] on the
             // abstract base and hard-errors.
-            AZ::ComponentDescriptor* descriptors[] = {
-                EditorJoltCharacterControllerComponent::CreateDescriptor(),
-                EditorJoltBoxColliderComponent::CreateDescriptor(),
-                EditorJoltHingeJointComponent::CreateDescriptor(),
-            };
+            const AZStd::vector<AZ::ComponentDescriptor*> descriptors(descriptorList.begin(), descriptorList.end());
             AddComponentDescriptors(descriptors);
         }
     };
