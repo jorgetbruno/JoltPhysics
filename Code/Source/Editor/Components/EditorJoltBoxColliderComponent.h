@@ -39,7 +39,6 @@ namespace JoltPhysics
         AZ::Transform GetCurrentLocalTransform() const override;
 
     private:
-        AZStd::shared_ptr<Physics::BoxShapeConfiguration> m_shapeConfiguration =
-            AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        Physics::BoxShapeConfiguration m_shapeConfiguration;
     };
 } // namespace JoltPhysics

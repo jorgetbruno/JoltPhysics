@@ -36,7 +36,6 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::BoxShapeConfiguration>>();
 
             serializeContext->Class<EditorJoltBoxColliderComponent, EditorJoltColliderComponentBase>()
                 ->Version(1)
@@ -80,12 +79,12 @@ namespace JoltPhysics
 
     AZ::Vector3 EditorJoltBoxColliderComponent::GetDimensions() const
     {
-        return m_shapeConfiguration->m_dimensions;
+        return m_shapeConfiguration.m_dimensions;
     }
 
     void EditorJoltBoxColliderComponent::SetDimensions(const AZ::Vector3& dimensions)
     {
-        m_shapeConfiguration->m_dimensions = dimensions;
+        m_shapeConfiguration.m_dimensions = dimensions;
         OnShapeChangedByManipulator();
     }
 
@@ -96,15 +95,15 @@ namespace JoltPhysics
 
     AZ::Aabb EditorJoltBoxColliderComponent::GetLocalShapeBounds() const
     {
-        return AZ::Aabb::CreateCenterHalfExtents(AZ::Vector3::CreateZero(), m_shapeConfiguration->m_dimensions * 0.5f);
+        return AZ::Aabb::CreateCenterHalfExtents(AZ::Vector3::CreateZero(), m_shapeConfiguration.m_dimensions * 0.5f);
     }
 
     void EditorJoltBoxColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltBoxColliderComponent>())
         {
-            component->GetColliderConfiguration() = *m_colliderConfiguration;
-            component->GetShapeConfiguration() = *m_shapeConfiguration;
+            component->GetColliderConfiguration() = m_colliderConfiguration;
+            component->GetShapeConfiguration() = m_shapeConfiguration;
         }
     }
 
@@ -114,8 +113,8 @@ namespace JoltPhysics
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
 
         const AZ::Transform colliderTransform = worldTransform * AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration->m_rotation, m_colliderConfiguration->m_position);
-        const AZ::Vector3 halfExtents = m_shapeConfiguration->m_dimensions * 0.5f;
+            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
+        const AZ::Vector3 halfExtents = m_shapeConfiguration.m_dimensions * 0.5f;
 
         for (const auto& edge : BoxEdges)
         {

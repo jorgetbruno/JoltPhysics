@@ -13,11 +13,16 @@ namespace JoltPhysics
     void EditorJoltColliderComponentBase::Reflect(AZ::ReflectContext* context)
     {
         Internal::ReflectOnce<Physics::ColliderConfiguration>(context);
-        AzToolsFramework::ComponentModeFramework::ComponentModeDelegate::Reflect(context);
+        Internal::ReflectOnce<AzToolsFramework::ComponentModeFramework::ComponentModeDelegate>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::ColliderConfiguration>>();
+            // Every derived collider calls this base Reflect, so guard against the
+            // second and later passes - re-registering trips a duplicated-Uuid error.
+            if (serializeContext->FindClassData(azrtti_typeid<EditorJoltColliderComponentBase>()) != nullptr)
+            {
+                return;
+            }
 
             serializeContext->Class<EditorJoltColliderComponentBase, AzToolsFramework::Components::EditorComponentBase>()
                 ->Version(2)
@@ -87,12 +92,12 @@ namespace JoltPhysics
 
     AZ::Vector3 EditorJoltColliderComponentBase::GetTranslationOffset() const
     {
-        return m_colliderConfiguration->m_position;
+        return m_colliderConfiguration.m_position;
     }
 
     void EditorJoltColliderComponentBase::SetTranslationOffset(const AZ::Vector3& translationOffset)
     {
-        m_colliderConfiguration->m_position = translationOffset;
+        m_colliderConfiguration.m_position = translationOffset;
         OnShapeChangedByManipulator();
     }
 
@@ -105,7 +110,7 @@ namespace JoltPhysics
 
     AZ::Quaternion EditorJoltColliderComponentBase::GetRotationOffset() const
     {
-        return m_colliderConfiguration->m_rotation;
+        return m_colliderConfiguration.m_rotation;
     }
 
     AZ::Aabb EditorJoltColliderComponentBase::GetEditorSelectionBoundsViewport(
@@ -139,7 +144,7 @@ namespace JoltPhysics
     AZ::Transform EditorJoltColliderComponentBase::GetColliderLocalTransform() const
     {
         return AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration->m_rotation, m_colliderConfiguration->m_position);
+            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
     }
 
     AZ::Transform EditorJoltColliderComponentBase::GetColliderWorldTransform() const

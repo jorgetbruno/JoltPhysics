@@ -42,8 +42,7 @@ namespace JoltPhysics
 
         Physics::CookedMeshShapeConfiguration::MeshType m_meshType =
             Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh;
-        AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration> m_shapeConfiguration =
-            AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        Physics::CookedMeshShapeConfiguration m_shapeConfiguration;
 
         //! Edge list (point pairs, entity-local space) of the baked mesh, for viewport drawing.
         mutable AZStd::vector<AZ::Vector3> m_debugLines;

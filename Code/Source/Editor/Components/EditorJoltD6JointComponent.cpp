@@ -6,13 +6,14 @@
 #include <Clients/Components/JoltJointComponents.h>
 #include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void EditorJoltD6JointComponent::Reflect(AZ::ReflectContext* context)
     {
         EditorJoltJointComponentBase::Reflect(context);
-        JoltD6JointLimitConfiguration::Reflect(context);
+        Internal::ReflectOnce<JoltD6JointLimitConfiguration>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

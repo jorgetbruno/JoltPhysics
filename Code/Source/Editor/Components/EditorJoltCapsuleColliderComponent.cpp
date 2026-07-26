@@ -19,7 +19,6 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::CapsuleShapeConfiguration>>();
 
             serializeContext->Class<EditorJoltCapsuleColliderComponent, EditorJoltColliderComponentBase>()
                 ->Version(1)
@@ -62,7 +61,7 @@ namespace JoltPhysics
 
     float EditorJoltCapsuleColliderComponent::GetHeight() const
     {
-        return m_shapeConfiguration->m_height;
+        return m_shapeConfiguration.m_height;
     }
 
     void EditorJoltCapsuleColliderComponent::SetHeight(float height)
@@ -70,34 +69,34 @@ namespace JoltPhysics
         // O3DE capsule height is the total including both caps, so it can never be shorter
         // than the sphere those caps would form. Clamping here rather than letting the
         // manipulator produce a degenerate capsule the backend would have to reject.
-        m_shapeConfiguration->m_height = AZ::GetMax(height, 2.0f * m_shapeConfiguration->m_radius);
+        m_shapeConfiguration.m_height = AZ::GetMax(height, 2.0f * m_shapeConfiguration.m_radius);
         OnShapeChangedByManipulator();
     }
 
     float EditorJoltCapsuleColliderComponent::GetRadius() const
     {
-        return m_shapeConfiguration->m_radius;
+        return m_shapeConfiguration.m_radius;
     }
 
     void EditorJoltCapsuleColliderComponent::SetRadius(float radius)
     {
-        m_shapeConfiguration->m_radius = AZ::GetClamp(radius, 0.0001f, 0.5f * m_shapeConfiguration->m_height);
+        m_shapeConfiguration.m_radius = AZ::GetClamp(radius, 0.0001f, 0.5f * m_shapeConfiguration.m_height);
         OnShapeChangedByManipulator();
     }
 
     AZ::Aabb EditorJoltCapsuleColliderComponent::GetLocalShapeBounds() const
     {
-        const float radius = m_shapeConfiguration->m_radius;
+        const float radius = m_shapeConfiguration.m_radius;
         return AZ::Aabb::CreateCenterHalfExtents(
-            AZ::Vector3::CreateZero(), AZ::Vector3(radius, radius, 0.5f * m_shapeConfiguration->m_height));
+            AZ::Vector3::CreateZero(), AZ::Vector3(radius, radius, 0.5f * m_shapeConfiguration.m_height));
     }
 
     void EditorJoltCapsuleColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltCapsuleColliderComponent>())
         {
-            component->GetColliderConfiguration() = *m_colliderConfiguration;
-            component->GetShapeConfiguration() = *m_shapeConfiguration;
+            component->GetColliderConfiguration() = m_colliderConfiguration;
+            component->GetShapeConfiguration() = m_shapeConfiguration;
         }
     }
 
@@ -107,11 +106,11 @@ namespace JoltPhysics
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
 
         const AZ::Transform colliderTransform = worldTransform * AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration->m_rotation, m_colliderConfiguration->m_position);
+            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
 
         // O3DE capsules are Z-aligned in shape-local space with total height m_height.
-        const float radius = m_shapeConfiguration->m_radius;
-        const float halfCylinder = AZ::GetMax(0.0f, m_shapeConfiguration->m_height * 0.5f - radius);
+        const float radius = m_shapeConfiguration.m_radius;
+        const float halfCylinder = AZ::GetMax(0.0f, m_shapeConfiguration.m_height * 0.5f - radius);
 
         EditorColliderDraw::DrawWireCircle(debugDisplay, colliderTransform, radius, 2, halfCylinder);
         EditorColliderDraw::DrawWireCircle(debugDisplay, colliderTransform, radius, 2, -halfCylinder);

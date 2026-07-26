@@ -22,7 +22,6 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration>>();
 
             serializeContext->Class<EditorJoltMeshColliderComponent, EditorJoltColliderComponentBase>()
                 ->Version(1)
@@ -62,7 +61,7 @@ namespace JoltPhysics
         // First activation on a freshly added component: bake as soon as geometry is
         // available. Quiet on failure - the render mesh asset may simply not be loaded
         // yet, in which case the user bakes explicitly via the button.
-        if (m_shapeConfiguration->GetCookedMeshData().empty())
+        if (m_shapeConfiguration.GetCookedMeshData().empty())
         {
             BakeFromRenderMesh(/*warnOnFailure*/ false);
         }
@@ -78,7 +77,7 @@ namespace JoltPhysics
         AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
 
-        if (!JoltMeshUtils::CookVisibleGeometry(geometryContainer, worldTransform, m_meshType, *m_shapeConfiguration))
+        if (!JoltMeshUtils::CookVisibleGeometry(geometryContainer, worldTransform, m_meshType, m_shapeConfiguration))
         {
             AZ_Warning("JoltPhysics", !warnOnFailure,
                 "Jolt Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
@@ -103,7 +102,7 @@ namespace JoltPhysics
         // geometry is available (quietly otherwise - the old data is cleared regardless).
         if (!BakeFromRenderMesh(/*warnOnFailure*/ false))
         {
-            *m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
+            m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
             m_debugLinesDirty = true;
         }
         return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
@@ -111,15 +110,15 @@ namespace JoltPhysics
 
     void EditorJoltMeshColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
-        AZ_Warning("JoltPhysics", !m_shapeConfiguration->GetCookedMeshData().empty(),
+        AZ_Warning("JoltPhysics", !m_shapeConfiguration.GetCookedMeshData().empty(),
             "Jolt Mesh Collider on entity '%s' has no baked collision mesh; the runtime collider will be empty. "
             "Press 'Bake from render mesh' in the editor.",
             GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
 
         if (auto* component = gameEntity->CreateComponent<JoltMeshColliderComponent>())
         {
-            component->GetColliderConfiguration() = *m_colliderConfiguration;
-            component->GetShapeConfiguration() = *m_shapeConfiguration;
+            component->GetColliderConfiguration() = m_colliderConfiguration;
+            component->GetShapeConfiguration() = m_shapeConfiguration;
         }
     }
 
@@ -128,7 +127,7 @@ namespace JoltPhysics
         m_debugLines.clear();
         m_debugLinesDirty = false;
 
-        const AZStd::vector<AZ::u8>& cookedData = m_shapeConfiguration->GetCookedMeshData();
+        const AZStd::vector<AZ::u8>& cookedData = m_shapeConfiguration.GetCookedMeshData();
         if (cookedData.empty())
         {
             return;
@@ -137,7 +136,7 @@ namespace JoltPhysics
         // Build a throwaway native shape from the baked blob and extract its triangle
         // soup; for convex hulls this draws the actual hull, not the input point cloud.
         const JPH::RefConst<JPH::Shape> shape =
-            (m_shapeConfiguration->GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
+            (m_shapeConfiguration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
             ? JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData)
             : JoltMeshUtils::CreateMeshShapeFromCookedData(cookedData);
         if (!shape)
@@ -183,7 +182,7 @@ namespace JoltPhysics
         AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
         const AZ::Transform colliderTransform = worldTransform * AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration->m_rotation, m_colliderConfiguration->m_position);
+            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
 
         m_debugLinesWorld.resize(m_debugLines.size());
         for (size_t i = 0; i < m_debugLines.size(); ++i)

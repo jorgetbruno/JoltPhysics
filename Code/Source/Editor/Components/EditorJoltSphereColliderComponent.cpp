@@ -19,7 +19,6 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            serializeContext->RegisterGenericType<AZStd::shared_ptr<Physics::SphereShapeConfiguration>>();
 
             serializeContext->Class<EditorJoltSphereColliderComponent, EditorJoltColliderComponentBase>()
                 ->Version(1)
@@ -60,26 +59,26 @@ namespace JoltPhysics
 
     float EditorJoltSphereColliderComponent::GetRadius() const
     {
-        return m_shapeConfiguration->m_radius;
+        return m_shapeConfiguration.m_radius;
     }
 
     void EditorJoltSphereColliderComponent::SetRadius(float radius)
     {
-        m_shapeConfiguration->m_radius = AZ::GetMax(radius, 0.0001f);
+        m_shapeConfiguration.m_radius = AZ::GetMax(radius, 0.0001f);
         OnShapeChangedByManipulator();
     }
 
     AZ::Aabb EditorJoltSphereColliderComponent::GetLocalShapeBounds() const
     {
-        return AZ::Aabb::CreateCenterRadius(AZ::Vector3::CreateZero(), m_shapeConfiguration->m_radius);
+        return AZ::Aabb::CreateCenterRadius(AZ::Vector3::CreateZero(), m_shapeConfiguration.m_radius);
     }
 
     void EditorJoltSphereColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltSphereColliderComponent>())
         {
-            component->GetColliderConfiguration() = *m_colliderConfiguration;
-            component->GetShapeConfiguration() = *m_shapeConfiguration;
+            component->GetColliderConfiguration() = m_colliderConfiguration;
+            component->GetShapeConfiguration() = m_shapeConfiguration;
         }
     }
 
@@ -89,11 +88,11 @@ namespace JoltPhysics
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
 
         const AZ::Transform colliderTransform = worldTransform * AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration->m_rotation, m_colliderConfiguration->m_position);
+            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
 
         for (AZ::u32 axis = 0; axis < 3; ++axis)
         {
-            EditorColliderDraw::DrawWireCircle(debugDisplay, colliderTransform, m_shapeConfiguration->m_radius, axis);
+            EditorColliderDraw::DrawWireCircle(debugDisplay, colliderTransform, m_shapeConfiguration.m_radius, axis);
         }
     }
 

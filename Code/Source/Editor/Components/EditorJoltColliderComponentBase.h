@@ -86,15 +86,19 @@ namespace JoltPhysics
 
         Physics::ColliderConfiguration& GetColliderConfiguration()
         {
-            return *m_colliderConfiguration;
+            return m_colliderConfiguration;
         }
         const Physics::ColliderConfiguration& GetColliderConfiguration() const
         {
-            return *m_colliderConfiguration;
+            return m_colliderConfiguration;
         }
 
-        AZStd::shared_ptr<Physics::ColliderConfiguration> m_colliderConfiguration =
-            AZStd::make_shared<Physics::ColliderConfiguration>();
+        //! By value, not behind a shared_ptr, deliberately: the inspector then shows
+        //! the fields directly instead of a one-element pointer container, and property
+        //! writes hit the same layout the character controller and PhysX's editor
+        //! components use - which is the layout the collision layer/group property
+        //! handlers are proven against.
+        Physics::ColliderConfiguration m_colliderConfiguration;
 
         //! Puts the Edit button on the component in the inspector and handles entering
         //! component mode. Derived classes connect it with their own component mode type.

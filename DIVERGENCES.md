@@ -523,6 +523,17 @@ feature, trust the topic sections below the milestones.**
 
 ## Configuration window and collision property editors
 
+- **Editor collider configurations are value members, not shared_ptrs** — matching
+  PhysX's editor components and this gem's own character controller. The runtime
+  colliders keep shared_ptrs (their shapes get shared with the physics body); the
+  editor side gains nothing from the indirection and paid twice for it: the
+  inspector showed the configuration as a "1 element" pointer container, and
+  property writes through the custom collision layer/group handlers reached the
+  in-memory object but never survived into the saved prefab — the same edit on the
+  character controller's value member saved fine. The JSON is identical either way
+  (the serializer stores a shared_ptr's pointee transparently), so existing data
+  loads unchanged, pinned by JoltEditorColliderSerializationTests.
+
 - **A "Jolt Physics Configuration" view pane** (Tools menu) mirrors the PhysX
   Configuration window: a Global Configuration tab (engine timestep/buffer
   settings, the default scene's gravity, and Jolt's capacity settings — max

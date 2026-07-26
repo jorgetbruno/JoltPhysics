@@ -9,12 +9,13 @@
 
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Editor/Components/EditorJoltDebugDrawUtils.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void EditorJoltCharacterControllerComponent::Reflect(AZ::ReflectContext* context)
     {
-        AzToolsFramework::ComponentModeFramework::ComponentModeDelegate::Reflect(context);
+        Internal::ReflectOnce<AzToolsFramework::ComponentModeFramework::ComponentModeDelegate>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

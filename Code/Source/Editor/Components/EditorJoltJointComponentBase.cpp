@@ -12,6 +12,13 @@ namespace JoltPhysics
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
+            // Every joint type calls this base Reflect, so guard against the second
+            // and later passes - re-registering trips a duplicated-Uuid error.
+            if (serializeContext->FindClassData(azrtti_typeid<EditorJoltJointComponentBase>()) != nullptr)
+            {
+                return;
+            }
+
             serializeContext->Class<EditorJoltJointComponentBase, AzToolsFramework::Components::EditorComponentBase>()
                 ->Version(1)
                 ->Field("Configuration", &EditorJoltJointComponentBase::m_configuration)

@@ -35,7 +35,7 @@ namespace JoltPhysics
     {
         if (auto* component = gameEntity->CreateComponent<JoltMutableCompoundColliderComponent>())
         {
-            component->GetColliderConfiguration() = *m_colliderConfiguration;
+            component->GetColliderConfiguration() = m_colliderConfiguration;
         }
     }
 

@@ -6,13 +6,14 @@
 #include <Clients/Components/JoltJointComponents.h>
 #include <Editor/Components/EditorJoltDebugDrawUtils.h>
 #include <Joint/JoltJointConfiguration.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void EditorJoltDistanceJointComponent::Reflect(AZ::ReflectContext* context)
     {
         EditorJoltJointComponentBase::Reflect(context);
-        JoltDistanceJointConfiguration::Reflect(context);
+        Internal::ReflectOnce<JoltDistanceJointConfiguration>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

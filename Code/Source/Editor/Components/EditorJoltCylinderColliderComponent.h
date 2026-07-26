@@ -43,7 +43,6 @@ namespace JoltPhysics
         void SetRadius(float radius) override;
 
     private:
-        AZStd::shared_ptr<JoltCylinderShapeConfiguration> m_shapeConfiguration =
-            AZStd::make_shared<JoltCylinderShapeConfiguration>();
+        JoltCylinderShapeConfiguration m_shapeConfiguration;
     };
 } // namespace JoltPhysics

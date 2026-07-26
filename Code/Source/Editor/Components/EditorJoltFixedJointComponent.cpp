@@ -5,13 +5,14 @@
 
 #include <Clients/Components/JoltJointComponents.h>
 #include <Joint/JoltJointConfiguration.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void EditorJoltFixedJointComponent::Reflect(AZ::ReflectContext* context)
     {
         EditorJoltJointComponentBase::Reflect(context);
-        JoltFixedJointConfiguration::Reflect(context);
+        Internal::ReflectOnce<JoltFixedJointConfiguration>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
