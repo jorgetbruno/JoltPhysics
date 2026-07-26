@@ -1,47 +1,108 @@
 # JoltPhysics Gem for O3DE
 
-A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/JoltPhysics) as an AzPhysics backend, providing an alternative to the default PhysX Gem with full API compatibility.
+A standalone O3DE Gem that integrates [Jolt Physics](https://github.com/jrouwe/JoltPhysics)
+as an AzPhysics backend, providing an alternative to the default PhysX Gem with API
+compatibility as the goal. Every intentional difference from PhysX is recorded in
+[DIVERGENCES.md](DIVERGENCES.md) — **that file, not this one, is the authority on how a
+given feature behaves.**
+
+The gem depends on **no renderer** and never will: extension gems that need one live
+outside it (see [The gem family](#the-gem-family)).
 
 ## Features
 
 ### Implemented
-- Core physics system integration via `AzPhysics::SystemInterface`
-- Scene/World management with simulation stepping, incl. the game default world
-- Dynamic and static rigid bodies with primitive colliders (Box, Sphere, Capsule)
-- Compound colliders: multiple colliders per entity + static/mutable compound collider
+
+**Core**
+- Physics system integration via `AzPhysics::SystemInterface`, scene/world management
+  with simulation stepping, incl. the game default world
+- Dynamic, static and kinematic rigid bodies; body activation/deactivation; velocity
+  and impulse control; per-scene gravity
+- Rigid body buses (`Physics::RigidBodyRequestBus`,
+  `AzPhysics::SimulatedBodyComponentRequestsBus`)
+- Scene queries — raycast, shapecast and overlap, synchronous and deferred-async;
+  hits identify the collider they came from
+- Physics materials (friction/restitution), collision layers and groups (system level
+  + per-collider filtering), trigger (sensor) colliders with enter/exit events
+- Enhanced internal edge removal (on by default) and exposed solver settings
+
+**Shapes and colliders**
+- Primitives: Box, Sphere, Capsule, Cylinder
+- Mesh colliders: convex hull and triangle mesh, from cooked data — with a
+  **Bake from render mesh** button that cooks the entity's own model, retrying until
+  the asset finishes loading
+- Compound colliders: multiple colliders per entity, plus static/mutable compound
   components that gather child-entity colliders, with per-sub-shape materials
 - Heightfield collider fed by `Physics::HeightfieldProviderRequestsBus` (terrain gems),
   incl. runtime height updates and per-triangle materials
+
+**Articulated and specialised bodies**
 - Character controller (`JoltCharacterControllerComponent` over `JPH::CharacterVirtual`):
   ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
   trigger/sensor interaction
-- Joints: fixed, hinge (limits + motor), ball-and-socket (swing cone), prismatic
-  (limits + motor) and 6-DOF (swing/twist limits) components mapped to Jolt constraints
-- Wheeled vehicles (`JoltVehicleComponent` over `JPH::VehicleConstraint`): engine,
-  automatic transmission, steering, brakes, suspension, ramp driving
-- Editor components for every feature (PhysX-style editor/runtime split): the
-  `EditorJolt*` components are what the Add Component menu offers; they draw
-  collider wireframes in the Edit viewport and spawn the runtime components via
-  `BuildGameEntity` (colliders, rigid bodies, heightfield, compounds, character,
-  vehicle, joints). Prefabs saved before the split keep working unchanged.
-- Rigid body buses (`Physics::RigidBodyRequestBus`, `AzPhysics::SimulatedBodyComponentRequestsBus`)
-- Scene queries: raycast, shapecast and overlap through O3DE's physics query API
-- Physics materials (friction/restitution) on colliders
-- Trigger (sensor) colliders with enter/exit events
-- Collision layers and groups (system level + per-collider filtering)
-- Gravity control per scene
-- Body activation/deactivation
-- Linear and angular velocity control, impulse application
-- Debug visualization via `Physics::SystemDebugRequestBus::DebugDrawPhysics`
+- Ragdolls through O3DE's `Physics::Ragdoll` interface
+- Soft bodies (`JoltSoftBodyComponent`): procedural cloth, cube and balloon, simulated
+  as real bodies the rest of the scene collides with. No PhysX counterpart exists —
+  this is gem-specific surface
+- Joints: fixed, hinge, ball, prismatic, distance, cone and 6-DOF components, with
+  limits, motors, **soft (spring) limits** and **breakable** thresholds that consume
+  the constraint's own reaction impulses. Gear and rack-and-pinion are wrapped at the
+  configuration level, without components
+- Wheeled and tracked vehicles (`JoltVehicleComponent` over `JPH::VehicleConstraint`):
+  engine, automatic transmission, steering, brakes, suspension, selectable wheel
+  collision testers, a pitch/roll limit, anti-roll bars, and a bus publishing live
+  wheel state
 
-### Planned / TODO
-- Convex hull and mesh colliders (cooking)
-- Async scene queries
-- Soft bodies
+**Editor**
+- An `EditorJolt*` component for every feature (PhysX-style editor/runtime split): they
+  are what the Add Component menu offers, and they spawn the runtime components via
+  `BuildGameEntity`. Prefabs saved before the split keep working unchanged
+- Viewport debug draw for everything that owns geometry — primitives, mesh hulls,
+  heightfield wireframes (bounded staleness when a provider mutates silently),
+  compounds, characters, joint frames and limits, vehicle wheels
+- Manipulators: the engine's own shape component modes for primitives, plus
+  hand-written modes for joint frames and vehicle wheels, with undo batching
+- A collision configuration window whose edits refresh every open inspector
+- Debug visualization via `Physics::SystemDebugRequestBus::DebugDrawPhysics`, and the
+  `jolt_Debug 1` console variable for per-frame collider wireframes
+
+**Determinism**
+- Scene simulation state snapshot and restore (`SaveSimulationState` /
+  `RestoreSimulationState`) covering bodies, contacts, constraints, vehicle drivetrain
+  state and characters — the foundation for networked rollback and replay. Composition
+  changes fail atomically, which Jolt alone does not guarantee
+
+### Not wrapped yet
+
+Jolt capabilities this gem does not expose; see the *Jolt features not wrapped* section
+of [DIVERGENCES.md](DIVERGENCES.md) for the full list and the reasoning:
+
+- Path and pulley constraints (path additionally needs spline authoring)
+- `AzPhysics::JointHelpersInterface` (joint auto-configuration)
+- Soft bodies from mesh assets — geometry is procedural, and cloth pinning is preset-based
+- PhysX-*named* compatibility components; everything is `Jolt`-prefixed on purpose, so
+  an incomplete backend cannot silently hijack PhysX-authored levels
+
+## The gem family
+
+The physics gem is deliberately renderer-free. Features that need Atom, or that Jolt
+provides and this gem does not wrap, live in sibling gems that reach the backend through
+`JoltPhysicsSystemRequests` — no changes to this gem required:
+
+| Gem | Adds | Needs Atom |
+|---|---|---|
+| **JoltBuoyancy** | `Jolt Water Volume` — boxes of water that float, sink and drift rigid bodies | no |
+| **JoltHair** | Jolt's GPU strand solver on Atom's DX12 device, rendered as GPU ribbons | **yes** |
+| ~~JoltSoftBody~~ | migrated *into* this gem; the tree survives only for its history | — |
+
+`JoltPhysicsSystemRequests::GetNativePhysicsSystem` is what makes this work: it hands
+back a `JPH::PhysicsSystem*` for a scene, or null when the scene belongs to another
+backend, so an extension gem does no harm in a project not running Jolt.
 
 ## Requirements
 
 - **O3DE 26.05** (engine version `2.6.0`) — the gem is pinned to this engine release; see [BUILDING.md](BUILDING.md) for the exact setup.
+- **Jolt Physics v5.6.0**, fetched automatically at configure time (`JOLTPHYSICS_GIT_TAG` in `Code/CMakeLists.txt`)
 - CMake 3.23+, Ninja
 - Windows 11 + Visual Studio 2022 (primary dev target) or Linux (Ubuntu 20.04+, must not break)
 - C++20 compatible compiler
@@ -92,7 +153,8 @@ Or in Project Manager:
 
 ### Settings Registry
 
-The Gem uses O3DE's Settings Registry for configuration. Default settings are in `Registry/joltphysics.setreg`:
+The Gem uses O3DE's Settings Registry for configuration. Defaults ship in
+`Registry/joltphysics.setreg`, which also seeds the default collision layers and groups:
 
 ```json
 {
@@ -103,9 +165,15 @@ The Gem uses O3DE's Settings Registry for configuration. Default settings are in
                 "Enabled": true,
                 "SystemConfiguration": {
                     "MaxBodies": 65536,
+                    "NumBodyMutexes": 128,
+                    "MaxBodyPairs": 65536,
+                    "MaxContactConstraints": 16384,
+                    "TempAllocatorSize": 268435456,
                     "MaxJobThreads": 0,
                     "FixedTimestep": 0.0166667
-                }
+                },
+                "DefaultSceneConfiguration": { "...": "gravity, CCD, PCM, ..." },
+                "CollisionConfiguration": { "...": "layers and groups" }
             }
         }
     }
@@ -119,31 +187,47 @@ When building, you can customize Jolt integration:
 - `JOLTPHYSICS_USE_EXTERNAL=OFF` - Use FetchContent (default) or external Jolt installation
 - `JOLTPHYSICS_EXTERNAL_PATH=""` - Path to external Jolt installation if `JOLTPHYSICS_USE_EXTERNAL=ON`
 
-## Building
+## Building and testing
 
 See [BUILDING.md](BUILDING.md) for the exact, tested build commands for Windows and Linux,
 including how the gem is registered and how the unit tests are run.
+
+The suites are the gem's safety net and are expected to be green before any commit:
+
+| Suite | Tests |
+|---|---|
+| `JoltPhysics.Tests.dll` | 212 |
+| `JoltPhysics.Editor.Tests.dll` | 49 |
+
+```bat
+cd <project>\build\windows\bin\profile
+AzTestRunner.exe JoltPhysics.Tests.dll AzRunUnitTests
+AzTestRunner.exe JoltPhysics.Editor.Tests.dll AzRunUnitTests
+```
+
+Check the process exit code, not the console text — a suite that aborts during teardown
+still prints `PASSED` lines above the failure.
 
 ## Verifying Jolt is Active
 
 ### Method 1: Check Console Output
 
-When the engine starts, look for these log messages:
+When the engine starts, look for:
 
 ```
 JoltPhysics: System initialized with X threads
-JoltPhysics: Scene 'DefaultPhysicsScene' initialized
 ```
 
-### Method 2: Use Debug Commands
+### Method 2: Draw the colliders
 
-In the O3DE Editor console:
+In the O3DE Editor or game console:
 
 ```
-physics_GetBackendName
+jolt_Debug 1
 ```
 
-Should return "JoltPhysics"
+Every Jolt collider in the scene draws as a wireframe each frame. Nothing appears if
+another backend is simulating.
 
 ### Method 3: Check Component Services
 
@@ -154,57 +238,38 @@ The JoltPhysicsSystemComponent provides:
 And is incompatible with:
 - `PhysXService`
 
-## Test Level Checklist
+### Method 4: The manual checklist
 
-To verify the physics backend is working correctly:
-
-1. **Static Body Test**
-   - Create an entity with a Box Collider (static)
-   - Verify it doesn't move when simulation runs
-
-2. **Dynamic Body Test**
-   - Create an entity with a Rigid Body + Box Collider
-   - Place it above a static floor
-   - Run simulation - body should fall and rest on floor
-
-3. **Primitive Shapes Test**
-   - Test Box, Sphere, Capsule, and Cylinder colliders
-   - Verify collision detection works for each
-
-4. **Raycast Test**
-   - Create a script that performs raycasts
-   - Verify hits are detected against physics bodies
-
-5. **Gravity Test**
-   - Modify scene gravity via script
-   - Verify dynamic bodies respond to gravity changes
-
-6. **Velocity Test**
-   - Apply linear/angular velocity to a rigid body via script
-   - Verify body moves/rotates accordingly
-
-7. **Impulse Test**
-   - Apply impulse to a rigid body
-   - Verify instantaneous velocity change
+Mostly covered by the unit suites and the smoke level below, but useful when bringing the
+gem up in a new project: a static box that must not move; a dynamic box that must fall and
+rest on it; each primitive collider colliding; a raycast finding a body; a scripted gravity
+change taking effect; linear/angular velocity and an impulse producing the motion expected.
 
 ## Architecture
 
 ```
 JoltPhysics/
 ├── Code/
-│   ├── Include/JoltPhysics/        # Public API headers
+│   ├── Include/JoltPhysics/        # Public API headers (buses extension gems use)
 │   ├── Source/
-│   │   ├── Clients/                # SystemComponent
+│   │   ├── Character/              # Character controller + ragdolls
+│   │   ├── Clients/                # SystemComponent and runtime components
 │   │   ├── Configuration/          # Settings management
-│   │   ├── Editor/                 # Editor integration
+│   │   ├── Debug/                  # Debug draw
+│   │   ├── Editor/                 # Editor components, component modes, viewport draw
+│   │   ├── Joint/                  # Constraint wrapping
+│   │   ├── Material/               # Physics materials
 │   │   ├── RigidBody/              # Rigid body implementations
-│   │   ├── Scene/                  # Scene/World management
-│   │   ├── Shape/                  # Shape utilities
+│   │   ├── Scene/                  # Scene/World management, state snapshots
+│   │   ├── Shape/                  # Shape, mesh cooking and heightfield utilities
+│   │   ├── SoftBody/               # Soft body simulation and render sync
 │   │   ├── System/                 # Core Jolt integration
-│   │   └── Utils/                  # Conversion utilities
+│   │   ├── Utils/                  # Conversion utilities
+│   │   └── Vehicle/                # Vehicle constraint wrapping
 │   ├── Tests/                      # Unit tests
 │   └── Platform/                   # Platform-specific code
 ├── Registry/                       # Settings registry files
+├── DIVERGENCES.md                  # Every intentional difference from PhysX
 ├── gem.json                        # Gem metadata
 └── CMakeLists.txt                  # Build configuration
 ```
@@ -214,18 +279,24 @@ JoltPhysics/
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Baseline, O3DE 26.05 port, build health, smoke level | ✅ Done |
-| M1 | Jolt 5.5.0 upgrade | ✅ Done |
+| M1 | Jolt upgrade (now pinned to v5.6.0) | ✅ Done |
 | M2 | Stabilize existing features (materials, filtering, queries, debug draw) | ✅ Done |
 | M3 | Compound colliders | ✅ Done |
 | M4 | Heightfield collider | ✅ Done |
 | M5 | Character controllers | ✅ Done |
 | M6 | Joints | ✅ Done |
 | M7 | Vehicles | ✅ Done |
-| M8 | Soft bodies, water | ⬜ Planned |
+| M8 | Soft bodies (in-gem); water via the JoltBuoyancy gem | ✅ Done |
+| M9 | Editor parity — viewport draw, manipulators, component modes | ✅ Done |
+| M10 | Simulation state snapshots (rollback foundation) | ✅ Done |
 
-## Smoke Test Level
+## Test project levels
 
-The reference test project `C:\path\to\JoltPhysicsTest` contains
+The reference test project (`JoltPhysicsTest`) carries a level per feature area:
+`SmokeBox` (below), `SoftBody`, `Buoyancy` (JoltBuoyancy gem) and `Hair` (JoltHair gem).
+
+### Smoke test level
+
 `Levels/SmokeBox/SmokeBox.prefab` (generated by `gen_smoke_level.py` in the project root):
 
 - **Ground** entity (from the template's default level): `Jolt Static Rigid Body` +
@@ -284,8 +355,11 @@ This Gem implements the standard O3DE AzPhysics interfaces:
 - `AzPhysics::StaticRigidBody` - Static rigid bodies
 - `Physics::SystemRequestBus` - Physics system requests
 - `Physics::CollisionRequestBus` - Collision layer/group management
+- `Physics::Ragdoll` - Ragdoll physics
 
-Existing O3DE physics components should work without modification.
+Existing O3DE physics components should work without modification, with the documented
+exceptions in [DIVERGENCES.md](DIVERGENCES.md) — component *names* being the deliberate
+one: they are `Jolt`-prefixed, so a PhysX-authored level does not silently switch backend.
 
 ## License
 
