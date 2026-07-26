@@ -14,6 +14,7 @@ namespace JoltPhysics
         static void Reflect(AZ::ReflectContext* context);
 
         // EditorComponentBase
+        void Activate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:

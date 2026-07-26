@@ -56,6 +56,12 @@ namespace JoltPhysics
         }
     }
 
+    void EditorJoltDistanceJointComponent::Activate()
+    {
+        EditorJoltJointComponentBase::Activate();
+        ConnectJointComponentMode<EditorJoltDistanceJointComponent>();
+    }
+
     void EditorJoltDistanceJointComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltDistanceJointComponent>())

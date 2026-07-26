@@ -43,6 +43,12 @@ namespace JoltPhysics
         }
     }
 
+    void EditorJoltPrismaticJointComponent::Activate()
+    {
+        EditorJoltJointComponentBase::Activate();
+        ConnectJointComponentMode<EditorJoltPrismaticJointComponent>();
+    }
+
     void EditorJoltPrismaticJointComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltPrismaticJointComponent>())

@@ -58,6 +58,12 @@ namespace JoltPhysics
         }
     }
 
+    void EditorJoltD6JointComponent::Activate()
+    {
+        EditorJoltJointComponentBase::Activate();
+        ConnectJointComponentMode<EditorJoltD6JointComponent>();
+    }
+
     void EditorJoltD6JointComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         if (auto* component = gameEntity->CreateComponent<JoltD6JointComponent>())

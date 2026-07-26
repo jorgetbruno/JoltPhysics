@@ -25,6 +25,9 @@ set(FILES
     Source/Editor/Components/EditorJoltColliderGeometryUtils.cpp
     Source/Editor/Components/EditorJoltColliderGeometryUtils.h
     Source/Editor/Components/EditorJoltDebugDrawUtils.h
+    Source/Editor/Components/JoltJointComponentMode.cpp
+    Source/Editor/Components/JoltJointComponentMode.h
+    Source/Editor/Components/JoltJointFrameRequestBus.h
     Source/Editor/Components/EditorJoltBoxColliderComponent.cpp
     Source/Editor/Components/EditorJoltBoxColliderComponent.h
     Source/Editor/Components/EditorJoltSphereColliderComponent.cpp

@@ -9,6 +9,7 @@
 #include <Editor/EditorComponentDescriptors.h>
 #include <Editor/Components/EditorJoltBoxColliderComponent.h>
 #include <Editor/Components/EditorJoltCharacterControllerComponent.h>
+#include <Editor/Components/EditorJoltHingeJointComponent.h>
 
 namespace JoltPhysics
 {
@@ -40,10 +41,11 @@ namespace JoltPhysics
         void AddGemsAndComponents() override
         {
             // The components under test. Registered individually rather than through
-            // GetEditorDescriptors(): several of the other editor descriptors crash
-            // this environment's teardown (tracked separately), and each component's
-            // Reflect pulls in the configuration types it needs via ReflectOnce, so
-            // the subset stays serialization-complete for these tests.
+            // GetEditorDescriptors(): some other editor descriptor crashes this
+            // environment's teardown (tracked separately - the hinge joint added here
+            // is not one of them), and each component's Reflect pulls in the
+            // configuration types it needs via ReflectOnce, so the subset stays
+            // serialization-complete for these tests.
             //
             // Passed as a named array: a braced list makes overload resolution try
             // span's is_array_convertible, which forms ComponentDescriptor(*)[] on the
@@ -51,6 +53,7 @@ namespace JoltPhysics
             AZ::ComponentDescriptor* descriptors[] = {
                 EditorJoltCharacterControllerComponent::CreateDescriptor(),
                 EditorJoltBoxColliderComponent::CreateDescriptor(),
+                EditorJoltHingeJointComponent::CreateDescriptor(),
             };
             AddComponentDescriptors(descriptors);
         }

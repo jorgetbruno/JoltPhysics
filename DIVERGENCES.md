@@ -172,9 +172,10 @@ feature, trust the topic sections below the milestones.**
   bus) mirroring the PhysX gem's `JointRequestBus` surface, since AzPhysics defines no
   joint control bus and the PhysX bus lives in the PhysX gem.
 - **`AzPhysics::JointHelpersInterface` is not implemented** (joint auto-configuration);
-  joints are configured explicitly. Editor joint-limit visualization does exist, but
-  through this gem's own `DrawJointLimits` rather than that interface — see
-  "Editor viewport debug draw".
+  joints are configured explicitly. Editor joint-limit visualization and frame
+  editing both exist, but through this gem's own `DrawJointLimits` and
+  `JoltJointComponentMode` rather than that interface — see "Editor viewport debug
+  draw" and "Component modes".
 - **Rebinding a joint to different bodies requires recreating it**
   (`SetParentBody`/`SetChildBody` only update bookkeeping).
 - **Breakable joints are implemented scene-side** (Jolt has no native breakable
@@ -492,6 +493,23 @@ feature, trust the topic sections below the milestones.**
   total including both caps, so height is held at or above twice the radius and
   radius at or below half the height — otherwise a drag could produce a capsule
   the backend has to reject.
+- **Joints have their own component mode**, `JoltJointComponentMode`, since
+  AzToolsFramework ships nothing for a bare transform. It puts translation and
+  rotation handles on the joint frame and writes back through this gem's
+  `JoltJointFrameRequestBus`, so one mode serves all eight joint types and the
+  limits each one draws follow the handles (they are drawn relative to that same
+  frame). Two differences from PhysX's `JointsComponentMode`: it shows translation
+  and rotation together rather than cycling sub-modes from a viewport UI cluster
+  (the rotation circles are sized clear of the translation arrows so both stay
+  clickable), and it has no snap-to-entity sub-mode. Lead and follower stay
+  property-grid fields — they name entities, which no drag handle expresses.
+- **Joints report selection bounds** — a cube the size of the drawn frame, centred
+  on it. A joint has no geometry, so without them it could not be clicked in the
+  viewport at all, which also left no way into component mode. The bounds follow
+  the *follower* entity, since that is the space the frame is expressed in.
+- **A joint drag is one undo step.** The frame is written on every mouse move so
+  the viewport and inspector track the drag, but the undo batch is taken on mouse
+  up, scoped so it always closes — a batch left open blocks saving the level.
 - **Heightfield, mesh and compound colliders have no component mode**, and so no
   Edit button: their geometry comes from a baked blob, a terrain provider or the
   child entities, none of which a manipulator could drag. The mesh and heightfield

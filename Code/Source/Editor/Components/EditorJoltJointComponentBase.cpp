@@ -4,12 +4,18 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+
 #include <Editor/Components/EditorJoltDebugDrawUtils.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void EditorJoltJointComponentBase::Reflect(AZ::ReflectContext* context)
     {
+        Internal::ReflectOnce<AzToolsFramework::ComponentModeFramework::ComponentModeDelegate>(context);
+        Internal::ReflectOnce<JoltJointComponentMode>(context);
+
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             // Every joint type calls this base Reflect, so guard against the second
@@ -20,8 +26,9 @@ namespace JoltPhysics
             }
 
             serializeContext->Class<EditorJoltJointComponentBase, AzToolsFramework::Components::EditorComponentBase>()
-                ->Version(1)
+                ->Version(2)
                 ->Field("Configuration", &EditorJoltJointComponentBase::m_configuration)
+                ->Field("ComponentMode", &EditorJoltJointComponentBase::m_componentModeDelegate)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -33,6 +40,9 @@ namespace JoltPhysics
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltJointComponentBase::m_configuration,
                         "Configuration", "Lead/follower entities and local joint frame")
+                    // Renders the Edit button that enters component mode.
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltJointComponentBase::m_componentModeDelegate,
+                        "Component Mode", "Joint frame component mode")
                     ;
             }
         }
@@ -56,16 +66,29 @@ namespace JoltPhysics
     void EditorJoltJointComponentBase::Activate()
     {
         AzToolsFramework::Components::EditorComponentBase::Activate();
+
+        const AZ::EntityComponentIdPair entityComponentIdPair(GetEntityId(), GetId());
         AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(GetEntityId());
+        JoltJointFrameRequestBus::Handler::BusConnect(entityComponentIdPair);
+        // Addressed by entity, not by entity+component, unlike the frame bus.
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusConnect(GetEntityId());
+
+        // The component mode itself is connected by each derived joint, which alone
+        // knows its own type - see ConnectJointComponentMode.
     }
 
     void EditorJoltJointComponentBase::Deactivate()
     {
+        m_componentModeDelegate.Disconnect();
+
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusDisconnect();
+        JoltJointFrameRequestBus::Handler::BusDisconnect();
         AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
+
         AzToolsFramework::Components::EditorComponentBase::Deactivate();
     }
 
-    AZ::Transform EditorJoltJointComponentBase::GetJointWorldTransform() const
+    AZ::Transform EditorJoltJointComponentBase::GetJointFrameSpace() const
     {
         // The frame is expressed in the follower's space; the follower is this entity
         // unless one was named explicitly, matching JoltJointComponentBase's own rule.
@@ -74,11 +97,44 @@ namespace JoltPhysics
 
         AZ::Transform followerTransform = AZ::Transform::CreateIdentity();
         AZ::TransformBus::EventResult(followerTransform, followerId, &AZ::TransformBus::Events::GetWorldTM);
-        // Scale would stretch the frame and the limit cones without changing anything
-        // the joint actually does.
+        // Scale would stretch the frame, the limit cones and the manipulators without
+        // changing anything the joint actually does.
         followerTransform.ExtractUniformScale();
+        return followerTransform;
+    }
 
-        return followerTransform * m_configuration.m_localTransformFromFollower;
+    AZ::Transform EditorJoltJointComponentBase::GetJointLocalFrame() const
+    {
+        return m_configuration.m_localTransformFromFollower;
+    }
+
+    void EditorJoltJointComponentBase::SetJointLocalFrame(const AZ::Transform& localFrame)
+    {
+        m_configuration.m_localTransformFromFollower = localFrame;
+
+        // Values only: rebuilding the property tree mid-drag destroys and recreates the
+        // manipulators under the cursor.
+        AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(
+            &AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay,
+            AzToolsFramework::Refresh_Values);
+    }
+
+    AZ::Aabb EditorJoltJointComponentBase::GetEditorSelectionBoundsViewport(
+        [[maybe_unused]] const AzFramework::ViewportInfo& viewportInfo)
+    {
+        // A joint has no geometry, so it is picked against the frame it draws.
+        return AZ::Aabb::CreateCenterHalfExtents(
+            GetJointWorldTransform().GetTranslation(), AZ::Vector3(EditorDebugDraw::JointAxisLength));
+    }
+
+    bool EditorJoltJointComponentBase::SupportsEditorRayIntersect()
+    {
+        return false;
+    }
+
+    AZ::Transform EditorJoltJointComponentBase::GetJointWorldTransform() const
+    {
+        return GetJointFrameSpace() * m_configuration.m_localTransformFromFollower;
     }
 
     void EditorJoltJointComponentBase::DisplayEntityViewport(
