@@ -102,6 +102,8 @@ namespace JoltPhysics
 
         // JoltPhysicsSystemRequestBus
         JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) override;
+        bool SaveSimulationState(AzPhysics::SceneHandle sceneHandle, AZStd::vector<AZ::u8>& outState) override;
+        bool RestoreSimulationState(AzPhysics::SceneHandle sceneHandle, AZStd::span<const AZ::u8> state) override;
         AZ::u32 AcquireObjectLayer(
             const AzPhysics::CollisionLayer& collisionLayer,
             const AzPhysics::CollisionGroups::Id& collisionGroupId,

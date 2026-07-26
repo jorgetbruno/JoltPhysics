@@ -24,6 +24,7 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -943,6 +944,162 @@ namespace JoltPhysics
     void* JoltScene::GetNativePointer() const
     {
         return m_physicsSystem.get();
+    }
+
+    namespace
+    {
+        //! Format version of the gem's snapshot blob: bumped whenever what the gem
+        //! writes around Jolt's own state changes, so an old blob fails cleanly at the
+        //! version check instead of desynchronising the stream halfway through.
+        constexpr AZ::u32 SimulationStateVersion = 1;
+
+        //! Live simulated bodies, by the gem's own bookkeeping. Deliberately not
+        //! JPH::PhysicsSystem::GetNumBodies(): that counts every body in the body
+        //! manager, including ones already removed from the scene but awaiting
+        //! deferred deletion, so it would say "unchanged" right after a removal - and
+        //! restoring into a removed body corrupts it. The slot count changes the
+        //! moment a body is added or removed.
+        AZ::u32 CountLiveSimulatedBodies(
+            const AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::SimulatedBody*>>& simulatedBodies)
+        {
+            AZ::u32 count = 0;
+            for (const auto& [crc, body] : simulatedBodies)
+            {
+                if (body != nullptr)
+                {
+                    ++count;
+                }
+            }
+            return count;
+        }
+    }
+
+    bool JoltScene::SaveSimulationState(AZStd::vector<AZ::u8>& outState) const
+    {
+        if (!m_physicsSystem)
+        {
+            return false;
+        }
+
+        JPH::StateRecorderImpl recorder;
+        recorder.Write(SimulationStateVersion);
+        // Body count up front, because Jolt's own RestoreState does not reject every
+        // composition change: a body REMOVED since the save fails only once its id
+        // fails to resolve (part-way through applying state), and a body ADDED is
+        // silently left un-restored - a rollback that quietly skips one body. Comparing
+        // counts before restoring anything turns both cases into a clean, atomic
+        // failure. (Bodies an extension gem creates directly on the native physics
+        // system are outside this count - and outside the guarantee.)
+        recorder.Write(CountLiveSimulatedBodies(m_simulatedBodies));
+        m_physicsSystem->SaveState(recorder, JPH::EStateRecorderState::All);
+
+        // Characters ride along after the system state: a CharacterVirtual lives
+        // outside the body system, so Jolt's SaveState does not cover it. Slot order
+        // makes the sequence deterministic, and restoring requires the same characters
+        // in the same slots - which a matching body set already implies, since every
+        // character owns a body in the system.
+        AZ::u32 characterCount = 0;
+        for (const auto& [crc, body] : m_simulatedBodies)
+        {
+            if (azdynamic_cast<JoltCharacter*>(body) != nullptr)
+            {
+                ++characterCount;
+            }
+        }
+        recorder.Write(characterCount);
+        for (const auto& [crc, body] : m_simulatedBodies)
+        {
+            if (const auto* character = azdynamic_cast<JoltCharacter*>(body))
+            {
+                character->SaveNativeState(recorder);
+            }
+        }
+
+        const std::string data = recorder.GetData();
+        outState.insert(
+            outState.end(), reinterpret_cast<const AZ::u8*>(data.data()),
+            reinterpret_cast<const AZ::u8*>(data.data()) + data.size());
+        return true;
+    }
+
+    bool JoltScene::RestoreSimulationState(AZStd::span<const AZ::u8> state)
+    {
+        if (!m_physicsSystem || state.empty())
+        {
+            return false;
+        }
+
+        JPH::StateRecorderImpl recorder;
+        recorder.WriteBytes(state.data(), state.size());
+        recorder.Rewind();
+
+        AZ::u32 version = 0;
+        recorder.Read(version);
+        if (recorder.IsFailed() || version != SimulationStateVersion)
+        {
+            AZ_Warning("JoltPhysics", false,
+                "RestoreSimulationState: not a Jolt scene snapshot this build can read (version %u, expected %u).",
+                version, SimulationStateVersion);
+            return false;
+        }
+
+        AZ::u32 savedBodyCount = 0;
+        recorder.Read(savedBodyCount);
+        const AZ::u32 currentBodyCount = CountLiveSimulatedBodies(m_simulatedBodies);
+        if (recorder.IsFailed() || savedBodyCount != currentBodyCount)
+        {
+            // Checked before anything is applied, so this failure leaves the scene
+            // exactly as it was.
+            AZ_Warning("JoltPhysics", false,
+                "RestoreSimulationState: snapshot does not match this scene - it holds %u bodies, the scene has %u "
+                "(bodies added or removed since the save?). Nothing was restored.",
+                savedBodyCount, currentBodyCount);
+            return false;
+        }
+
+        if (!m_physicsSystem->RestoreState(recorder))
+        {
+            // Jolt applies state as it reads it, so the scene may be part-restored at
+            // this point. That cannot be rolled back from here; the caller holds the
+            // last good snapshot, this scene does not.
+            AZ_Warning("JoltPhysics", false,
+                "RestoreSimulationState: snapshot does not match this scene's bodies (bodies added or removed "
+                "since the save?). The scene may be partially restored.");
+            return false;
+        }
+
+        AZ::u32 savedCharacterCount = 0;
+        recorder.Read(savedCharacterCount);
+        AZStd::vector<JoltCharacter*> characters;
+        for (const auto& [crc, body] : m_simulatedBodies)
+        {
+            if (auto* character = azdynamic_cast<JoltCharacter*>(body))
+            {
+                characters.push_back(character);
+            }
+        }
+        if (recorder.IsFailed() || savedCharacterCount != characters.size())
+        {
+            AZ_Warning("JoltPhysics", false,
+                "RestoreSimulationState: snapshot has %u characters, the scene has %zu. The scene's bodies were "
+                "restored but its characters were not.",
+                savedCharacterCount, characters.size());
+            return false;
+        }
+        for (JoltCharacter* character : characters)
+        {
+            character->RestoreNativeState(recorder);
+        }
+        if (recorder.IsFailed())
+        {
+            AZ_Warning("JoltPhysics", false, "RestoreSimulationState: snapshot ended mid-character (truncated blob?).");
+            return false;
+        }
+
+        // Entities pick restored transforms up now rather than after the next step, so
+        // a rollback is visible even while the simulation is paused.
+        FlushTransformSync();
+        return true;
     }
 
     void JoltScene::FlushTransformSync()

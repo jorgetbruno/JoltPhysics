@@ -711,15 +711,45 @@ feature, trust the topic sections below the milestones.**
   can read it. The gem's former `JoltSceneConfiguration` was removed for exactly
   this reason — it could never actually reach a scene.
 
+## Simulation state snapshots
+
+- **Scene state can be snapshotted and restored** - the foundation for networked
+  rollback and deterministic replay. PhysX's gem exposes nothing comparable, so this
+  is gem-specific surface (rule 5): `JoltScene::SaveSimulationState` /
+  `RestoreSimulationState` natively, and the same pair on
+  `JoltPhysicsSystemRequests` by scene handle for code that does not link the gem's
+  scene headers.
+- **A snapshot covers everything the next step depends on**: body positions and
+  velocities (soft body vertices included), contacts, constraints (vehicle wheel
+  speeds, engine and gearbox state included) - and the characters, appended by the
+  gem because a `CharacterVirtual` lives outside the body system and Jolt's own
+  `SaveState` deliberately skips it. The tests hold replays to *exact* float
+  equality: after a restore, resimulation retraces the original bit for bit,
+  including a car mid-drive and a cloth mid-fall.
+- **Snapshots are for rollback, not persistence.** A blob only restores into a
+  scene with the same bodies, joints and characters in the same slots, from the
+  same build of the gem (a version number up front makes a foreign or stale blob
+  fail cleanly). Deterministic replay additionally requires the same binary, per
+  Jolt's own determinism contract.
+- **Composition changes fail atomically, which Jolt alone does not guarantee.**
+  Jolt's `RestoreState` rejects a *removed* body only part-way through applying
+  state, and silently skips a body *added* since the save - a rollback that misses
+  one body. The gem writes its own live-body count into the blob and compares it
+  before restoring anything, so both cases return false with the scene untouched.
+  The count comes from the gem's bookkeeping, not `GetNumBodies()`, which still
+  counts bodies awaiting deferred deletion. Only a same-count-different-identity
+  mismatch can still leave a partial restore (Jolt's failure path); treat any false
+  return as "restore a good snapshot or rebuild". Bodies an extension gem creates
+  directly on the native physics system are outside the count and the guarantee.
+- **On a successful restore, entity transforms sync immediately** rather than on
+  the next simulation step, so a rollback is visible while the simulation is
+  paused.
+
 ## Jolt features not wrapped
 
 Not divergences from PhysX — Jolt capabilities this gem simply does not expose yet.
 Listed so the gaps do not have to be re-derived from Jolt's headers.
 
-- **`StateRecorder` (save/restore of simulation state) is untouched.**
-  `PhysicsSystem::SaveState`/`RestoreState` and `StateRecorderImpl` are what
-  networked rollback/resimulation and deterministic replay are built on, and
-  nothing in the gem can snapshot or restore state today. The largest single gap.
 - **Two of Jolt's twelve constraints are unwrapped:** path and pulley. A path
   constraint additionally needs spline authoring. Wrapped: fixed, point (exposed as
   "ball"), distance, hinge, slider (exposed as "prismatic"), cone, swing-twist,

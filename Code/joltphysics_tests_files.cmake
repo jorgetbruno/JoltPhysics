@@ -19,6 +19,7 @@ set(FILES
     Tests/JoltRigidBodyTests.cpp
     Tests/JoltComponentBodyCreationTests.cpp
     Tests/JoltCharacterTests.cpp
+    Tests/JoltStateRecorderTests.cpp
     Tests/JoltJointTests.cpp
     Tests/JoltSoftBodyTests.cpp
     Tests/JoltVehicleTests.cpp

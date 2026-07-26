@@ -55,6 +55,14 @@ namespace JoltPhysics
         //! the virtual character's inner kinematic body (invalid when neither exists).
         JPH::BodyID GetInnerBodyId() const;
 
+        //! Writes/reads the native character's runtime state (position, velocities and
+        //! the cached ground) through a Jolt state recorder. A CharacterVirtual lives
+        //! outside the body system, so PhysicsSystem::SaveState does not cover it - a
+        //! scene snapshot has to include the characters explicitly, which is what
+        //! JoltScene::SaveSimulationState does with these.
+        void SaveNativeState(JPH::StateRecorder& recorder) const;
+        void RestoreNativeState(JPH::StateRecorder& recorder);
+
         // Physics::Character
         AZ::Vector3 GetBasePosition() const override;
         void SetBasePosition(const AZ::Vector3& position) override;

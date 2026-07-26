@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzCore/EBus/Event.h>
+#include <AzCore/std/containers/span.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/containers/queue.h>
 #include <AzCore/std/containers/unordered_set.h>
@@ -97,6 +98,24 @@ namespace JoltPhysics
         {
             handler.Connect(m_jointBreakEvent);
         }
+
+        //! Snapshots the complete simulation state - body positions and velocities
+        //! (including soft body vertices), contacts, constraints, and the characters,
+        //! which Jolt's own SaveState does not cover - into an opaque blob, appended to
+        //! outState. For rollback and replay, not persistence: the blob only restores
+        //! into a scene with the same bodies, joints and characters in the same slots,
+        //! and replaying deterministically additionally requires the same binary.
+        //! (AzPhysics has no snapshot API, so this lives on the Jolt scene; also
+        //! reachable through JoltPhysicsSystemRequests by scene handle.)
+        bool SaveSimulationState(AZStd::vector<AZ::u8>& outState) const;
+
+        //! Restores a snapshot taken by SaveSimulationState. Returns false when the blob
+        //! does not match this scene (different bodies, characters, or a truncated or
+        //! foreign blob) - and the scene may then be PARTIALLY restored, since Jolt
+        //! applies what it reads as it reads it: treat a false return as "restore from a
+        //! good snapshot or rebuild", not "carry on". On success entity transforms are
+        //! synced immediately rather than on the next simulation step.
+        bool RestoreSimulationState(AZStd::span<const AZ::u8> state);
 
         AzPhysics::SceneQueryHits QueryScene(const AzPhysics::SceneQueryRequest* request) override;
         bool QueryScene(const AzPhysics::SceneQueryRequest* request,

@@ -480,6 +480,30 @@ namespace JoltPhysics
         return joltScene ? joltScene->GetJoltPhysicsSystem() : nullptr;
     }
 
+    bool JoltPhysicsSystemComponent::SaveSimulationState(
+        AzPhysics::SceneHandle sceneHandle, AZStd::vector<AZ::u8>& outState)
+    {
+        auto* systemInterface = AZ::Interface<AzPhysics::SystemInterface>::Get();
+        if (!systemInterface || sceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return false;
+        }
+        auto* joltScene = azrtti_cast<JoltScene*>(systemInterface->GetScene(sceneHandle));
+        return joltScene && joltScene->SaveSimulationState(outState);
+    }
+
+    bool JoltPhysicsSystemComponent::RestoreSimulationState(
+        AzPhysics::SceneHandle sceneHandle, AZStd::span<const AZ::u8> state)
+    {
+        auto* systemInterface = AZ::Interface<AzPhysics::SystemInterface>::Get();
+        if (!systemInterface || sceneHandle == AzPhysics::InvalidSceneHandle)
+        {
+            return false;
+        }
+        auto* joltScene = azrtti_cast<JoltScene*>(systemInterface->GetScene(sceneHandle));
+        return joltScene && joltScene->RestoreSimulationState(state);
+    }
+
     AZ::u32 JoltPhysicsSystemComponent::AcquireObjectLayer(
         const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId, bool isMoving)
     {

@@ -4,6 +4,8 @@
 #include <AzCore/EBus/EBus.h>
 #include <AzCore/Interface/Interface.h>
 #include <AzCore/Math/Transform.h>
+#include <AzCore/std/containers/span.h>
+#include <AzCore/std/containers/vector.h>
 #include <AzCore/std/utility/pair.h>
 
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
@@ -129,6 +131,21 @@ namespace JoltPhysics
         //! one of this gem's. The returned system is owned by the scene: it stays valid
         //! until the scene is removed.
         virtual JPH::PhysicsSystem* GetNativePhysicsSystem(AzPhysics::SceneHandle sceneHandle) = 0;
+
+        //! Snapshots a scene's complete simulation state - body positions and
+        //! velocities (including soft body vertices), contacts, constraints and the
+        //! characters - into an opaque blob, appended to outState. For rollback and
+        //! replay, not persistence: the blob only restores into a scene with the same
+        //! bodies, joints and characters in the same slots, and a deterministic replay
+        //! additionally requires the same binary. Returns false for an unknown scene.
+        virtual bool SaveSimulationState(AzPhysics::SceneHandle sceneHandle, AZStd::vector<AZ::u8>& outState) = 0;
+
+        //! Restores a snapshot taken by SaveSimulationState into the same scene.
+        //! Returns false when the blob does not match the scene's current contents -
+        //! and the scene may then be PARTIALLY restored, since state is applied as it
+        //! is read: treat false as "restore from a good snapshot or rebuild", not
+        //! "carry on". On success entity transforms sync immediately.
+        virtual bool RestoreSimulationState(AzPhysics::SceneHandle sceneHandle, AZStd::span<const AZ::u8> state) = 0;
 
         //! The Jolt object layer for an AzPhysics collision layer and group, for an
         //! extension gem that creates its own bodies (soft bodies and the like).

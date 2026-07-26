@@ -152,6 +152,34 @@ namespace JoltPhysics
         return m_character ? m_character->GetInnerBodyID() : JPH::BodyID();
     }
 
+    void JoltCharacter::SaveNativeState(JPH::StateRecorder& recorder) const
+    {
+        // The virtual character's position, rotation and velocity live on the
+        // CharacterVirtual itself; the rigid character's live on its body (saved with
+        // the system), so its CharacterBase::SaveState only adds the cached ground.
+        // Either way the backend knows what it needs.
+        if (m_character)
+        {
+            m_character->SaveState(recorder);
+        }
+        else if (m_rigidBody)
+        {
+            m_rigidBody->SaveState(recorder);
+        }
+    }
+
+    void JoltCharacter::RestoreNativeState(JPH::StateRecorder& recorder)
+    {
+        if (m_character)
+        {
+            m_character->RestoreState(recorder);
+        }
+        else if (m_rigidBody)
+        {
+            m_rigidBody->RestoreState(recorder);
+        }
+    }
+
     float JoltCharacter::GetBottomOffset() const
     {
         // Local z of the shape's bottom (negative for shapes centered at the origin).
