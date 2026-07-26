@@ -1,5 +1,7 @@
 #pragma once
 
+#include <AzCore/Math/Transform.h>
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 
@@ -9,6 +11,7 @@ namespace JPH
 {
     class WheeledVehicleController;
     class TrackedVehicleController;
+    class VehicleCollisionTester;
 }
 
 namespace JoltPhysics
@@ -45,12 +48,34 @@ namespace JoltPhysics
         //! Motorcycle lean angle in radians (0 for the other vehicle types).
         float GetLeanAngle() const;
 
+        //! How many wheels the constraint ended up with. This is the authored count
+        //! unless none were authored, in which case it is the type's default layout.
+        AZ::u32 GetWheelCount() const;
+
+        //! World transform of a wheel, for driving a visual wheel mesh: it carries the
+        //! suspension position, the steer angle and the rolling of the tyre. Returns
+        //! false for an out-of-range index, leaving outTransform untouched.
+        bool GetWheelTransform(AZ::u32 wheelIndex, AZ::Transform& outTransform) const;
+
+        //! Current suspension extension (m), for driving a visual suspension.
+        float GetSuspensionLength(AZ::u32 wheelIndex) const;
+
+        //! Whether the wheel found ground on the last step - a wheel in the air neither
+        //! drives nor steers.
+        bool IsWheelOnGround(AZ::u32 wheelIndex) const;
+
         JPH::VehicleConstraint* GetConstraint() const { return m_constraint; }
 
     private:
         //! Builds the wheels and controller settings for the configured vehicle type.
         void BuildWheeledSettings(const JoltVehicleConfiguration& configuration, JPH::VehicleConstraintSettings& settings);
         void BuildTrackedSettings(const JoltVehicleConfiguration& configuration, JPH::VehicleConstraintSettings& settings);
+
+        //! Validates and copies the configured anti-roll bars onto the constraint settings.
+        void BuildAntiRollBars(const JoltVehicleConfiguration& configuration, JPH::VehicleConstraintSettings& settings) const;
+
+        //! The wheel/ground test for the configured mode, with O3DE's up axis applied.
+        JPH::VehicleCollisionTester* CreateCollisionTester(const JoltVehicleConfiguration& configuration) const;
 
         JoltScene* m_scene = nullptr;
         JPH::Ref<JPH::VehicleConstraint> m_constraint;

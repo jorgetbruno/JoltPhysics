@@ -166,6 +166,31 @@ namespace JoltPhysics
         return m_vehicle ? m_vehicle->GetLeanAngle() : 0.0f;
     }
 
+    AZ::u32 JoltVehicleComponent::GetWheelCount() const
+    {
+        return m_vehicle ? m_vehicle->GetWheelCount() : 0;
+    }
+
+    AZ::Transform JoltVehicleComponent::GetWheelTransform(AZ::u32 wheelIndex) const
+    {
+        AZ::Transform wheelTransform = AZ::Transform::CreateIdentity();
+        if (m_vehicle)
+        {
+            m_vehicle->GetWheelTransform(wheelIndex, wheelTransform);
+        }
+        return wheelTransform;
+    }
+
+    float JoltVehicleComponent::GetSuspensionLength(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->GetSuspensionLength(wheelIndex) : 0.0f;
+    }
+
+    bool JoltVehicleComponent::IsWheelOnGround(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle && m_vehicle->IsWheelOnGround(wheelIndex);
+    }
+
 
     void JoltVehicleComponent::OnAfterEntitySet()
     {

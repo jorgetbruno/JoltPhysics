@@ -209,8 +209,11 @@ namespace JoltPhysics
         const AZ::Vector3 forward = chassis->GetOrientation().TransformVector(AZ::Vector3::CreateAxisX());
         EXPECT_GT(AZStd::abs(forward.GetY()), 0.05f);
 
-        // Brake to a stop.
-        DriveSteps(0.0f, 0.0f, 1.0f, 180);
+        // Brake to a stop. Six seconds rather than three: the cylinder ground test
+        // grips well enough that the car gains speed through the steering phase above
+        // instead of scrubbing it off, so it arrives at the brakes faster than it did
+        // when every wheel was a single ray.
+        DriveSteps(0.0f, 0.0f, 1.0f, 360);
         EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
     }
 
@@ -430,6 +433,163 @@ namespace JoltPhysics
         JoltWarningCatcher warnings;
         CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.8f), config, AZ::Vector3(1.8f, 0.4f, 0.5f), 250.0f);
         EXPECT_TRUE(warnings.ContainsWarningWith("lean spring constant"));
+    }
+
+    TEST_F(JoltVehicleTests, ACylinderGroundTestBridgesAGapThatSwallowsARay)
+    {
+        // A trench 0.2 m across, narrower than the 0.7 m wheel. A ray fired down the
+        // wheel's centre line finds nothing; the wheel itself spans the gap easily.
+        auto BuildTrenchAndSettle = [this](JoltVehicleCollisionTester tester)
+        {
+            TearDown();
+            SetUp();
+            CreateStaticBox(AZ::Vector3(-25.1f, 0.0f, -0.5f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+            CreateStaticBox(AZ::Vector3(25.1f, 0.0f, -0.5f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+            JoltVehicleConfiguration config = MakeCarConfiguration();
+            config.m_collisionTester = tester;
+            // Front axle (local x = +0.8) parked directly over the trench at world x = 0.
+            CreateVehicle(AZ::Vector3(-0.8f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+            DriveSteps(0.0f, 0.0f, 0.0f, 30);
+            return m_vehicle->IsWheelOnGround(0);
+        };
+
+        EXPECT_FALSE(BuildTrenchAndSettle(JoltVehicleCollisionTester::Ray));
+        EXPECT_TRUE(BuildTrenchAndSettle(JoltVehicleCollisionTester::Cylinder));
+    }
+
+    TEST_F(JoltVehicleTests, ThePitchRollLimitStopsATankPoweringItselfOntoItsBack)
+    {
+        // The default tracked drive has enough torque to pop a wheelie. Left unlimited,
+        // the suspension keeps pushing past the vertical and the tank lands on its back
+        // still under power - which only showed up once the wheels had real grip.
+        auto DriveAndReportUpZ = [this](float pitchLimitDegrees)
+        {
+            TearDown();
+            SetUp();
+            CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 200.0f, 1.0f));
+            JoltVehicleConfiguration config = MakeTrackedConfiguration();
+            config.m_maxPitchRollAngleDegrees = pitchLimitDegrees;
+            CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(3.0f, 1.6f, 0.6f), 2000.0f);
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            DriveSteps(1.0f, 0.0f, 0.0f, 180);
+            return GetChassis()->GetOrientation().TransformVector(AZ::Vector3::CreateAxisZ()).GetZ();
+        };
+
+        EXPECT_LT(DriveAndReportUpZ(180.0f), 0.5f);  // unlimited: tipped past horizontal
+        EXPECT_GT(DriveAndReportUpZ(60.0f), 0.9f);   // limited: still upright
+    }
+
+    TEST_F(JoltVehicleTests, AnAntiRollBarKeepsTheChassisFlatterThroughACorner)
+    {
+        // Same corner twice. The default car's track is narrow next to how high its
+        // centre of mass sits, so without a bar it does not understeer - it rolls onto
+        // its side.
+        auto CornerAndReportMaxRoll = [this](bool withAntiRollBars)
+        {
+            TearDown();
+            SetUp();
+            CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 400.0f, 1.0f));
+
+            JoltVehicleConfiguration config = MakeCarConfiguration();
+            // Deliberately soft springs. On its stiff default springs this car does not
+            // roll on its suspension at full lock - it tips over bodily, because the
+            // lateral force at the tyres out-levers its track width, and no anti-roll
+            // bar can stop that. Soft springs isolate the roll a bar is actually for.
+            for (JoltWheelConfiguration& wheel : config.m_wheels)
+            {
+                wheel.m_suspensionFrequency = 0.8f;
+            }
+            if (withAntiRollBars)
+            {
+                config.m_antiRollBars.push_back({ 0, 1, 20000.0f }); // front axle
+                config.m_antiRollBars.push_back({ 2, 3, 20000.0f }); // rear axle
+            }
+            CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            DriveSteps(1.0f, 0.0f, 0.0f, 120); // up to speed
+            float maxRollDegrees = 0.0f;
+            for (int i = 0; i < 120; ++i)
+            {
+                DriveSteps(0.6f, 1.0f, 0.0f, 1); // full lock
+                // Roll alone: how far the chassis right axis has lifted off horizontal,
+                // which pitching over a crest would not register as.
+                const AZ::Vector3 right = GetChassis()->GetOrientation().TransformVector(AZ::Vector3::CreateAxisY());
+                maxRollDegrees = AZStd::max(
+                    maxRollDegrees, AZStd::abs(AZ::RadToDeg(asinf(AZStd::clamp(right.GetZ(), -1.0f, 1.0f)))));
+            }
+            return maxRollDegrees;
+        };
+
+        EXPECT_GT(CornerAndReportMaxRoll(false), 30.0f); // rolls over
+        EXPECT_LT(CornerAndReportMaxRoll(true), 10.0f);  // stays on its wheels
+    }
+
+    TEST_F(JoltVehicleTests, AnAntiRollBarNamingAWheelThatDoesNotExistIsRejected)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_antiRollBars.push_back({ 0, 9, 1000.0f }); // only 4 wheels exist
+        config.m_antiRollBars.push_back({ 1, 1, 1000.0f }); // a wheel against itself
+        config.m_antiRollBars.push_back({ 0, 1, 1000.0f }); // the one good bar
+
+        JoltWarningCatcher warnings;
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        // Bad bars are dropped with a diagnostic rather than indexing Jolt's wheel array
+        // out of range, and the good one still makes it through.
+        EXPECT_TRUE(warnings.ContainsWarningWith("anti-roll bar"));
+        EXPECT_EQ(m_vehicle->GetConstraint()->GetAntiRollBars().size(), 1u);
+    }
+
+    TEST_F(JoltVehicleTests, WheelTransformsFollowTheVehicleForVisualWheels)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        EXPECT_EQ(m_vehicle->GetWheelCount(), 4u);
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+
+        // Each wheel sits where it was authored, out to its own corner of the chassis and
+        // resting on the ground rather than at the attachment point.
+        AZ::Transform frontLeft = AZ::Transform::CreateIdentity();
+        ASSERT_TRUE(m_vehicle->GetWheelTransform(0, frontLeft));
+        EXPECT_NEAR(frontLeft.GetTranslation().GetX(), 0.8f, 0.2f);
+        EXPECT_NEAR(frontLeft.GetTranslation().GetY(), 0.45f, 0.2f);
+        EXPECT_NEAR(frontLeft.GetTranslation().GetZ(), 0.35f, 0.2f); // wheel radius above ground
+
+        AZ::Transform rearRight = AZ::Transform::CreateIdentity();
+        ASSERT_TRUE(m_vehicle->GetWheelTransform(3, rearRight));
+        EXPECT_NEAR(rearRight.GetTranslation().GetX(), -0.8f, 0.2f);
+        EXPECT_NEAR(rearRight.GetTranslation().GetY(), -0.45f, 0.2f);
+
+        // The suspension is carrying the car, so it sits between its two travel limits.
+        const float suspensionLength = m_vehicle->GetSuspensionLength(0);
+        EXPECT_GT(suspensionLength, 0.15f);
+        EXPECT_LT(suspensionLength, 0.45f);
+        EXPECT_TRUE(m_vehicle->IsWheelOnGround(0));
+
+        // Driving forward moves the wheels with the chassis and spins them.
+        DriveSteps(1.0f, 0.0f, 0.0f, 120);
+        AZ::Transform frontLeftMoved = AZ::Transform::CreateIdentity();
+        ASSERT_TRUE(m_vehicle->GetWheelTransform(0, frontLeftMoved));
+        EXPECT_GT(frontLeftMoved.GetTranslation().GetX(), frontLeft.GetTranslation().GetX() + 3.0f);
+        EXPECT_FALSE(frontLeftMoved.GetRotation().IsClose(frontLeft.GetRotation(), 0.01f));
+    }
+
+    TEST_F(JoltVehicleTests, AnOutOfRangeWheelIndexReportsNothingRatherThanReadingPastTheArray)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        AZ::Transform unchanged = AZ::Transform::CreateTranslation(AZ::Vector3(7.0f, 7.0f, 7.0f));
+        EXPECT_FALSE(m_vehicle->GetWheelTransform(99, unchanged));
+        EXPECT_TRUE(unchanged.GetTranslation().IsClose(AZ::Vector3(7.0f, 7.0f, 7.0f)));
+        EXPECT_EQ(m_vehicle->GetSuspensionLength(99), 0.0f);
+        EXPECT_FALSE(m_vehicle->IsWheelOnGround(99));
     }
 
 } // namespace JoltPhysics

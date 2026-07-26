@@ -26,6 +26,14 @@ namespace JoltPhysics::EditorDebugDraw
     //! Links to another entity (joint lead, follower) are drawn dimmer still.
     inline const AZ::Vector4 LinkColor(0.5f, 0.5f, 0.5f, 1.0f);
 
+    //! The same axis colours as AZ::Color, for the manipulators the component modes
+    //! build. Shared from here rather than restated per mode: the unity build folds the
+    //! mode translation units together, where two anonymous-namespace copies collide.
+    inline const AZ::Color ManipulatorAxisColorX(1.0f, 0.2f, 0.2f, 1.0f);
+    inline const AZ::Color ManipulatorAxisColorY(0.2f, 1.0f, 0.2f, 1.0f);
+    inline const AZ::Color ManipulatorAxisColorZ(0.2f, 0.4f, 1.0f, 1.0f);
+    inline const AZ::Color ManipulatorSurfaceColor(1.0f, 1.0f, 1.0f, 0.5f);
+
     inline void DrawLine(
         AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Vector3& from, const AZ::Vector3& to,
         const AZ::Vector4& color)

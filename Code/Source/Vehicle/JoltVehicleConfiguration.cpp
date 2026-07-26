@@ -71,6 +71,38 @@ namespace JoltPhysics
         }
     }
 
+    void JoltVehicleAntiRollBar::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltVehicleAntiRollBar>()
+                ->Version(1)
+                ->Field("LeftWheel", &JoltVehicleAntiRollBar::m_leftWheel)
+                ->Field("RightWheel", &JoltVehicleAntiRollBar::m_rightWheel)
+                ->Field("Stiffness", &JoltVehicleAntiRollBar::m_stiffness)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<JoltVehicleAntiRollBar>(
+                    "Jolt Anti-Roll Bar", "Couples two wheels' suspension so the chassis leans less in a corner.")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleAntiRollBar::m_leftWheel,
+                        "Left wheel", "Index into the wheel list.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleAntiRollBar::m_rightWheel,
+                        "Right wheel", "Index into the wheel list.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleAntiRollBar::m_stiffness,
+                        "Stiffness", "Spring constant coupling the two wheels; 0 disables this bar.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " N/m")
+                    ;
+            }
+        }
+    }
+
     AZ::Crc32 JoltVehicleConfiguration::GetWheeledSettingsVisibility() const
     {
         // Engine drive layout: a tracked vehicle drives tracks, not named wheels.
@@ -94,9 +126,14 @@ namespace JoltPhysics
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
+            JoltVehicleAntiRollBar::Reflect(context);
+
             serializeContext->Class<JoltVehicleConfiguration>()
-                ->Version(2)
+                ->Version(3)
                 ->Field("VehicleType", &JoltVehicleConfiguration::m_vehicleType)
+                ->Field("CollisionTester", &JoltVehicleConfiguration::m_collisionTester)
+                ->Field("AntiRollBars", &JoltVehicleConfiguration::m_antiRollBars)
+                ->Field("MaxPitchRollAngleDegrees", &JoltVehicleConfiguration::m_maxPitchRollAngleDegrees)
                 ->Field("MaxLeanAngleDegrees", &JoltVehicleConfiguration::m_maxLeanAngleDegrees)
                 ->Field("LeanSpringConstant", &JoltVehicleConfiguration::m_leanSpringConstant)
                 ->Field("LeanSpringDamping", &JoltVehicleConfiguration::m_leanSpringDamping)
@@ -128,6 +165,21 @@ namespace JoltPhysics
                         ->EnumAttribute(JoltVehicleType::Motorcycle, "Motorcycle")
                         ->EnumAttribute(JoltVehicleType::Tracked, "Tracked (tank)")
                         ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltVehicleConfiguration::m_collisionTester,
+                        "Ground detection", "How each wheel looks for the ground. A ray only tests the wheel's "
+                        "centre line, so it drops into gaps a real tyre would roll over.")
+                        ->EnumAttribute(JoltVehicleCollisionTester::Ray, "Ray (cheapest)")
+                        ->EnumAttribute(JoltVehicleCollisionTester::Sphere, "Sphere cast")
+                        ->EnumAttribute(JoltVehicleCollisionTester::Cylinder, "Cylinder cast (most accurate)")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_antiRollBars,
+                        "Anti-roll bars", "Each couples two wheels' suspension so the chassis leans less in a "
+                        "corner. Usually one per axle.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_maxPitchRollAngleDegrees,
+                        "Max pitch/roll angle", "How far the chassis may tip away from world up before the "
+                        "suspension stops pushing. 180 never gives up, which lets the vehicle drive on its roof.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 180.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " deg")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_wheels,
                         "Wheels", "The vehicle's wheels. Leave empty for a default layout for the selected type. "
                         "On a tracked vehicle the wheels are split into a left and a right track by the sign of "

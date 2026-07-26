@@ -18,10 +18,6 @@ namespace JoltPhysics
         constexpr float TranslationAxisLength = EditorDebugDraw::JointAxisLength;
         constexpr float RotationCircleRadius = EditorDebugDraw::JointAxisLength * 1.6f;
 
-        const AZ::Color AxisColorX(1.0f, 0.2f, 0.2f, 1.0f);
-        const AZ::Color AxisColorY(0.2f, 1.0f, 0.2f, 1.0f);
-        const AZ::Color AxisColorZ(0.2f, 0.4f, 1.0f, 1.0f);
-        const AZ::Color SurfaceColor(1.0f, 1.0f, 1.0f, 0.5f);
     } // namespace
 
     void JoltJointComponentMode::Reflect(AZ::ReflectContext* context)
@@ -47,15 +43,17 @@ namespace JoltPhysics
         translationView.linearConeRadius = TranslationAxisLength * 0.1f;
         translationView.planarAxisLength = TranslationAxisLength * 0.4f;
         translationView.surfaceRadius = TranslationAxisLength * 0.1f;
-        translationView.axis1Color = AxisColorX;
-        translationView.axis2Color = AxisColorY;
-        translationView.axis3Color = AxisColorZ;
-        translationView.surfaceColor = SurfaceColor;
+        translationView.axis1Color = EditorDebugDraw::ManipulatorAxisColorX;
+        translationView.axis2Color = EditorDebugDraw::ManipulatorAxisColorY;
+        translationView.axis3Color = EditorDebugDraw::ManipulatorAxisColorZ;
+        translationView.surfaceColor = EditorDebugDraw::ManipulatorSurfaceColor;
         m_translationManipulators->ConfigureView3d(translationView);
 
         m_rotationManipulators->SetLocalAxes(
             AZ::Vector3::CreateAxisX(), AZ::Vector3::CreateAxisY(), AZ::Vector3::CreateAxisZ());
-        m_rotationManipulators->ConfigureView(RotationCircleRadius, AxisColorX, AxisColorY, AxisColorZ);
+        m_rotationManipulators->ConfigureView(
+            RotationCircleRadius, EditorDebugDraw::ManipulatorAxisColorX,
+            EditorDebugDraw::ManipulatorAxisColorY, EditorDebugDraw::ManipulatorAxisColorZ);
 
         const AZ::Transform localFrame = GetJointLocalFrame();
         SetManipulatorFrame(localFrame);

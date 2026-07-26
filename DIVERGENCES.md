@@ -200,13 +200,37 @@ feature, trust the topic sections below the milestones.**
 - **Chassis mass is set via `JoltVehicleConfiguration::m_chassisMass`** (applied with
   `ScaleToMass`, default 1200 kg) instead of relying on the rigid body's mass, because
   the gem's rigid bodies default to 1 kg which is unusable for a car.
-- **Wheel collision uses `VehicleCollisionTesterRay`** (ray per wheel); the cylinder
-  tester found no contacts in this integration (not investigated further).
+- **Wheel/ground detection is selectable, and defaults to a cylinder cast.**
+  `JoltVehicleConfiguration::m_collisionTester` picks Ray, Sphere or Cylinder. A ray
+  only tests the wheel's centre line, so a ray-tested wheel drops into any gap and
+  catches on any edge narrower than the tyre - there is a test driving a car over a
+  trench a third the width of its wheel that the ray falls into and the cylinder
+  bridges. The ray and sphere testers need the up axis passed explicitly (their
+  defaults are Y-up, which would read O3DE's ground as a wall); the cylinder tester
+  takes none, reading the orientation off the constraint. An earlier note here said
+  the cylinder tester found no contacts - that was wrong.
+- **The pitch/roll limit defaults to 60 degrees**, not Jolt's unlimited 180.
+  Without it a vehicle powers itself over: the default tank has enough drive torque
+  to pop a wheelie, and with the suspension still pushing from the vertical it lands
+  on its back and drives on there. This only became visible once the wheels had real
+  grip - with the ray tester they slipped enough to hide it. Both cases are pinned by
+  tests.
+- **Anti-roll bars are wrapped** (`JoltVehicleConfiguration::m_antiRollBars`), each
+  naming the two wheels it couples and a stiffness, validated against the wheel count
+  at creation. They are opt-in and empty by default: they cure suspension roll, which
+  is worth having on soft springs, but they cannot prevent a vehicle whose lateral
+  grip out-levers its track width from tipping over bodily, so switching them on by
+  default would have bought nothing measurable at the default spring rates.
 - **The chassis is force-woken on driver input**: Jolt's vehicle anti-sleep only resets
   the sleep timer, so a body that fell asleep while parked would never wake up again
   (deadlock that leaves the tire constraints inactive).
-- **No visual sync for wheels** — the chassis is a normal rigid body; wheel transforms
-  for rendering are read from the native constraint by user code.
+- **Wheel state is exposed for rendering** through `JoltVehicleRequestBus`:
+  `GetWheelCount`, `GetWheelTransform` (world space, carrying the suspension position,
+  the steer angle and the rolling of the tyre), `GetSuspensionLength` and
+  `IsWheelOnGround`. The gem still does not move any render entity itself - the
+  chassis is a normal rigid body and wheels are not entities - so driving visual
+  wheels stays the caller's job, but it no longer needs the native constraint to do
+  it. Out-of-range indices report nothing rather than reading past Jolt's array.
 - **All three Jolt controllers are available** through `JoltVehicleConfiguration::m_vehicleType`:
   wheeled (car), motorcycle and tracked (tank). PhysXVehicle only models wheeled
   vehicles, so the other two have no PhysX counterpart to be compatible with.
@@ -552,6 +576,13 @@ feature, trust the topic sections below the milestones.**
 - **Vehicles draw each wheel and its suspension travel.** Wheels sit below their
   attachment point along -Z and spin about Y, per `JoltVehicle`; the wheel is drawn
   mid-travel, which is roughly where it rests.
+- **Wheel positions are draggable**, through `JoltVehicleComponentMode`: one
+  translation handle per authored wheel on its suspension attachment point, writing
+  back through this gem's `JoltVehicleWheelRequestBus`. Radius, width, suspension
+  travel and steering lock stay property-grid fields - they are single numbers the
+  drawn wheel already shows, and a handle each would bury the vehicle. A vehicle with
+  no authored wheels offers no handles: an empty list means "use the type's default
+  layout", which is built at simulation time and so has nothing to drag.
 - **The rigid body draws its centre of mass only when set manually.** With
   `ComputeCenterOfMass` on, the real centre comes from the shapes and is not known
   at edit time, so drawing the stale offset would be actively misleading.

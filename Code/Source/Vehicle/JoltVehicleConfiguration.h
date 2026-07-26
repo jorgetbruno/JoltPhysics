@@ -15,6 +15,35 @@ namespace JoltPhysics
         Tracked,     //!< JPH::TrackedVehicleController - tank, steered by track speed.
     };
 
+    //! How each wheel looks for the ground.
+    enum class JoltVehicleCollisionTester : AZ::u8
+    {
+        //! One ray straight down the suspension. Cheapest, and what a wheel of zero
+        //! width would do: it can drop into a gap or catch on an edge narrower than
+        //! the tyre, because nothing but the centre line is tested.
+        Ray = 0,
+        //! Sphere cast of the wheel's radius. Rolls over edges and small gaps the ray
+        //! falls into, without the cost of the full wheel shape.
+        Sphere,
+        //! Cylinder cast of the whole wheel. Closest to the real contact patch,
+        //! and the most expensive.
+        Cylinder,
+    };
+
+    //! Couples the suspension of two wheels so the chassis leans less in a corner, the
+    //! way a real anti-roll bar does. Without one a tall vehicle on soft springs rolls
+    //! onto its side in a turn that it would otherwise take comfortably.
+    struct JoltVehicleAntiRollBar
+    {
+        AZ_CLASS_ALLOCATOR(JoltVehicleAntiRollBar, AZ::SystemAllocator);
+        AZ_TYPE_INFO(JoltVehicleAntiRollBar, "{3C1D7E96-4A25-4B0E-8F31-9D6A2B4C7E58}");
+        static void Reflect(AZ::ReflectContext* context);
+
+        int m_leftWheel = 0;  //!< Index into the wheel list.
+        int m_rightWheel = 1; //!< Index into the wheel list.
+        float m_stiffness = 1000.0f; //!< Spring constant (N/m); 0 disables this bar.
+    };
+
     //! One wheel of a Jolt vehicle (mirrors the useful subset of JPH::WheelSettingsWV).
     //! Steering and brake torques are ignored on a tracked vehicle, which brakes and
     //! steers through its tracks rather than per wheel.
@@ -50,6 +79,26 @@ namespace JoltPhysics
         JoltVehicleType m_vehicleType = JoltVehicleType::Wheeled;
 
         AZStd::vector<JoltWheelConfiguration> m_wheels;
+
+        //! How the wheels look for the ground. Cylinder by default: a ray only tests the
+        //! wheel's centre line, so a ray-tested wheel drops into gaps and catches on
+        //! edges a real tyre of that width would roll straight over.
+        JoltVehicleCollisionTester m_collisionTester = JoltVehicleCollisionTester::Cylinder;
+
+        //! Anti-roll bars, each naming the two wheels it couples. Empty by default:
+        //! whether a vehicle wants one, and how stiff, depends on its geometry.
+        AZStd::vector<JoltVehicleAntiRollBar> m_antiRollBars;
+
+        //! How far the chassis may pitch or roll away from world up before the suspension
+        //! stops pushing (degrees; 180 disables the limit, which is Jolt's own default).
+        //!
+        //! 60 here, matching Jolt's samples, because without a limit a vehicle powers
+        //! itself right over: the default tank has enough torque to pop a wheelie, and
+        //! with nothing to stop it the suspension keeps driving from the vertical until
+        //! it lands on its back. The limit costs nothing on a slope a vehicle could
+        //! actually climb.
+        float m_maxPitchRollAngleDegrees = 60.0f;
+
         float m_chassisMass = 1200.0f; //!< Absolute chassis mass in kg (0 = keep the rigid body's mass).
         int m_leftDriveWheel = 2;    //!< Wheel index driven by the differential (-1 = none).
         int m_rightDriveWheel = 3;   //!< Wheel index driven by the differential (-1 = none).

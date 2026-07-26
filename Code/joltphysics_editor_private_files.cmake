@@ -28,6 +28,9 @@ set(FILES
     Source/Editor/Components/JoltJointComponentMode.cpp
     Source/Editor/Components/JoltJointComponentMode.h
     Source/Editor/Components/JoltJointFrameRequestBus.h
+    Source/Editor/Components/JoltVehicleComponentMode.cpp
+    Source/Editor/Components/JoltVehicleComponentMode.h
+    Source/Editor/Components/JoltVehicleWheelRequestBus.h
     Source/Editor/Components/EditorJoltBoxColliderComponent.cpp
     Source/Editor/Components/EditorJoltBoxColliderComponent.h
     Source/Editor/Components/EditorJoltSphereColliderComponent.cpp

@@ -59,6 +59,10 @@ namespace JoltPhysics
         float GetEngineRpm() const override;
         int GetCurrentGear() const override;
         float GetLeanAngle() const override;
+        AZ::u32 GetWheelCount() const override;
+        AZ::Transform GetWheelTransform(AZ::u32 wheelIndex) const override;
+        float GetSuspensionLength(AZ::u32 wheelIndex) const override;
+        bool IsWheelOnGround(AZ::u32 wheelIndex) const override;
 
     private:
         void CreateVehicle();

@@ -91,6 +91,19 @@ namespace JoltPhysics
         virtual int GetCurrentGear() const = 0;
         //! How far a motorcycle is leaned over, in radians (0 for the other vehicle types).
         virtual float GetLeanAngle() const = 0;
+
+        //! Wheels the vehicle ended up with: the authored count, or the vehicle type's
+        //! default layout when none were authored.
+        virtual AZ::u32 GetWheelCount() const = 0;
+        //! World transform of a wheel, for driving a visual wheel: it carries the
+        //! suspension position, the steer angle and the rolling of the tyre. Identity
+        //! for an out-of-range index.
+        virtual AZ::Transform GetWheelTransform(AZ::u32 wheelIndex) const = 0;
+        //! Current suspension extension in metres, for driving a visual suspension.
+        virtual float GetSuspensionLength(AZ::u32 wheelIndex) const = 0;
+        //! Whether the wheel found ground on the last step; one in the air neither
+        //! drives nor steers.
+        virtual bool IsWheelOnGround(AZ::u32 wheelIndex) const = 0;
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;

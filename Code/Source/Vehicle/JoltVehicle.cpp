@@ -168,6 +168,7 @@ namespace JoltPhysics
         JPH::VehicleConstraintSettings settings;
         settings.mUp = JPH::Vec3::sAxisZ();
         settings.mForward = JPH::Vec3::sAxisX();
+        settings.mMaxPitchRollAngle = AZ::DegToRad(effectiveConfiguration.m_maxPitchRollAngleDegrees);
 
         if (m_vehicleType == JoltVehicleType::Tracked)
         {
@@ -183,14 +184,15 @@ namespace JoltPhysics
             return;
         }
 
+        BuildAntiRollBars(effectiveConfiguration, settings);
+
         if (m_vehicleType == JoltVehicleType::Motorcycle)
         {
             WarnOnImplausibleLeanGains(effectiveConfiguration, *m_chassisBody);
         }
 
         m_constraint = new JPH::VehicleConstraint(*m_chassisBody, settings);
-        m_constraint->SetVehicleCollisionTester(
-            new JPH::VehicleCollisionTesterRay(ObjectLayers::Moving, Conversions::ToJolt(AZ::Vector3::CreateAxisZ())));
+        m_constraint->SetVehicleCollisionTester(CreateCollisionTester(effectiveConfiguration));
 
         m_scene->GetJoltPhysicsSystem()->AddConstraint(m_constraint);
         m_scene->GetJoltPhysicsSystem()->AddStepListener(m_constraint);
@@ -275,6 +277,66 @@ namespace JoltPhysics
         }
 
         settings.mController = controllerSettings;
+    }
+
+    JPH::VehicleCollisionTester* JoltVehicle::CreateCollisionTester(const JoltVehicleConfiguration& configuration) const
+    {
+        // The up axis matters: the ray and sphere testers use it to reject near-vertical
+        // hits, and their defaults are Y-up, which would treat O3DE's ground as a wall.
+        // The cylinder tester takes no up vector - it casts the wheel shape itself and
+        // reads the orientation off the constraint.
+        const JPH::Vec3 up = Conversions::ToJolt(AZ::Vector3::CreateAxisZ());
+
+        // The widest wheel makes the best sphere: too small and the sphere falls into the
+        // gaps the ray already falls into.
+        float largestRadius = 0.0f;
+        for (const JoltWheelConfiguration& wheel : configuration.m_wheels)
+        {
+            largestRadius = AZStd::max(largestRadius, wheel.m_radius);
+        }
+
+        switch (configuration.m_collisionTester)
+        {
+        case JoltVehicleCollisionTester::Sphere:
+            return new JPH::VehicleCollisionTesterCastSphere(ObjectLayers::Moving, largestRadius, up);
+        case JoltVehicleCollisionTester::Cylinder:
+            return new JPH::VehicleCollisionTesterCastCylinder(ObjectLayers::Moving);
+        case JoltVehicleCollisionTester::Ray:
+        default:
+            return new JPH::VehicleCollisionTesterRay(ObjectLayers::Moving, up);
+        }
+    }
+
+    void JoltVehicle::BuildAntiRollBars(
+        const JoltVehicleConfiguration& configuration, JPH::VehicleConstraintSettings& settings) const
+    {
+        const int wheelCount = static_cast<int>(settings.mWheels.size());
+        for (const JoltVehicleAntiRollBar& bar : configuration.m_antiRollBars)
+        {
+            // An out-of-range index would index Jolt's wheel array directly, so it is
+            // rejected here rather than left to crash mid-step.
+            if (bar.m_leftWheel < 0 || bar.m_leftWheel >= wheelCount ||
+                bar.m_rightWheel < 0 || bar.m_rightWheel >= wheelCount)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Vehicle anti-roll bar names wheels %d and %d, but the vehicle has %d; this bar is ignored.",
+                    bar.m_leftWheel, bar.m_rightWheel, wheelCount);
+                continue;
+            }
+            if (bar.m_leftWheel == bar.m_rightWheel)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Vehicle anti-roll bar couples wheel %d to itself, which does nothing; this bar is ignored.",
+                    bar.m_leftWheel);
+                continue;
+            }
+
+            JPH::VehicleAntiRollBar antiRollBar;
+            antiRollBar.mLeftWheel = bar.m_leftWheel;
+            antiRollBar.mRightWheel = bar.m_rightWheel;
+            antiRollBar.mStiffness = bar.m_stiffness;
+            settings.mAntiRollBars.push_back(antiRollBar);
+        }
     }
 
     void JoltVehicle::BuildTrackedSettings(
@@ -385,6 +447,46 @@ namespace JoltPhysics
             return m_trackedController->GetTransmission().GetCurrentGear();
         }
         return m_wheeledController ? m_wheeledController->GetTransmission().GetCurrentGear() : 0;
+    }
+
+    AZ::u32 JoltVehicle::GetWheelCount() const
+    {
+        return m_constraint ? static_cast<AZ::u32>(m_constraint->GetWheels().size()) : 0;
+    }
+
+    bool JoltVehicle::GetWheelTransform(AZ::u32 wheelIndex, AZ::Transform& outTransform) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return false;
+        }
+
+        // Jolt hands back a transform for a cylinder aligned with the wheel's right axis.
+        // The gem's wheels spin about Y and stand on Z (see ApplyCommonWheelSettings), so
+        // that is the model space asked for here, and the result orients a wheel mesh
+        // built the same way - it carries the steer angle and the roll of the tyre, not
+        // just the suspension position.
+        outTransform = Conversions::FromJolt(
+            m_constraint->GetWheelWorldTransform(wheelIndex, JPH::Vec3::sAxisY(), JPH::Vec3::sAxisZ()));
+        return true;
+    }
+
+    float JoltVehicle::GetSuspensionLength(AZ::u32 wheelIndex) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return 0.0f;
+        }
+        return m_constraint->GetWheel(wheelIndex)->GetSuspensionLength();
+    }
+
+    bool JoltVehicle::IsWheelOnGround(AZ::u32 wheelIndex) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return false;
+        }
+        return m_constraint->GetWheel(wheelIndex)->HasContact();
     }
 
     float JoltVehicle::GetLeanAngle() const
