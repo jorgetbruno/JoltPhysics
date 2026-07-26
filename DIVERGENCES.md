@@ -295,9 +295,40 @@ feature, trust the topic sections below the milestones.**
 - **Jolt's tapered capsule, tapered cylinder, plane and triangle shapes are not
   exposed.** They have no `Physics::ShapeType` counterpart, so they would each need a
   gem-specific configuration in the same way as the cylinder.
-- **Convex hulls have no authoring path of their own.** `JoltMeshUtils` builds a
-  `JPH::ConvexHullShape` when cooking, so hulls exist at runtime, but there is no
-  convex-hull collider component or shape configuration to author one directly.
+- **Convex hulls are authored through the mesh collider, not a component of their
+  own.** `JoltMeshUtils` builds a `JPH::ConvexHullShape`, and the mesh collider's
+  Mesh Type field chooses between "Triangle Mesh" and "Convex Hull" — but there is no
+  standalone convex-hull collider component or shape configuration, so a hull always
+  comes from cooked geometry rather than from authored points.
+
+## Mesh colliders
+
+- **Nothing is cooked offline, by either side of the pipeline.** PhysX cooks in the
+  Asset Processor: a source scene produces a `.pxmesh` product asset, and the PhysX
+  Mesh Collider references it. This gem has no asset builder at all. Jolt's
+  `MeshShape` and `ConvexHullShape` build from raw vertices at `Create()` time, so the
+  "cooked" blob in `Physics::CookedMeshShapeConfiguration` is just packed geometry
+  (`JoltMeshUtils::PackTriangleMesh` / `PackConvexMesh`), and the gem writes and reads
+  it itself.
+- **The geometry comes from the entity's render mesh, at edit time.** The editor
+  component asks `AzFramework::VisibleGeometryRequestBus` — the bus the Mesh component
+  answers — and bakes the result into the component. Consequences worth knowing before
+  building content on it: the blob is serialized into the **prefab**, not into a shared
+  asset, so two entities using the same model carry two copies and the level file grows
+  with the mesh; changing the model does not update the collider until it is re-baked;
+  and a collider on an entity with no Mesh component has nothing to bake from.
+- **Baking is automatic, and retried, because the asset load is a race.** The bake
+  attempted on activation almost always loses to the model's asynchronous load, so the
+  component stays on the tick bus and retries until the mesh can answer, then reports
+  what it baked. Without the retry a freshly added collider stayed silently empty until
+  someone found the button — which is what "the bake button does nothing" actually was.
+- **A bake is an undoable edit that dirties the entity.** It changes serialized data
+  from code rather than from the property grid, so it is wrapped in a
+  `ScopedUndoBatch` and marks the entity dirty; otherwise saving skips the entity and
+  the baked mesh dies with the session, leaving the level to warn again on every play.
+- **"Bake from render mesh" is a button in the property grid**, which PhysX has no
+  counterpart for — its equivalent step happens in the asset pipeline. It exists for
+  the cases automation cannot cover: the model changed, or the mesh type changed.
 
 ## Collision filtering
 
@@ -656,6 +687,13 @@ feature, trust the topic sections below the milestones.**
   flavor, so the Editor, launchers and servers all pick up the saved
   configuration; `EnablePhysics` falls back to defaults when nothing was saved.
   PhysX splits its configuration across several .setreg files; this gem uses one.
+- **A configuration edit refreshes every open inspector.** The layer/group dropdowns
+  rebuild their entries from the live configuration on each `ReadValuesIntoGUI`, but
+  the inspector only calls that when something refreshes it — so renaming a layer left
+  already-open panels showing the old name. The editor system component now listens for
+  `OnConfigurationChangedEvent` (which every edit funnels through) and invalidates the
+  property display. The configuration window's own property editor is standalone and
+  does not hear the broadcast, so there is no feedback loop.
 - **The gem supplies the `CollisionLayerSelector`/`CollisionGroupSelector`
   property handlers** that AzFramework's reflection asks for (Collision Layer /
   Collides With dropdowns). PhysX was previously the only implementer, so these
@@ -762,8 +800,8 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
   scene format.
 - **Hair is wrapped by the separate JoltHair gem, not by this one.** It runs Jolt's
   GPU strand solver on Atom's DirectX 12 device (proven working in the editor,
-  2026-07-26), reaching this gem's backend through `JoltPhysicsSystemRequests` like
-  JoltBuoyancy and JoltSoftBody do. It is a separate gem deliberately: hair needs the
+  2026-07-26), reaching this gem's backend through `JoltPhysicsSystemRequests` the way
+  JoltBuoyancy does. It is a separate gem deliberately: hair needs the
   renderer's device, and this gem has no Atom dependency to keep - a dedicated server
   links physics, not hair. Jolt's own notes still call the solver work in progress,
   and environment collision supports only convex hulls and compound shapes - a hair
