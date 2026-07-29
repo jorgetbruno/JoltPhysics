@@ -5,6 +5,8 @@ set(FILES
     Source/Editor/EditorComponentDescriptors.h
     Source/Editor/JoltEditorSettingsRegistryManager.cpp
     Source/Editor/JoltEditorSettingsRegistryManager.h
+    Source/Editor/EditorJoltConvexDecomposition.cpp
+    Source/Editor/EditorJoltConvexDecomposition.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWindowBus.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.cpp
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.h

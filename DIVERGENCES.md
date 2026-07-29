@@ -329,6 +329,26 @@ feature, trust the topic sections below the milestones.**
 - **"Bake from render mesh" is a button in the property grid**, which PhysX has no
   counterpart for — its equivalent step happens in the asset pipeline. It exists for
   the cases automation cannot cover: the model changed, or the mesh type changed.
+- **Convex bakes come in three modes.** *Single Hull* wraps everything in one hull.
+  *Hull per Mesh Node* bakes one hull per `VisibleGeometry` entry (per render node —
+  wheels separate from the wagon body) and packs them as a hull group: a v2 blob the
+  runtime decodes into a `StaticCompoundShape` of hulls. *Decomposed (VHACD)* runs
+  approximate convex decomposition over the merged geometry at bake time. The gem
+  fetches v-hacd sources (same upstream commit the engine's 3rdParty package was built
+  from) and links them **editor-only** — the runtime just decodes the same hull-group
+  blob and never links the decomposer. Decomposition runs on a worker thread (it takes
+  seconds on dense meshes) and the component collects the result on tick. The blob
+  format is versioned: v1 (one point cloud) still decodes, v2 is a counted list of
+  hulls; a one-hull group decodes to a bare hull, never a one-child compound.
+- **Hulls and compounds are centroid-relative in Jolt, and everything that reads
+  their geometry must account for it.** Jolt stores convex-hull vertices relative to
+  the hull's centroid, and compound children relative to the compound's center of
+  mass — so `GetLocalBounds()` on either is in the centroid frame, `GetTrianglesStart`
+  positions shapes by `inPositionCOM`, and `CollectTransformedShapes` culls children
+  against the box in that same frame. The wireframe/`GetGeometry` extraction walks
+  leaves with a `sBiggest()` box and lets each leaf re-apply its own centroid offset;
+  a single hull group under one collider still maps all contact material lookups to
+  that collider (`JoltScene::GetMaterialForSubShape`).
 
 ## Collision filtering
 

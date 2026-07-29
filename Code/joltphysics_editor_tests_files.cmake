@@ -6,6 +6,7 @@ set(FILES
     Tests/JoltCharacterControllerComponentModeTests.cpp
     Tests/JoltEditorColliderSerializationTests.cpp
     Tests/JoltEditorColliderGeometryTests.cpp
+    Tests/JoltEditorConvexDecompositionTests.cpp
     Tests/JoltJointComponentModeTests.cpp
     Tests/JoltVehicleComponentModeTests.cpp
     Tests/JoltEditorHeightfieldDrawTests.cpp

@@ -163,6 +163,47 @@ o3de_add_variant_dependencies_for_gem_dependencies(GEM_NAME ${gem_name} VARIANTS
 
 # Editor/Tools targets
 if(PAL_TRAIT_BUILD_HOST_TOOLS)
+    # v-hacd (VHACD convex decomposition), editor-only. The engine's 3rdParty package is
+    # wired for the PhysX gem and its SDK-side Find module only creates a stub target,
+    # so - like Jolt above - fetch the sources at the same commit that package was built
+    # from and build the small static lib here. Upstream's own CMake cannot run from a
+    # subdirectory (it mutates global flags and probes OpenCL/OpenMP), so this target
+    # lists the sources directly; the SOURCE_SUBDIR below does not exist, which makes
+    # FetchContent_MakeAvailable populate the sources without adding upstream's build.
+    include(FetchContent)
+    FetchContent_Declare(
+        vhacd_src
+        GIT_REPOSITORY https://github.com/kmammou/v-hacd.git
+        GIT_TAG 1a49edf29c69039df15286181f2f27e17ceb9aef # v4.1.0, same commit as the engine's 3rdParty package (License: BSD-3-Clause)
+        SOURCE_SUBDIR "no-such-dir"
+    )
+    message(STATUS "JoltPhysics Gem: Fetching v-hacd @ 1a49edf (License: BSD-3-Clause)")
+    FetchContent_MakeAvailable(vhacd_src)
+
+    set(vhacd_lib_dir "${vhacd_src_SOURCE_DIR}/src/VHACD_Lib")
+    add_library(joltphysics_vhacd STATIC
+        ${vhacd_lib_dir}/src/VHACD.cpp
+        ${vhacd_lib_dir}/src/VHACD-ASYNC.cpp
+        ${vhacd_lib_dir}/src/btAlignedAllocator.cpp
+        ${vhacd_lib_dir}/src/btConvexHullComputer.cpp
+        ${vhacd_lib_dir}/src/vhacdICHull.cpp
+        ${vhacd_lib_dir}/src/vhacdManifoldMesh.cpp
+        ${vhacd_lib_dir}/src/vhacdMesh.cpp
+        ${vhacd_lib_dir}/src/vhacdRaycastMesh.cpp
+        ${vhacd_lib_dir}/src/vhacdVolume.cpp
+        ${vhacd_lib_dir}/src/FloatMath.cpp
+    )
+    target_include_directories(joltphysics_vhacd SYSTEM
+        PUBLIC ${vhacd_lib_dir}/public
+        PRIVATE ${vhacd_lib_dir}/inc
+    )
+    # Third-party C++ at O3DE warning levels is noisy; silence it on its own target.
+    if(MSVC)
+        target_compile_options(joltphysics_vhacd PRIVATE /W0)
+    else()
+        target_compile_options(joltphysics_vhacd PRIVATE -w)
+    endif()
+
     ly_add_target(
         NAME ${gem_name}.Editor.API INTERFACE
         NAMESPACE Gem
@@ -201,6 +242,7 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
                 Gem::LmbrCentral.Editor
                 ${gem_name}.Private.Object
                 Jolt::Jolt
+                joltphysics_vhacd # editor-time convex decomposition (VHACD); runtime stays free of it
     )
 
     ly_add_target(

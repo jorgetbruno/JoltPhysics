@@ -7,7 +7,7 @@
 - Visual Studio 2022 (Community or higher) with the C++ workload.
 - CMake >= 3.23 and Ninja. The Visual Studio-bundled ones work:
   `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake,Ninja}`.
-- Git (for FetchContent of Jolt Physics).
+- Git (for FetchContent of Jolt Physics and v-hacd).
 
 ## Register the gem
 
@@ -43,7 +43,8 @@ cmake --build build/windows --config profile --target YourProject.GameLauncher E
 (If `cmake` is not on `PATH`, use the full path to the VS-bundled one:
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.)
 
-The first configure clones Jolt Physics (currently `v5.5.0`) via CMake FetchContent;
+The first configure clones Jolt Physics (currently `v5.6.0`) and v-hacd (for the
+editor's convex decomposition) via CMake FetchContent;
 all other dependencies come from the O3DE SDK.
 
 Build outputs land in `build/windows\profile\...` (multi-config layout).
