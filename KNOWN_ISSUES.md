@@ -6,35 +6,19 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
-- **`AzPhysics::SceneInterface` is not implemented.** The high-level scene-management
-  API and scene-level events (`OnSceneTriggersEvent`, `OnSceneCollisionsEvent`,
-  simulation start/finish notifications) are unavailable. Body-level events work.
-  → M3 or dedicated follow-up.
-- **Mesh colliders / convex hulls unavailable.** `CookConvexMeshToFile/Memory`,
-  `CookTriangleMeshToFile/Memory` are stubs returning false; `SystemRequestBus::CreateShape`
-  returns `nullptr`; `AddShape`/`RemoveShape` on rigid bodies are no-ops (needs the
-  `Physics::Shape` wrapper). → M3 (compound) / later.
-- **Multiple colliders per entity** are disallowed at the component level
-  (`JoltColliderService` self-incompatible). Compound collider components arrive in M3.
-- **No soft bodies or water** — scheduled M8 (stretch).
-- **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
-  gem is not part of this engine), so vehicles are exposed only through this gem's own
-  component/bus; wheels have no visual transform sync (the chassis moves, wheel meshes
-  are the user's to drive from the native constraint).
 - **Joints do not disable collision between the connected bodies** (PhysX disables it
   by default): jointed bodies whose shapes overlap will fight the constraint — use
   collision layers/groups or keep the shapes apart. `AzPhysics::JointHelpersInterface`
   (editor joint-limit visualization/auto-configuration) is not implemented.
-- **Character controller gaps**: no collision layer/group filtering on the character's
-  own movement (defaults are used), `AttachShape` is a no-op, body-level `RayCast`
-  returns empty, and there is no `CharacterGameplayComponent` equivalent (gameplay
+- **Character controller gaps**: `AttachShape` is a no-op (a Jolt character's shape is
+  fixed at creation) and there is no `CharacterGameplayComponent` equivalent (gameplay
   drives via `CharacterRequestBus`).
 - **No editor (edit-mode) world.** Only the game default world exists
   (`JoltDefaultWorldComponent`); edit-mode simulation and edit-mode scene queries
   are unavailable. PhysX implements this via `EditorWorldBus` in its editor gem.
-- **`Physics::Shape`-based collider debug draw and edit-time collider visualization
-  are not implemented** (no component modes, no viewport collider rendering yet;
-  `DebugDrawPhysics` works for the simulation backend).
+- **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
+  gem is not part of this engine), so vehicles are exposed only through this gem's own
+  component/bus.
 
 ## Build / Tooling
 
@@ -61,3 +45,31 @@ deviations from PhysX behavior.
 - `FindAttachedBodyHandleFromEntityId` implemented.
 - Debug draw via `Physics::SystemDebugRequestBus::DebugDrawPhysics`.
 - Cylinder collider removal (engine dropped `CylinderShapeConfiguration` in 26.05).
+
+## Resolved in later milestones (kept for reference)
+
+- **`AzPhysics::SceneInterface`** is implemented (`JoltSceneInterface`), including
+  scene-level trigger/collision events, so engine-wide consumers (e.g. the WhiteBox
+  gem) work against it.
+- **Mesh colliders / convex hulls**: `CookConvexMeshToFile/Memory` and
+  `CookTriangleMeshToFile/Memory` pack the geometry blob (Jolt needs no cooking pass),
+  `SystemRequestBus::CreateShape` returns a `JoltShape` wrapper, and
+  `JoltRigidBody::AddShape`/`RemoveShape` manage runtime compound shapes. The editor
+  mesh collider bakes triangle-mesh or convex-hull collision from the render mesh.
+- **Multiple colliders per entity** (M3): colliders no longer declare
+  `JoltColliderService` self-incompatible; static and mutable compound collider
+  components group child colliders into one body.
+- **Soft bodies** (M8): `JoltSoftBodyComponent` + `JoltSoftBodyRequestBus` with
+  procedural geometry and `AzPhysics::SimulatedBody` integration. Water/buoyancy
+  lives in the separate JoltBuoyancy gem.
+- **Editor collider visualization and component modes**: viewport wireframes with
+  selection bounds for all collider types (box, sphere, capsule, cylinder,
+  mesh/convex, heightfield); Box/Capsule component modes plus joint, vehicle, and
+  character controller modes.
+- **Character controller filtering and queries**: the character's collision
+  layer/group is honored for its own movement (Jolt default filters over the
+  character's object layer), and body-level `RayCast` casts against the shape at its
+  current pose.
+- **Vehicle wheel state for rendering**: exposed through `JoltVehicleRequestBus`
+  (`GetWheelCount`, `GetWheelTransform` in world space, carrying suspension);
+  driving the wheel meshes from it remains the user's side.
