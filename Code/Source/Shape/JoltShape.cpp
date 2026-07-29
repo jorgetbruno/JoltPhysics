@@ -217,7 +217,11 @@ namespace JoltPhysics
         // documents for non-mesh shapes).
         JPH::Shape::GetTrianglesContext context;
         const JPH::AABox bounds = m_nativeShape->GetLocalBounds();
-        m_nativeShape->GetTrianglesStart(context, bounds, JPH::Vec3::sZero(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
+        // Same COM subtlety as BuildShapeWireframe: inPositionCOM positions the shape's
+        // center of mass in the output frame, and convex-hull vertices are stored relative
+        // to the hull's centroid, so the shape's own COM is what yields local-frame vertices.
+        m_nativeShape->GetTrianglesStart(
+            context, bounds, m_nativeShape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
 
         constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
         JPH::Float3 buffer[batchSize * 3];

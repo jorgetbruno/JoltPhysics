@@ -46,8 +46,13 @@ namespace JoltPhysics::EditorColliderGeometry
         }
 
         JPH::Shape::GetTrianglesContext context;
+        // inPositionCOM is where the shape's center of mass lands in the output frame, and
+        // Jolt stores convex-hull vertices relative to the hull's centroid - so passing zero
+        // here draws any hull whose pivot is not at its centroid offset by -centroid (e.g. a
+        // hull baked from a bottom-pivot mesh ends up centered on the pivot). Passing the
+        // shape's own COM yields triangles in the shape's local frame, where they were baked.
         shape->GetTrianglesStart(
-            context, shape->GetLocalBounds(), JPH::Vec3::sZero(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
+            context, shape->GetLocalBounds(), shape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
 
         constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
         JPH::Float3 buffer[batchSize * 3];

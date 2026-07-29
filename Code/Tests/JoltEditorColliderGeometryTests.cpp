@@ -255,6 +255,38 @@ namespace JoltPhysics
         EXPECT_TRUE(bounds.GetMax().IsClose(AZ::Vector3(1.0f, 2.0f, 3.0f), 0.06f));
     }
 
+    TEST_F(JoltEditorColliderGeometryTests, ConvexHullWireframeStaysInTheFrameItWasBakedIn)
+    {
+        // A hull baked from bottom-pivot geometry: nothing sits below z = 0, so the
+        // centroid Jolt stores vertices relative to is far from the entity origin.
+        // (The symmetric box above cannot catch a shift to the centroid - its centroid
+        // *is* the origin, which is how this regression slipped through.)
+        const AZ::Vector3 corners[8] = {
+            AZ::Vector3(2.0f, 1.0f, 0.0f), AZ::Vector3(6.0f, 1.0f, 0.0f),
+            AZ::Vector3(2.0f, 5.0f, 0.0f), AZ::Vector3(6.0f, 5.0f, 0.0f),
+            AZ::Vector3(2.0f, 1.0f, 4.0f), AZ::Vector3(6.0f, 1.0f, 4.0f),
+            AZ::Vector3(2.0f, 5.0f, 4.0f), AZ::Vector3(6.0f, 5.0f, 4.0f),
+        };
+        const AZStd::vector<AZ::u8> cookedData = JoltMeshUtils::PackConvexMesh(corners, 8);
+        ASSERT_FALSE(cookedData.empty());
+
+        const JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData);
+        ASSERT_NE(shape, nullptr);
+        // Sanity: the hull really is off-center, or the assertions below pass vacuously.
+        ASSERT_FALSE(shape->GetCenterOfMass().IsNearZero());
+
+        AZStd::vector<AZ::Vector3> lines;
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        BuildShapeWireframe(shape.GetPtr(), lines, bounds);
+
+        // Regression: the wireframe used to come out shifted by -centroid, putting half
+        // of it below the ground plane the mesh stands on. Jolt shrinks hulls by the
+        // convex radius, so compare within that margin.
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_TRUE(bounds.GetMin().IsClose(AZ::Vector3(2.0f, 1.0f, 0.0f), 0.06f));
+        EXPECT_TRUE(bounds.GetMax().IsClose(AZ::Vector3(6.0f, 5.0f, 4.0f), 0.06f));
+    }
+
     TEST_F(JoltEditorColliderGeometryTests, ANullShapeYieldsNoWireframeAndNoBounds)
     {
         AZStd::vector<AZ::Vector3> lines{ AZ::Vector3::CreateOne() };
