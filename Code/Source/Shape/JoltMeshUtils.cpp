@@ -9,6 +9,7 @@
 #include <Jolt/Geometry/IndexedTriangle.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
 namespace JoltPhysics
 {
@@ -33,6 +34,121 @@ namespace JoltPhysics
             AZ::u32 m_version = 1;
             AZ::u32 m_vertexCount = 0;
         };
+
+        // Convex blob versions: v1 is one flat point cloud (a single hull), v2 is a
+        // u32 hull count followed by per-hull (u32 vertex count + float3 vertices),
+        // with the header's vertex count carrying the total across all hulls.
+        constexpr AZ::u32 cConvexBlobVersionSingle = 1;
+        constexpr AZ::u32 cConvexBlobVersionHullGroup = 2;
+
+        // Builds one convex hull from a point cloud, reporting Jolt's error on failure.
+        JPH::RefConst<JPH::Shape> CreateHullShape(const JPH::Array<JPH::Vec3>& points)
+        {
+            JPH::ConvexHullShapeSettings settings(points);
+            JPH::ShapeSettings::ShapeResult result = settings.Create();
+            if (result.HasError())
+            {
+                AZ_Error("JoltPhysics", false, "Failed to create convex hull shape: %s", result.GetError().c_str());
+                return nullptr;
+            }
+            return result.Get();
+        }
+
+        // Quiet version of CreateHullShape for cook-time validation: can these points
+        // ever become a hull? (Jolt needs at least 4 non-coplanar points.)
+        bool CanBuildHull(const AZStd::vector<AZ::Vector3>& points)
+        {
+            if (points.size() < 4)
+            {
+                return false;
+            }
+            JPH::Array<JPH::Vec3> joltPoints;
+            joltPoints.reserve(points.size());
+            for (const AZ::Vector3& point : points)
+            {
+                joltPoints.push_back(JPH::Vec3(point.GetX(), point.GetY(), point.GetZ()));
+            }
+            JPH::ConvexHullShapeSettings settings(joltPoints);
+            return settings.Create().IsValid();
+        }
+
+        // Reads one v2 hull (vertex count + float3 vertices) off the cursor. Returns
+        // false when the blob ends early; the caller then reports it as malformed.
+        bool ReadHullPoints(const AZ::u8*& cursor, const AZ::u8* end, JPH::Array<JPH::Vec3>& outPoints)
+        {
+            if (static_cast<size_t>(end - cursor) < sizeof(AZ::u32))
+            {
+                return false;
+            }
+            AZ::u32 vertexCount;
+            memcpy(&vertexCount, cursor, sizeof(vertexCount));
+            cursor += sizeof(vertexCount);
+
+            const size_t vertexBytes = static_cast<size_t>(vertexCount) * 3 * sizeof(float);
+            if (vertexCount == 0 || static_cast<size_t>(end - cursor) < vertexBytes)
+            {
+                return false;
+            }
+            outPoints.reserve(vertexCount);
+            for (AZ::u32 i = 0; i < vertexCount; ++i)
+            {
+                float xyz[3];
+                memcpy(xyz, cursor + static_cast<size_t>(i) * sizeof(xyz), sizeof(xyz));
+                outPoints.push_back(JPH::Vec3(xyz[0], xyz[1], xyz[2]));
+            }
+            cursor += vertexBytes;
+            return true;
+        }
+
+        // Appends one geometry entry's vertices (brought into entity-local space) to
+        // outPoints. Entries with malformed data are skipped and leave the outputs
+        // untouched. When outIndices is given the entry's indices (re-based) are appended
+        // too, and an out-of-range index rejects the whole entry with a warning.
+        bool GatherEntryPoints(
+            const AzFramework::VisibleGeometry& geometry,
+            const AZ::Transform& worldToEntity,
+            AZStd::vector<AZ::Vector3>& outPoints,
+            AZStd::vector<AZ::u32>* outIndices)
+        {
+            if (geometry.m_vertices.size() < 9 || geometry.m_vertices.size() % 3 != 0 ||
+                geometry.m_indices.size() < 3 || geometry.m_indices.size() % 3 != 0)
+            {
+                return false;
+            }
+
+            const AZ::u32 baseVertex = static_cast<AZ::u32>(outPoints.size());
+            const size_t vertexCount = geometry.m_vertices.size() / 3;
+            outPoints.reserve(outPoints.size() + vertexCount);
+            for (size_t i = 0; i < vertexCount; ++i)
+            {
+                const AZ::Vector3 localVertex(
+                    geometry.m_vertices[i * 3 + 0], geometry.m_vertices[i * 3 + 1], geometry.m_vertices[i * 3 + 2]);
+                const AZ::Vector3 worldVertex = geometry.m_transform * localVertex;
+                outPoints.push_back(worldToEntity.TransformPoint(worldVertex));
+            }
+
+            if (!outIndices)
+            {
+                return true;
+            }
+
+            const size_t baseIndexCount = outIndices->size();
+            outIndices->reserve(baseIndexCount + geometry.m_indices.size());
+            for (const uint32_t index : geometry.m_indices)
+            {
+                if (index >= vertexCount)
+                {
+                    AZ_Warning("JoltPhysics", false,
+                        "JoltMeshUtils: geometry entry has an out-of-range index (%u >= %zu); the entry is skipped.",
+                        index, vertexCount);
+                    outPoints.resize(baseVertex);
+                    outIndices->resize(baseIndexCount);
+                    return false;
+                }
+                outIndices->push_back(baseVertex + index);
+            }
+            return true;
+        }
     }
 
     AZStd::vector<AZ::u8> JoltMeshUtils::PackTriangleMesh(
@@ -161,6 +277,58 @@ namespace JoltPhysics
         return result;
     }
 
+    AZStd::vector<AZ::u8> JoltMeshUtils::PackConvexHulls(const AZStd::vector<AZStd::vector<AZ::Vector3>>& hulls)
+    {
+        AZStd::vector<AZ::u8> result;
+
+        AZ::u32 hullCount = 0;
+        AZ::u32 totalVertexCount = 0;
+        for (const AZStd::vector<AZ::Vector3>& hull : hulls)
+        {
+            if (!hull.empty())
+            {
+                ++hullCount;
+                totalVertexCount += static_cast<AZ::u32>(hull.size());
+            }
+        }
+        if (hullCount == 0)
+        {
+            return result;
+        }
+
+        ConvexBlobHeader header;
+        header.m_version = cConvexBlobVersionHullGroup;
+        header.m_vertexCount = totalVertexCount;
+
+        const size_t vertexBytes = static_cast<size_t>(totalVertexCount) * 3 * sizeof(float);
+        result.reserve(sizeof(ConvexBlobHeader) + sizeof(AZ::u32) + hullCount * sizeof(AZ::u32) + vertexBytes);
+
+        const auto* headerBytes = reinterpret_cast<const AZ::u8*>(&header);
+        result.insert(result.end(), headerBytes, headerBytes + sizeof(ConvexBlobHeader));
+
+        const auto* hullCountBytes = reinterpret_cast<const AZ::u8*>(&hullCount);
+        result.insert(result.end(), hullCountBytes, hullCountBytes + sizeof(hullCount));
+
+        for (const AZStd::vector<AZ::Vector3>& hull : hulls)
+        {
+            if (hull.empty())
+            {
+                continue;
+            }
+            const AZ::u32 vertexCount = static_cast<AZ::u32>(hull.size());
+            const auto* countBytes = reinterpret_cast<const AZ::u8*>(&vertexCount);
+            result.insert(result.end(), countBytes, countBytes + sizeof(vertexCount));
+            for (const AZ::Vector3& vertex : hull)
+            {
+                const float xyz[3] = { vertex.GetX(), vertex.GetY(), vertex.GetZ() };
+                const auto* bytes = reinterpret_cast<const AZ::u8*>(xyz);
+                result.insert(result.end(), bytes, bytes + sizeof(xyz));
+            }
+        }
+
+        return result;
+    }
+
     JPH::RefConst<JPH::Shape> JoltMeshUtils::CreateConvexShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData)
     {
         if (cookedData.size() < sizeof(ConvexBlobHeader))
@@ -171,7 +339,8 @@ namespace JoltPhysics
         ConvexBlobHeader header;
         memcpy(&header, cookedData.data(), sizeof(ConvexBlobHeader));
 
-        if (header.m_magic != ConvexBlobHeader().m_magic || header.m_version != ConvexBlobHeader().m_version ||
+        if (header.m_magic != ConvexBlobHeader().m_magic ||
+            (header.m_version != cConvexBlobVersionSingle && header.m_version != cConvexBlobVersionHullGroup) ||
             header.m_vertexCount == 0)
         {
             AZ_Error("JoltPhysics", false,
@@ -181,83 +350,185 @@ namespace JoltPhysics
             return nullptr;
         }
 
-        const size_t vertexBytes = static_cast<size_t>(header.m_vertexCount) * 3 * sizeof(float);
-        const size_t expectedSize = sizeof(ConvexBlobHeader) + vertexBytes;
-        if (cookedData.size() != expectedSize)
+        // Gather the hull point clouds: v1 is one flat cloud, v2 is a counted list.
+        AZStd::vector<JPH::Array<JPH::Vec3>> hullPointClouds;
+        AZ::u32 totalVertexCount = 0;
+        if (header.m_version == cConvexBlobVersionSingle)
         {
-            AZ_Error("JoltPhysics", false, "JoltMeshUtils: cooked convex blob size mismatch (expected %zu, got %zu)",
-                expectedSize, cookedData.size());
+            const size_t vertexBytes = static_cast<size_t>(header.m_vertexCount) * 3 * sizeof(float);
+            const size_t expectedSize = sizeof(ConvexBlobHeader) + vertexBytes;
+            if (cookedData.size() != expectedSize)
+            {
+                AZ_Error("JoltPhysics", false, "JoltMeshUtils: cooked convex blob size mismatch (expected %zu, got %zu)",
+                    expectedSize, cookedData.size());
+                return nullptr;
+            }
+
+            const AZ::u8* vertexCursor = cookedData.data() + sizeof(ConvexBlobHeader);
+            JPH::Array<JPH::Vec3> points;
+            points.reserve(header.m_vertexCount);
+            for (AZ::u32 i = 0; i < header.m_vertexCount; ++i)
+            {
+                float xyz[3];
+                memcpy(xyz, vertexCursor + static_cast<size_t>(i) * 3 * sizeof(float), sizeof(xyz));
+                points.push_back(JPH::Vec3(xyz[0], xyz[1], xyz[2]));
+            }
+            totalVertexCount = header.m_vertexCount;
+            hullPointClouds.push_back(AZStd::move(points));
+        }
+        else
+        {
+            const AZ::u8* cursor = cookedData.data() + sizeof(ConvexBlobHeader);
+            const AZ::u8* end = cookedData.data() + cookedData.size();
+            if (static_cast<size_t>(end - cursor) < sizeof(AZ::u32))
+            {
+                AZ_Error("JoltPhysics", false, "JoltMeshUtils: hull-group blob is missing its hull count");
+                return nullptr;
+            }
+            AZ::u32 hullCount;
+            memcpy(&hullCount, cursor, sizeof(hullCount));
+            cursor += sizeof(hullCount);
+
+            hullPointClouds.reserve(hullCount);
+            for (AZ::u32 hull = 0; hull < hullCount; ++hull)
+            {
+                JPH::Array<JPH::Vec3> points;
+                if (!ReadHullPoints(cursor, end, points))
+                {
+                    AZ_Error("JoltPhysics", false,
+                        "JoltMeshUtils: hull-group blob is truncated at hull %u of %u", hull, hullCount);
+                    return nullptr;
+                }
+                totalVertexCount += static_cast<AZ::u32>(points.size());
+                hullPointClouds.push_back(AZStd::move(points));
+            }
+            if (cursor != end || hullCount == 0 || totalVertexCount != header.m_vertexCount)
+            {
+                AZ_Error("JoltPhysics", false,
+                    "JoltMeshUtils: hull-group blob is inconsistent (hullCount=%u declaredVertices=%u readVertices=%u trailingBytes=%zd)",
+                    hullCount, header.m_vertexCount, totalVertexCount, end - cursor);
+                return nullptr;
+            }
+        }
+
+        // A single hull stays a bare hull shape; only a real group pays for a compound.
+        if (hullPointClouds.size() == 1)
+        {
+            return CreateHullShape(hullPointClouds.front());
+        }
+
+        JPH::StaticCompoundShapeSettings compoundSettings;
+        for (const JPH::Array<JPH::Vec3>& points : hullPointClouds)
+        {
+            JPH::RefConst<JPH::Shape> hullShape = CreateHullShape(points);
+            if (!hullShape)
+            {
+                return nullptr;
+            }
+            // Points are entity-local already, so every hull sits at the compound origin.
+            compoundSettings.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), hullShape);
+        }
+
+        JPH::ShapeSettings::ShapeResult compoundResult = compoundSettings.Create();
+        if (compoundResult.HasError())
+        {
+            AZ_Error("JoltPhysics", false, "Failed to create hull-group compound shape: %s",
+                compoundResult.GetError().c_str());
             return nullptr;
         }
+        return compoundResult.Get();
+    }
 
-        const AZ::u8* vertexCursor = cookedData.data() + sizeof(ConvexBlobHeader);
-
-        JPH::Array<JPH::Vec3> points;
-        points.reserve(header.m_vertexCount);
-        for (AZ::u32 i = 0; i < header.m_vertexCount; ++i)
+    bool JoltMeshUtils::GatherVisibleGeometrySoup(
+        const AzFramework::VisibleGeometryContainer& geometryContainer,
+        const AZ::Transform& entityWorldTransform,
+        AZStd::vector<AZ::Vector3>& outVertices,
+        AZStd::vector<AZ::u32>& outIndices)
+    {
+        const AZ::Transform worldToEntity = entityWorldTransform.GetInverse();
+        for (const AzFramework::VisibleGeometry& geometry : geometryContainer)
         {
-            float xyz[3];
-            memcpy(xyz, vertexCursor + static_cast<size_t>(i) * 3 * sizeof(float), sizeof(xyz));
-            points.push_back(JPH::Vec3(xyz[0], xyz[1], xyz[2]));
+            GatherEntryPoints(geometry, worldToEntity, outVertices, &outIndices);
         }
-
-        JPH::ConvexHullShapeSettings settings(points);
-        JPH::ShapeSettings::ShapeResult result = settings.Create();
-        if (result.HasError())
-        {
-            AZ_Error("JoltPhysics", false, "Failed to create convex hull shape: %s", result.GetError().c_str());
-            return nullptr;
-        }
-        return result.Get();
+        return !outVertices.empty() && !outIndices.empty();
     }
 
     bool JoltMeshUtils::CookVisibleGeometry(
         const AzFramework::VisibleGeometryContainer& geometryContainer,
         const AZ::Transform& entityWorldTransform,
         Physics::CookedMeshShapeConfiguration::MeshType meshType,
-        Physics::CookedMeshShapeConfiguration& outConfiguration)
+        Physics::CookedMeshShapeConfiguration& outConfiguration,
+        ConvexGrouping convexGrouping)
     {
         const AZ::Transform worldToEntity = entityWorldTransform.GetInverse();
 
-        AZStd::vector<AZ::Vector3> vertices;
-        AZStd::vector<AZ::u32> indices;
-        for (const AzFramework::VisibleGeometry& geometry : geometryContainer)
+        if (meshType == Physics::CookedMeshShapeConfiguration::MeshType::Convex &&
+            convexGrouping == ConvexGrouping::PerGeometryEntry)
         {
-            if (geometry.m_vertices.size() < 9 || geometry.m_vertices.size() % 3 != 0 ||
-                geometry.m_indices.size() < 3 || geometry.m_indices.size() % 3 != 0)
+            // Hull group: one hull per render node (wheels, body, ...), so the collision
+            // can follow an asset's articulation instead of wrapping it in one blob.
+            AZStd::vector<AZStd::vector<AZ::Vector3>> hulls;
+            AZStd::vector<AZ::Vector3> leftovers;
+            for (const AzFramework::VisibleGeometry& geometry : geometryContainer)
             {
-                continue;
-            }
-
-            const AZ::u32 baseVertex = static_cast<AZ::u32>(vertices.size());
-            const size_t vertexCount = geometry.m_vertices.size() / 3;
-            vertices.reserve(vertices.size() + vertexCount);
-            for (size_t i = 0; i < vertexCount; ++i)
-            {
-                const AZ::Vector3 localVertex(
-                    geometry.m_vertices[i * 3 + 0], geometry.m_vertices[i * 3 + 1], geometry.m_vertices[i * 3 + 2]);
-                const AZ::Vector3 worldVertex = geometry.m_transform * localVertex;
-                vertices.push_back(worldToEntity.TransformPoint(worldVertex));
-            }
-
-            const size_t baseIndexCount = indices.size();
-            indices.reserve(baseIndexCount + geometry.m_indices.size());
-            for (const uint32_t index : geometry.m_indices)
-            {
-                if (index >= vertexCount)
+                AZStd::vector<AZ::Vector3> entryPoints;
+                if (!GatherEntryPoints(geometry, worldToEntity, entryPoints, nullptr))
+                {
+                    continue;
+                }
+                if (CanBuildHull(entryPoints))
+                {
+                    hulls.push_back(AZStd::move(entryPoints));
+                }
+                else
                 {
                     AZ_Warning("JoltPhysics", false,
-                        "JoltMeshUtils::CookVisibleGeometry: geometry entry has an out-of-range index (%u >= %zu); "
-                        "the entry is skipped.", index, vertexCount);
-                    vertices.resize(baseVertex);
-                    indices.resize(baseIndexCount);
-                    break;
+                        "JoltMeshUtils::CookVisibleGeometry: a geometry entry (%zu vertices) cannot form a convex "
+                        "hull on its own; merging it into a shared hull.", entryPoints.size());
+                    leftovers.insert(leftovers.end(), entryPoints.begin(), entryPoints.end());
                 }
-                indices.push_back(baseVertex + index);
             }
+
+            if (!leftovers.empty())
+            {
+                if (CanBuildHull(leftovers))
+                {
+                    hulls.push_back(AZStd::move(leftovers));
+                }
+                else
+                {
+                    // Last resort: one hull around everything still collides, which beats
+                    // dropping geometry on the floor.
+                    AZ_Warning("JoltPhysics", false,
+                        "JoltMeshUtils::CookVisibleGeometry: the leftover geometry cannot form a hull either; "
+                        "falling back to a single merged hull.");
+                    AZStd::vector<AZ::Vector3> merged = AZStd::move(leftovers);
+                    for (const AZStd::vector<AZ::Vector3>& hull : hulls)
+                    {
+                        merged.insert(merged.end(), hull.begin(), hull.end());
+                    }
+                    hulls.clear();
+                    if (CanBuildHull(merged))
+                    {
+                        hulls.push_back(AZStd::move(merged));
+                    }
+                }
+            }
+
+            const AZStd::vector<AZ::u8> cookedData = PackConvexHulls(hulls);
+            if (cookedData.empty())
+            {
+                return false;
+            }
+
+            outConfiguration = Physics::CookedMeshShapeConfiguration();
+            outConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), meshType);
+            return true;
         }
 
-        if (vertices.empty() || indices.empty())
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        if (!GatherVisibleGeometrySoup(geometryContainer, entityWorldTransform, vertices, indices))
         {
             return false;
         }

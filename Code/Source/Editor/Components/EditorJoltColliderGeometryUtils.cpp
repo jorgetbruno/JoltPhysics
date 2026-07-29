@@ -2,6 +2,8 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 
 #include <cmath>
 
@@ -45,36 +47,52 @@ namespace JoltPhysics::EditorColliderGeometry
             return;
         }
 
-        JPH::Shape::GetTrianglesContext context;
-        // inPositionCOM is where the shape's center of mass lands in the output frame, and
-        // Jolt stores convex-hull vertices relative to the hull's centroid - so passing zero
-        // here draws any hull whose pivot is not at its centroid offset by -centroid (e.g. a
-        // hull baked from a bottom-pivot mesh ends up centered on the pivot). Passing the
-        // shape's own COM yields triangles in the shape's local frame, where they were baked.
-        shape->GetTrianglesStart(
-            context, shape->GetLocalBounds(), shape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
-
-        constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
-        JPH::Float3 buffer[batchSize * 3];
-        int triangleCount = 0;
-        while ((triangleCount = shape->GetTrianglesNext(context, batchSize, buffer)) > 0)
+        // Decorated shapes (rotated/translated, scaled) and compounds refuse GetTrianglesStart
+        // ("non-leaf"), so walk down to the leaves first. The root is placed by its own center
+        // of mass, which keeps the output in the shape's local frame: Jolt stores convex-hull
+        // vertices relative to the hull's centroid, and each collected leaf re-applies that
+        // offset itself (passing zero would shift every hull by -centroid).
+        // The box must be in that same output frame, but GetLocalBounds() is relative to the
+        // centroid for hulls and compounds (Jolt shifts children by -COM), so children away
+        // from the origin would be culled against it - sBiggest culls nothing, which is what
+        // a full wireframe wants anyway.
+        const JPH::AABox bounds = JPH::AABox::sBiggest();
+        struct LeafCollector : public JPH::TransformedShapeCollector
         {
-            for (int t = 0; t < triangleCount; ++t)
-            {
-                const AZ::Vector3 vertices[3] = {
-                    AZ::Vector3(buffer[t * 3 + 0].x, buffer[t * 3 + 0].y, buffer[t * 3 + 0].z),
-                    AZ::Vector3(buffer[t * 3 + 1].x, buffer[t * 3 + 1].y, buffer[t * 3 + 1].z),
-                    AZ::Vector3(buffer[t * 3 + 2].x, buffer[t * 3 + 2].y, buffer[t * 3 + 2].z),
-                };
+            void AddHit(const JPH::TransformedShape& result) override { m_leaves.push_back(result); }
+            AZStd::vector<JPH::TransformedShape> m_leaves;
+        } collector;
+        shape->CollectTransformedShapes(
+            bounds, shape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f),
+            JPH::SubShapeIDCreator(), collector, JPH::ShapeFilter());
 
-                for (int edge = 0; edge < 3; ++edge)
+        for (const JPH::TransformedShape& leaf : collector.m_leaves)
+        {
+            JPH::Shape::GetTrianglesContext context;
+            leaf.GetTrianglesStart(context, bounds, JPH::Vec3::sZero());
+
+            constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
+            JPH::Float3 buffer[batchSize * 3];
+            int triangleCount = 0;
+            while ((triangleCount = leaf.GetTrianglesNext(context, batchSize, buffer)) > 0)
+            {
+                for (int t = 0; t < triangleCount; ++t)
                 {
-                    outLines.push_back(vertices[edge]);
-                    outLines.push_back(vertices[(edge + 1) % 3]);
-                }
-                for (const AZ::Vector3& vertex : vertices)
-                {
-                    outBounds.AddPoint(vertex);
+                    const AZ::Vector3 vertices[3] = {
+                        AZ::Vector3(buffer[t * 3 + 0].x, buffer[t * 3 + 0].y, buffer[t * 3 + 0].z),
+                        AZ::Vector3(buffer[t * 3 + 1].x, buffer[t * 3 + 1].y, buffer[t * 3 + 1].z),
+                        AZ::Vector3(buffer[t * 3 + 2].x, buffer[t * 3 + 2].y, buffer[t * 3 + 2].z),
+                    };
+
+                    for (int edge = 0; edge < 3; ++edge)
+                    {
+                        outLines.push_back(vertices[edge]);
+                        outLines.push_back(vertices[(edge + 1) % 3]);
+                    }
+                    for (const AZ::Vector3& vertex : vertices)
+                    {
+                        outBounds.AddPoint(vertex);
+                    }
                 }
             }
         }

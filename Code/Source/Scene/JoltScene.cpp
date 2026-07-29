@@ -488,13 +488,18 @@ namespace JoltPhysics
             JPH::SubShapeID remainder;
             const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
             const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
-            if (subShapeIndex >= colliderCount)
+            // A single-collider body can still be a compound: a mesh collider baked as a
+            // convex hull group stores its hulls as compound children, and those all
+            // belong to the one collider - unlike a multi-collider body, whose children
+            // map one-to-one onto colliders.
+            const AZ::u32 colliderIndex = (colliderCount == 1) ? 0 : subShapeIndex;
+            if (colliderIndex >= colliderCount)
             {
                 return false;
             }
 
             const auto subShapeValues =
-                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(subShapeIndex).get());
+                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(colliderIndex).get());
             outFriction = subShapeValues.first;
             outRestitution = subShapeValues.second;
             return true;

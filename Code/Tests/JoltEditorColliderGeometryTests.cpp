@@ -287,6 +287,39 @@ namespace JoltPhysics
         EXPECT_TRUE(bounds.GetMax().IsClose(AZ::Vector3(6.0f, 5.0f, 4.0f), 0.06f));
     }
 
+    TEST_F(JoltEditorColliderGeometryTests, HullGroupWireframeCoversEveryHull)
+    {
+        // A hull group decodes to a compound, which refuses GetTrianglesStart outright
+        // ("non-leaf shape") - the wireframe has to walk the compound's leaves instead.
+        const AZStd::vector<AZ::Vector3> nearBox = {
+            AZ::Vector3(-1.0f, -1.0f, -1.0f), AZ::Vector3(1.0f, -1.0f, -1.0f),
+            AZ::Vector3(-1.0f, 1.0f, -1.0f),  AZ::Vector3(1.0f, 1.0f, -1.0f),
+            AZ::Vector3(-1.0f, -1.0f, 1.0f),  AZ::Vector3(1.0f, -1.0f, 1.0f),
+            AZ::Vector3(-1.0f, 1.0f, 1.0f),   AZ::Vector3(1.0f, 1.0f, 1.0f),
+        };
+        AZStd::vector<AZ::Vector3> farBox;
+        for (const AZ::Vector3& vertex : nearBox)
+        {
+            farBox.push_back(vertex + AZ::Vector3(10.0f, 0.0f, 0.0f));
+        }
+
+        const AZStd::vector<AZ::u8> cookedData = JoltMeshUtils::PackConvexHulls({ nearBox, farBox });
+        ASSERT_FALSE(cookedData.empty());
+        const JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData);
+        ASSERT_NE(shape, nullptr);
+        ASSERT_EQ(shape->GetSubType(), JPH::EShapeSubType::StaticCompound);
+
+        AZStd::vector<AZ::Vector3> lines;
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        BuildShapeWireframe(shape.GetPtr(), lines, bounds);
+
+        ASSERT_FALSE(lines.empty());
+        ASSERT_TRUE(bounds.IsValid());
+        // Jolt shrinks convex hulls by the convex radius; the bounds still track the boxes.
+        EXPECT_TRUE(bounds.GetMin().IsClose(AZ::Vector3(-1.0f, -1.0f, -1.0f), 0.06f));
+        EXPECT_TRUE(bounds.GetMax().IsClose(AZ::Vector3(11.0f, 1.0f, 1.0f), 0.06f));
+    }
+
     TEST_F(JoltEditorColliderGeometryTests, ANullShapeYieldsNoWireframeAndNoBounds)
     {
         AZStd::vector<AZ::Vector3> lines{ AZ::Vector3::CreateOne() };

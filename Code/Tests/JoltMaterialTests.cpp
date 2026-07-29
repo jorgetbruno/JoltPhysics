@@ -8,6 +8,7 @@
 #include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <RigidBody/JoltStaticRigidBody.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShapeUtils.h>
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
@@ -250,6 +251,97 @@ namespace JoltPhysics
         EXPECT_TRUE(bouncyTouched);
         EXPECT_LT(deadMaxAfterBounce, 0.7f);
         EXPECT_GT(bouncyMaxAfterBounce, 1.2f);
+    }
+
+    TEST_F(JoltMaterialTests, HullGroupSubShapesUseTheSingleCollidersMaterial)
+    {
+        // ONE collider whose baked shape is a hull GROUP (two boxes apart on X): the
+        // compound's children are not per-collider children, so both must resolve the
+        // one collider's material (child index 1 used to run off the collider list and
+        // get default material instead).
+        auto boxPoints = [](float centerX)
+        {
+            AZStd::vector<AZ::Vector3> points;
+            for (int i = 0; i < 8; ++i)
+            {
+                points.emplace_back(
+                    centerX + ((i & 1) ? 1.5f : -1.5f),
+                    (i & 2) ? 2.0f : -2.0f,
+                    -0.5f + ((i & 4) ? 0.5f : -0.5f));
+            }
+            return points;
+        };
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackConvexHulls({ boxPoints(-4.0f), boxPoints(4.0f) });
+        ASSERT_FALSE(blob.empty());
+
+        auto slabShape = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        slabShape->SetCookedMeshData(blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.9f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto dropSphere = [this](float x)
+        {
+            auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
+            sphereShape->m_radius = 0.5f;
+            AzPhysics::RigidBodyConfiguration sphereConfig;
+            sphereConfig.m_position = AZ::Vector3(x, 0.0f, 3.0f);
+            sphereConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, sphereShape);
+            return m_scene->AddSimulatedBody(&sphereConfig);
+        };
+
+        // One sphere per hull; both sit on the bouncy material, so both bounce high.
+        auto leftSphere = dropSphere(-4.0f);
+        auto rightSphere = dropSphere(4.0f);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        float leftMaxAfterBounce = 0.0f;
+        float rightMaxAfterBounce = 0.0f;
+        bool leftTouched = false;
+        bool rightTouched = false;
+
+        for (int i = 0; i < 240; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+
+            const float leftZ = m_scene->GetSimulatedBodyFromHandle(leftSphere)->GetPosition().GetZ();
+            const float rightZ = m_scene->GetSimulatedBodyFromHandle(rightSphere)->GetPosition().GetZ();
+
+            if (leftZ < 0.55f)
+            {
+                leftTouched = true;
+            }
+            else if (leftTouched)
+            {
+                leftMaxAfterBounce = AZStd::max(leftMaxAfterBounce, leftZ);
+            }
+
+            if (rightZ < 0.55f)
+            {
+                rightTouched = true;
+            }
+            else if (rightTouched)
+            {
+                rightMaxAfterBounce = AZStd::max(rightMaxAfterBounce, rightZ);
+            }
+        }
+
+        EXPECT_TRUE(leftTouched);
+        EXPECT_TRUE(rightTouched);
+        EXPECT_GT(leftMaxAfterBounce, 1.2f);
+        EXPECT_GT(rightMaxAfterBounce, 1.2f);
+
+        // Balance the AddRef that creating the cooked mesh shape took on the configuration.
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(slabShape->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            slabShape->SetCachedNativeMesh(nullptr);
+        }
     }
 
     TEST_F(JoltMaterialTests, StandaloneShapeMaterialRoundTrip)

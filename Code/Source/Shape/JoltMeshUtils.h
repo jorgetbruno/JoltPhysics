@@ -37,9 +37,33 @@ namespace JoltPhysics
         //! needed - this is just the packed points.
         static AZStd::vector<AZ::u8> PackConvexMesh(const AZ::Vector3* vertices, AZ::u32 vertexCount);
 
-        //! Builds a Jolt convex-hull shape from a blob produced by PackConvexMesh.
+        //! Packs several convex-hull point clouds into one "hull group" blob (blob
+        //! version 2; PackConvexMesh writes the single-hull version 1). Hulls with no
+        //! points are skipped. Decode with CreateConvexShapeFromCookedData.
+        static AZStd::vector<AZ::u8> PackConvexHulls(const AZStd::vector<AZStd::vector<AZ::Vector3>>& hulls);
+
+        //! Builds a Jolt convex shape from a blob produced by PackConvexMesh (single
+        //! hull) or PackConvexHulls (one hull -> bare hull shape; several -> a static
+        //! compound of hulls, all points being entity-local so children sit at identity).
         //! Returns nullptr if the blob is malformed or empty.
         static JPH::RefConst<JPH::Shape> CreateConvexShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);
+
+        //! How CookVisibleGeometry groups convex-hull points when meshType is Convex
+        //! (ignored for triangle meshes, which are always merged).
+        enum class ConvexGrouping
+        {
+            Single, //!< One hull around all geometry.
+            PerGeometryEntry, //!< One hull per VisibleGeometry entry (i.e. per render node).
+        };
+
+        //! Gathers all render geometry into one entity-local triangle soup (the input
+        //! the editor's convex decomposition runs on). Returns false when the container
+        //! holds no triangles.
+        static bool GatherVisibleGeometrySoup(
+            const AzFramework::VisibleGeometryContainer& geometryContainer,
+            const AZ::Transform& entityWorldTransform,
+            AZStd::vector<AZ::Vector3>& outVertices,
+            AZStd::vector<AZ::u32>& outIndices);
 
         //! Cooks render geometry (as reported by AzFramework::VisibleGeometryRequestBus)
         //! into a cooked mesh shape configuration. The geometry entries carry local-to-world
@@ -50,7 +74,8 @@ namespace JoltPhysics
             const AzFramework::VisibleGeometryContainer& geometryContainer,
             const AZ::Transform& entityWorldTransform,
             Physics::CookedMeshShapeConfiguration::MeshType meshType,
-            Physics::CookedMeshShapeConfiguration& outConfiguration);
+            Physics::CookedMeshShapeConfiguration& outConfiguration,
+            ConvexGrouping convexGrouping = ConvexGrouping::Single);
     };
 
 } // namespace JoltPhysics

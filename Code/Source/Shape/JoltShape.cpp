@@ -10,6 +10,8 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeID.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 
 namespace JoltPhysics
 {
@@ -215,23 +217,39 @@ namespace JoltPhysics
         // vertices, so 'indices' here is really just [0, 1, 2, 3, ...] over the returned
         // triangle-soup 'vertices' (matching the "vertices only" contract Physics::Shape
         // documents for non-mesh shapes).
-        JPH::Shape::GetTrianglesContext context;
-        const JPH::AABox bounds = m_nativeShape->GetLocalBounds();
-        // Same COM subtlety as BuildShapeWireframe: inPositionCOM positions the shape's
-        // center of mass in the output frame, and convex-hull vertices are stored relative
-        // to the hull's centroid, so the shape's own COM is what yields local-frame vertices.
-        m_nativeShape->GetTrianglesStart(
-            context, bounds, m_nativeShape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f));
-
-        constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
-        JPH::Float3 buffer[batchSize * 3];
-        int triangleCount = 0;
-        while ((triangleCount = m_nativeShape->GetTrianglesNext(context, batchSize, buffer)) > 0)
+        //
+        // Decorated shapes (e.g. the rotated capsule wrapper) and compounds refuse
+        // GetTrianglesStart ("non-leaf"), so walk down to the leaves first. Placing the
+        // root by its own center of mass keeps the output in the shape's local frame -
+        // Jolt stores convex-hull vertices relative to the hull's centroid, and each
+        // collected leaf re-applies that offset itself (same subtlety as the editor's
+        // BuildShapeWireframe). The box must be in that output frame, but GetLocalBounds()
+        // is relative to the centroid for hulls and compounds, so sBiggest culls nothing.
+        const JPH::AABox bounds = JPH::AABox::sBiggest();
+        struct LeafCollector : public JPH::TransformedShapeCollector
         {
-            for (int i = 0; i < triangleCount * 3; ++i)
+            void AddHit(const JPH::TransformedShape& result) override { m_leaves.push_back(result); }
+            AZStd::vector<JPH::TransformedShape> m_leaves;
+        } collector;
+        m_nativeShape->CollectTransformedShapes(
+            bounds, m_nativeShape->GetCenterOfMass(), JPH::Quat::sIdentity(), JPH::Vec3::sReplicate(1.0f),
+            JPH::SubShapeIDCreator(), collector, JPH::ShapeFilter());
+
+        for (const JPH::TransformedShape& leaf : collector.m_leaves)
+        {
+            JPH::Shape::GetTrianglesContext context;
+            leaf.GetTrianglesStart(context, bounds, JPH::Vec3::sZero());
+
+            constexpr int batchSize = JPH::Shape::cGetTrianglesMinTrianglesRequested;
+            JPH::Float3 buffer[batchSize * 3];
+            int triangleCount = 0;
+            while ((triangleCount = leaf.GetTrianglesNext(context, batchSize, buffer)) > 0)
             {
-                vertices.emplace_back(buffer[i].x, buffer[i].y, buffer[i].z);
-                indices.push_back(static_cast<AZ::u32>(indices.size()));
+                for (int i = 0; i < triangleCount * 3; ++i)
+                {
+                    vertices.emplace_back(buffer[i].x, buffer[i].y, buffer[i].z);
+                    indices.push_back(static_cast<AZ::u32>(indices.size()));
+                }
             }
         }
     }
