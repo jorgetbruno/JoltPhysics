@@ -12,6 +12,7 @@
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/TransformBus.h>
+#include <AzFramework/Components/NonUniformScaleComponent.h>
 #include <AzFramework/Components/TransformComponent.h>
 #include <AzFramework/Physics/SystemBus.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
@@ -268,6 +269,65 @@ namespace JoltPhysics
 
         childA->Deactivate();
         parent->Deactivate();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, ScaledEntityBakesScaleIntoColliderPairs)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("ScaledPairEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* scaleComponent = entity->CreateComponent<AzFramework::NonUniformScaleComponent>();
+        scaleComponent->SetScale(AZ::Vector3(2.0f, 3.0f, 4.0f));
+        auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+        collider->GetColliderConfiguration().m_position = AZ::Vector3(1.0f, 0.0f, 0.0f);
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        const AzPhysics::ShapeColliderPairList pairs = collider->GetShapeColliderPairs();
+        ASSERT_EQ(pairs.size(), 1u);
+
+        // The entity scale lands on the shape configuration (read by
+        // CreateJoltShapeFromConfig) and the authored offset scales with it.
+        EXPECT_TRUE(pairs[0].second->m_scale.IsClose(AZ::Vector3(2.0f, 3.0f, 4.0f)));
+        EXPECT_TRUE(pairs[0].first->m_position.IsClose(AZ::Vector3(2.0f, 0.0f, 0.0f)));
+        // The serialized offset on the component is not mutated by the pair expansion.
+        EXPECT_TRUE(collider->GetColliderConfiguration().m_position.IsClose(AZ::Vector3(1.0f, 0.0f, 0.0f)));
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, ScaledBoxRestsAtItsScaledHalfHeight)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("ScaledBoxEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* scaleComponent = entity->CreateComponent<AzFramework::NonUniformScaleComponent>();
+        scaleComponent->SetScale(AZ::Vector3(2.0f, 2.0f, 2.0f));
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+        AZ::TransformBus::Event(entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, AZ::Vector3(0.0f, 0.0f, 4.0f));
+
+        // Static slab with top at z=0 for the box to land on.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(20.0f, 20.0f, 1.0f);
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        SimulateSeconds(4.0f);
+
+        // The default 1 m box scaled by 2 has half height 1 m; before entity scale was
+        // propagated it rested at 0.5 m - the unscaled half height.
+        const auto [foundSceneHandle, bodyHandle] =
+            m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const float boxZ = m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetPosition().GetZ();
+        EXPECT_NEAR(boxZ, 1.0f, 0.05f);
+
+        entity->Deactivate();
     }
 
 } // namespace JoltPhysics

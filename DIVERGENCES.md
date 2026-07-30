@@ -377,6 +377,12 @@ feature, trust the topic sections below the milestones.**
   uuid is `CreateName(manifest group id)`: renaming a mesh group in Scene Settings
   creates a *different* product and orphans old asset references — same behavior as
   PhysX, worth knowing before renaming.
+- **Default groups select only `PhysicsMesh` nodes** (the `_phys` suffix convention
+  from SceneProcessing's soft-name settings), exactly like PhysX: a scene without
+  `_phys`-suffixed nodes gets a default "Jolt Mesh" group with an empty selection and
+  the exporter skips it until nodes are selected in Scene Settings (or named to
+  convention). Verified end-to-end with AssetProcessorBatch: authored selections
+  produce `.joltmesh`, default empty groups are skipped cleanly.
 - **Scale is honored everywhere now.** Shape configuration `m_scale` (entity scale ×
   asset scale) is applied as a `JPH::ScaledShape` decorator in
   `CreateJoltShapeFromConfig` for every shape type; previously the field was ignored.

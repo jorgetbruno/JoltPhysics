@@ -32,12 +32,17 @@ namespace JoltPhysics
         //! Returns the collider/shape configuration pair used when creating simulated bodies.
         virtual AzPhysics::ShapeColliderPair GetShapeColliderPair() const = 0;
 
-        //! Returns all collider/shape configuration pairs (a compound collider returns
-        //! the pairs of all its child entities' colliders).
-        virtual AzPhysics::ShapeColliderPairList GetShapeColliderPairs() const
-        {
-            return { GetShapeColliderPair() };
-        }
+        //! Returns all collider/shape configuration pairs, with the entity's overall
+        //! scale applied (a compound collider returns its child entities' pairs, each
+        //! already scaled by that child entity's own collider component).
+        virtual AzPhysics::ShapeColliderPairList GetShapeColliderPairs() const;
+
+        //! Applies the entity's overall scale (world uniform scale times any
+        //! NonUniformScale component) to each pair: assigns it as the shape
+        //! configuration's scale (read by JoltShapeUtils::CreateJoltShapeFromConfig)
+        //! and scales a clone of the collider offset. Heightfields are left alone -
+        //! Jolt cannot scale them (nor can PhysX).
+        void ApplyOverallScale(AzPhysics::ShapeColliderPairList& pairs) const;
 
         //! Mutable access to the collider configuration (offset, rotation, trigger, layer...).
         Physics::ColliderConfiguration& GetColliderConfiguration()
