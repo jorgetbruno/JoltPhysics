@@ -34,7 +34,7 @@ namespace JoltPhysics
         Physics::PhysicsAssetShapeConfiguration m_configuration;
     };
 
-    //! Editor Jolt Mesh Asset Collider: references a .joltmesh physics asset (cooked
+    //! Editor Jolt Mesh Collider: references a .joltmesh physics asset (cooked
     //! from a source scene by the Asset Processor), draws its shapes in the Edit
     //! viewport, and spawns the runtime JoltMeshAssetColliderComponent via
     //! BuildGameEntity. When no asset is assigned and the entity has a Mesh component,

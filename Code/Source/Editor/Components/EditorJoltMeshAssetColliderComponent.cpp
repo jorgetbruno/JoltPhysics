@@ -75,7 +75,7 @@ namespace JoltPhysics
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
                 editContext->Class<EditorJoltMeshAssetColliderComponent>(
-                    "Jolt Mesh Asset Collider",
+                    "Jolt Mesh Collider",
                     "Collider that references a .joltmesh physics asset cooked from a source scene by the Asset Processor "
                     "(Jolt physics backend, editor)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
@@ -297,7 +297,7 @@ namespace JoltPhysics
         if (!querySucceeded)
         {
             AZ_Warning("JoltPhysics", false,
-                "Jolt Mesh Asset Collider on entity '%s': could not query the assets produced by the render mesh's "
+                "Jolt Mesh Collider on entity '%s': could not query the assets produced by the render mesh's "
                 "source scene; assign the .joltmesh asset manually.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
             return;
@@ -329,7 +329,7 @@ namespace JoltPhysics
             else
             {
                 AZ_Warning("JoltPhysics", false,
-                    "Jolt Mesh Asset Collider on entity '%s': the render mesh's source scene produced several .joltmesh "
+                    "Jolt Mesh Collider on entity '%s': the render mesh's source scene produced several .joltmesh "
                     "assets and none matches the render mesh name; assign one manually.",
                     GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
             }
@@ -373,7 +373,7 @@ namespace JoltPhysics
     void EditorJoltMeshAssetColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         AZ_Warning("JoltPhysics", m_proxyShapeConfiguration.m_asset.GetId().IsValid(),
-            "Jolt Mesh Asset Collider on entity '%s' has no .joltmesh asset assigned; the runtime collider will be empty.",
+            "Jolt Mesh Collider on entity '%s' has no .joltmesh asset assigned; the runtime collider will be empty.",
             GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
 
         if (auto* component = gameEntity->CreateComponent<JoltMeshAssetColliderComponent>())

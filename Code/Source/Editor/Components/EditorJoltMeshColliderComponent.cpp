@@ -40,7 +40,7 @@ namespace JoltPhysics
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
                 editContext->Class<EditorJoltMeshColliderComponent>(
-                    "Jolt Mesh Collider", "Collider baked from the entity's render mesh for the Jolt physics backend (editor)")
+                    "Jolt Baked Mesh Collider", "Collider baked from the entity's render mesh for the Jolt physics backend (editor)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
@@ -134,7 +134,7 @@ namespace JoltPhysics
         if (BakeFromRenderMesh(/*warnOnFailure*/ false))
         {
             MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
+            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
                 "Save the level to keep it.\n",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
                 m_shapeConfiguration.GetCookedMeshData().size() / 1024);
@@ -171,7 +171,7 @@ namespace JoltPhysics
                     : JoltMeshUtils::ConvexGrouping::Single))
         {
             AZ_Warning("JoltPhysics", !warnOnFailure,
-                "Jolt Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
+                "Jolt Baked Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
                 "its asset to load), then press 'Bake from render mesh'.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
             return false;
@@ -201,7 +201,7 @@ namespace JoltPhysics
         if (!JoltMeshUtils::GatherVisibleGeometrySoup(geometryContainer, worldTransform, vertices, indices))
         {
             AZ_Warning("JoltPhysics", !warnOnFailure,
-                "Jolt Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
+                "Jolt Baked Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
                 "its asset to load), then press 'Bake from render mesh'.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
             return false;
@@ -248,7 +248,7 @@ namespace JoltPhysics
             m_shapeConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), m_meshType);
             m_debugLinesDirty = true;
             MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' decomposed into %zu hulls (%zu KiB). "
+            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' decomposed into %zu hulls (%zu KiB). "
                 "Save the level to keep it.\n",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
                 hullCount, cookedData.size() / 1024);
@@ -258,7 +258,7 @@ namespace JoltPhysics
             // The geometry was there and VHACD still produced nothing; retrying every
             // tick would just burn worker threads, so give up until the user re-bakes.
             AZ_Warning("JoltPhysics", false,
-                "Jolt Mesh Collider: convex decomposition produced no hulls on entity '%s'.",
+                "Jolt Baked Mesh Collider: convex decomposition produced no hulls on entity '%s'.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
         }
         AZ::TickBus::Handler::BusDisconnect();
@@ -294,7 +294,7 @@ namespace JoltPhysics
             // the mesh happens to be off screen. Say what happened, and mark the entity
             // dirty so saving the level actually keeps the result.
             MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
+            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
                 "Save the level to keep it.\n",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
                 m_shapeConfiguration.GetCookedMeshData().size() / 1024);
@@ -303,7 +303,7 @@ namespace JoltPhysics
         else if (m_decompositionJob)
         {
             // Decomposed mode only starts the worker here; completion lands on tick.
-            AZ_Printf("JoltPhysics", "Jolt Mesh Collider on entity '%s' is decomposing on a worker thread; "
+            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' is decomposing on a worker thread; "
                 "the collider updates when it finishes.\n",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
         }
@@ -327,7 +327,7 @@ namespace JoltPhysics
     void EditorJoltMeshColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         AZ_Warning("JoltPhysics", !m_shapeConfiguration.GetCookedMeshData().empty(),
-            "Jolt Mesh Collider on entity '%s' has no baked collision mesh; the runtime collider will be empty. "
+            "Jolt Baked Mesh Collider on entity '%s' has no baked collision mesh; the runtime collider will be empty. "
             "Press 'Bake from render mesh' in the editor.",
             GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
 

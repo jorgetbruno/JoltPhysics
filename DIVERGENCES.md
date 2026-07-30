@@ -378,8 +378,9 @@ feature, trust the topic sections below the milestones.**
 - **Scale is honored everywhere now.** Shape configuration `m_scale` (entity scale ×
   asset scale) is applied as a `JPH::ScaledShape` decorator in
   `CreateJoltShapeFromConfig` for every shape type; previously the field was ignored.
-- **Baking into the prefab stays as the quick path.** The editor "Jolt Mesh Collider"
-  component (render-mesh bake) is untouched; the asset pipeline is the shared,
+- **Baking into the prefab stays as the quick path.** The editor "Jolt Baked Mesh Collider"
+  component (render-mesh bake) is untouched; the asset pipeline (exposed as "Jolt Mesh
+  Collider", matching PhysX's asset-based Mesh Collider) is the shared,
   deduplicated workflow for real content. Per-face materials in merged triangle
   meshes remain the known gap (the blob has no material table — Phase B).
 

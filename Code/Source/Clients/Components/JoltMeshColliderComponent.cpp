@@ -25,7 +25,7 @@ namespace JoltPhysics
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
                 editContext->Class<JoltMeshColliderComponent>(
-                    "Jolt Mesh Collider", "Mesh collider for the Jolt physics backend")
+                    "Jolt Baked Mesh Collider", "Mesh collider baked into the prefab for the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         // No AppearsInAddComponentMenu: the editor-side EditorJoltMeshColliderComponent
                         // owns the menu entry (PhysX-style editor/runtime split).
