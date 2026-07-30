@@ -13,21 +13,22 @@
 #include <AzFramework/Physics/SystemBus.h>
 
 #include <Character/JoltCharacter.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void JoltCharacterControllerComponent::Reflect(AZ::ReflectContext* context)
     {
-        if (auto* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
-        {
-            behaviorContext->EBus<JoltCharacterGameplayRequestBus>("JoltCharacterGameplayRequestBus", "Jolt Character Gameplay")
-                ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
-                ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
-                        ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
-                ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround, "Is On Ground")
-                ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal, "Get Ground Normal")
-                ;
-        }
+        Internal::ReflectEBusOnce(context, "JoltCharacterGameplayRequestBus",
+            [](AZ::BehaviorContext* behaviorContext)
+            {
+                behaviorContext->EBus<JoltCharacterGameplayRequestBus>("JoltCharacterGameplayRequestBus")
+                    ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround)
+                    ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal)
+                    ;
+            });
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

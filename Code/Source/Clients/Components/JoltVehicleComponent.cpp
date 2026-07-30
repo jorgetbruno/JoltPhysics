@@ -25,6 +25,25 @@ namespace JoltPhysics
         Internal::ReflectOnce<JoltWheelConfiguration>(context);
         Internal::ReflectOnce<JoltVehicleConfiguration>(context);
 
+        Internal::ReflectEBusOnce(context, "JoltVehicleRequestBus",
+            [](AZ::BehaviorContext* behaviorContext)
+            {
+                behaviorContext->EBus<JoltVehicleRequestBus>("JoltVehicleRequestBus")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Event("SetDriverInput", &JoltVehicleRequests::SetDriverInput)
+                    ->Event("GetSpeed", &JoltVehicleRequests::GetSpeed)
+                    ->Event("GetEngineRpm", &JoltVehicleRequests::GetEngineRpm)
+                    ->Event("GetCurrentGear", &JoltVehicleRequests::GetCurrentGear)
+                    ->Event("GetLeanAngle", &JoltVehicleRequests::GetLeanAngle)
+                    // The wheel accessors are what drives the visual wheels, which is
+                    // exactly the job a script is likely to be doing here.
+                    ->Event("GetWheelCount", &JoltVehicleRequests::GetWheelCount)
+                    ->Event("GetWheelTransform", &JoltVehicleRequests::GetWheelTransform)
+                    ->Event("GetSuspensionLength", &JoltVehicleRequests::GetSuspensionLength)
+                    ->Event("IsWheelOnGround", &JoltVehicleRequests::IsWheelOnGround)
+                    ;
+            });
+
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltVehicleComponent, AZ::Component>()

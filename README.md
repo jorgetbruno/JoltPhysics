@@ -73,6 +73,14 @@ outside it (see [The gem family](#the-gem-family)).
 - Debug visualization via `Physics::SystemDebugRequestBus::DebugDrawPhysics`, and the
   `jolt_Debug 1` console variable for per-frame collider wireframes
 
+**Scripting**
+- The gem's own gameplay buses are reflected to the behavior context, so Lua and
+  ScriptCanvas can drive a vehicle (`JoltVehicleRequestBus`), tune and read a soft body
+  (`JoltSoftBodyRequestBus`), drive and query a joint motor (`JoltJointRequestBus`, with
+  a `JoltJointNotificationBus` handler for a joint breaking) and ask a character whether
+  it is grounded (`JoltCharacterGameplayRequestBus`). Rigid bodies, colliders and scene
+  queries are scriptable through the engine's own AzPhysics buses
+
 **Determinism**
 - Scene simulation state snapshot and restore (`SaveSimulationState` /
   `RestoreSimulationState`) covering bodies, contacts, constraints, vehicle drivetrain

@@ -9,6 +9,7 @@
 #include <Scene/JoltScene.h>
 #include <System/JoltSystem.h>
 
+#include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Ragdoll.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>

@@ -1,0 +1,90 @@
+#include <AzTest/AzTest.h>
+#include <AzCore/UnitTest/TestTypes.h>
+
+#include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/RTTI/BehaviorContext.h>
+
+namespace JoltPhysics
+{
+    // The gem's own gameplay buses are only reachable from Lua and ScriptCanvas if the
+    // components reflect them to the behavior context. Nothing else in the gem fails when
+    // a reflection is dropped - the C++ callers keep working - so it is pinned here.
+    //
+    // The context comes from the test application, which registers the gem's component
+    // descriptors exactly as the runtime module does, so this exercises the real path
+    // (including the eight joint components sharing one bus).
+    class JoltScriptReflectionTests : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            AZ::ComponentApplicationBus::BroadcastResult(
+                m_behaviorContext, &AZ::ComponentApplicationRequests::GetBehaviorContext);
+            ASSERT_NE(m_behaviorContext, nullptr) << "No application behavior context";
+        }
+
+        const AZ::BehaviorEBus* FindBus(const char* name) const
+        {
+            const auto it = m_behaviorContext->m_ebuses.find(name);
+            return it != m_behaviorContext->m_ebuses.end() ? it->second : nullptr;
+        }
+
+        void ExpectBusHasEvents(const char* busName, const AZStd::vector<const char*>& eventNames) const
+        {
+            const AZ::BehaviorEBus* bus = FindBus(busName);
+            ASSERT_NE(bus, nullptr) << busName << " is not reflected to script";
+            for (const char* eventName : eventNames)
+            {
+                EXPECT_NE(bus->m_events.find(eventName), bus->m_events.end())
+                    << busName << " is missing the event " << eventName;
+            }
+        }
+
+        AZ::BehaviorContext* m_behaviorContext = nullptr;
+    };
+
+    TEST_F(JoltScriptReflectionTests, VehicleBusIsReflectedWithItsDrivingAndWheelEvents)
+    {
+        ExpectBusHasEvents("JoltVehicleRequestBus",
+            { "SetDriverInput", "GetSpeed", "GetEngineRpm", "GetCurrentGear", "GetLeanAngle",
+              "GetWheelCount", "GetWheelTransform", "GetSuspensionLength", "IsWheelOnGround" });
+    }
+
+    TEST_F(JoltScriptReflectionTests, SoftBodyBusIsReflectedWithItsSettingsAndVertexEvents)
+    {
+        ExpectBusHasEvents("JoltSoftBodyRequestBus",
+            { "SetPressure", "GetPressure", "SetLinearDamping", "GetLinearDamping",
+              "SetGravityFactor", "GetGravityFactor", "SetNumIterations", "GetNumIterations",
+              "SetEnabled", "IsEnabled", "GetVertexCount", "GetVertexPosition", "GetWorldBounds" });
+    }
+
+    TEST_F(JoltScriptReflectionTests, JointBusIsReflectedWithSingleValueLimitAccessors)
+    {
+        ExpectBusHasEvents("JoltJointRequestBus",
+            { "GetPosition", "GetVelocity", "GetTransform", "SetVelocity", "SetMaximumForce",
+              "GetLowerLimit", "GetUpperLimit" });
+
+        // GetLimits returns a pair, which script handles poorly; the two single-value
+        // accessors above are reflected in its place.
+        const AZ::BehaviorEBus* jointBus = FindBus("JoltJointRequestBus");
+        ASSERT_NE(jointBus, nullptr);
+        EXPECT_EQ(jointBus->m_events.find("GetLimits"), jointBus->m_events.end());
+
+        // All eight joint components call JoltJointComponentBase::Reflect, and the bus
+        // must come out registered exactly once (Internal::ReflectEBusOnce).
+        EXPECT_EQ(jointBus->m_events.size(), 7u);
+    }
+
+    TEST_F(JoltScriptReflectionTests, JointNotificationBusIsReflectedWithAHandler)
+    {
+        // Without a handler, script can call into a joint but cannot be told it broke.
+        const AZ::BehaviorEBus* notificationBus = FindBus("JoltJointNotificationBus");
+        ASSERT_NE(notificationBus, nullptr);
+        EXPECT_NE(notificationBus->m_createHandler, nullptr);
+    }
+
+    TEST_F(JoltScriptReflectionTests, CharacterGameplayBusIsReflected)
+    {
+        ExpectBusHasEvents("JoltCharacterGameplayRequestBus", { "IsOnGround", "GetGroundNormal" });
+    }
+} // namespace JoltPhysics

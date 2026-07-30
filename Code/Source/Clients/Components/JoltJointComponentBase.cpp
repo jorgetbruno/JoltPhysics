@@ -42,9 +42,46 @@ namespace JoltPhysics
         }
     }
 
+    //! Lets script listen for a joint breaking (ScriptCanvas node / Lua handler).
+    class JoltJointNotificationBusHandler
+        : public JoltJointNotificationBus::Handler
+        , public AZ::BehaviorEBusHandler
+    {
+    public:
+        AZ_EBUS_BEHAVIOR_BINDER(
+            JoltJointNotificationBusHandler, "{4A6C8E20-1B5D-4C3F-9E7A-2D8B0F1C3E5A}", AZ::SystemAllocator, OnJointBroken);
+
+        void OnJointBroken() override
+        {
+            Call(FN_OnJointBroken);
+        }
+    };
+
     void JoltJointComponentBase::Reflect(AZ::ReflectContext* context)
     {
         Internal::ReflectOnce<JoltJointComponentConfiguration>(context);
+
+        Internal::ReflectEBusOnce(context, "JoltJointRequestBus",
+            [](AZ::BehaviorContext* behaviorContext)
+            {
+                behaviorContext->EBus<JoltJointRequestBus>("JoltJointRequestBus")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Event("GetPosition", &JoltJointRequests::GetPosition)
+                    ->Event("GetVelocity", &JoltJointRequests::GetVelocity)
+                    ->Event("GetTransform", &JoltJointRequests::GetTransform)
+                    ->Event("SetVelocity", &JoltJointRequests::SetVelocity)
+                    ->Event("SetMaximumForce", &JoltJointRequests::SetMaximumForce)
+                    // GetLimits returns a pair, which script handles poorly; the two
+                    // single-value accessors below are what a script should call.
+                    ->Event("GetLowerLimit", &JoltJointRequests::GetLowerLimit)
+                    ->Event("GetUpperLimit", &JoltJointRequests::GetUpperLimit)
+                    ;
+
+                behaviorContext->EBus<JoltJointNotificationBus>("JoltJointNotificationBus")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Handler<JoltJointNotificationBusHandler>()
+                    ;
+            });
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {

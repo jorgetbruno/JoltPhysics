@@ -10,11 +10,37 @@
 #include <AzFramework/Physics/SystemBus.h>
 
 #include <SoftBody/JoltSoftBodyRender.h>
+#include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
     void JoltSoftBodyComponent::Reflect(AZ::ReflectContext* context)
     {
+        Internal::ReflectEBusOnce(context, "JoltSoftBodyRequestBus",
+            [](AZ::BehaviorContext* behaviorContext)
+            {
+                behaviorContext->EBus<JoltSoftBodyRequestBus>("JoltSoftBodyRequestBus")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Event("SetPressure", &JoltSoftBodyRequests::SetPressure)
+                    ->Event("GetPressure", &JoltSoftBodyRequests::GetPressure)
+                    ->Event("SetLinearDamping", &JoltSoftBodyRequests::SetLinearDamping)
+                    ->Event("GetLinearDamping", &JoltSoftBodyRequests::GetLinearDamping)
+                    ->Event("SetGravityFactor", &JoltSoftBodyRequests::SetGravityFactor)
+                    ->Event("GetGravityFactor", &JoltSoftBodyRequests::GetGravityFactor)
+                    ->Event("SetNumIterations", &JoltSoftBodyRequests::SetNumIterations)
+                    ->Event("GetNumIterations", &JoltSoftBodyRequests::GetNumIterations)
+                    ->Event("SetEnabled", &JoltSoftBodyRequests::SetEnabled)
+                    ->Event("IsEnabled", &JoltSoftBodyRequests::IsEnabled)
+                    // What a script polls to follow the deformation, which the entity
+                    // transform alone does not describe.
+                    ->Event("GetVertexCount", &JoltSoftBodyRequests::GetVertexCount)
+                    ->Event("GetVertexPosition", &JoltSoftBodyRequests::GetVertexPosition)
+                    ->Event("GetWorldBounds", &JoltSoftBodyRequests::GetWorldBounds)
+                    // SetCollisionLayer / SetCollisionGroupId take AzPhysics types that
+                    // script cannot construct, so they stay C++-only.
+                    ;
+            });
+
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltSoftBodySettings>()

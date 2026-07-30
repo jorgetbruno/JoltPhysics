@@ -11,6 +11,7 @@
 
 #include <AzCore/Asset/AssetManager.h>
 
+#include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/HeightfieldProviderBus.h>
 #include <AzFramework/Physics/Material/PhysicsMaterialManager.h>

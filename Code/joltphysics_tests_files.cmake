@@ -8,6 +8,7 @@ set(FILES
     Tests/JoltInternalEdgeRemovalTests.cpp
     Tests/JoltSceneTests.cpp
     Tests/JoltComponentSerializationTests.cpp
+    Tests/JoltScriptReflectionTests.cpp
     Tests/JoltHeightfieldTests.cpp
     Tests/JoltCollisionFilteringTests.cpp
     Tests/JoltSceneQueryTests.cpp

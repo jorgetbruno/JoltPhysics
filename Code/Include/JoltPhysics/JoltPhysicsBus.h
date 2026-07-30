@@ -57,6 +57,17 @@ namespace JoltPhysics
         virtual void SetMaximumForce(float force) = 0;
         //! The configured limits (hinge: radians, slider: meters).
         virtual AZStd::pair<float, float> GetLimits() const = 0;
+
+        //! The same limits one at a time. Script has no useful handling for a pair, so
+        //! these are what the bus reflects; C++ callers can keep using GetLimits.
+        float GetLowerLimit() const
+        {
+            return GetLimits().first;
+        }
+        float GetUpperLimit() const
+        {
+            return GetLimits().second;
+        }
     };
 
     using JoltJointRequestBus = AZ::EBus<JoltJointRequests>;
