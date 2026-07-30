@@ -400,6 +400,13 @@ feature, trust the topic sections below the milestones.**
 - **Scale is honored everywhere now.** Shape configuration `m_scale` (entity scale ×
   asset scale) is applied as a `JPH::ScaledShape` decorator in
   `CreateJoltShapeFromConfig` for every shape type; previously the field was ignored.
+  Boxes, convex hulls and triangle meshes take a non-uniform scale as authored. Spheres
+  and capsules cannot (`JPH::Shape::IsValidScale`; a non-uniformly scaled sphere is not
+  a sphere), so a non-uniform scale on those is clamped to the shape's own
+  `MakeScaleValid` — the mean of the three components — and warns, rather than letting
+  Jolt assert inside the shape. Authoring a squashed sphere or capsule means using a box
+  or mesh collider. Heightfields are left unscaled entirely
+  (`JoltColliderComponentBase::ApplyOverallScale` skips them).
 - **Baking into the prefab stays as the quick path.** The editor "Jolt Baked Mesh Collider"
   component (render-mesh bake) is untouched; the asset pipeline (exposed as "Jolt Mesh
   Collider", matching PhysX's asset-based Mesh Collider) is the shared,

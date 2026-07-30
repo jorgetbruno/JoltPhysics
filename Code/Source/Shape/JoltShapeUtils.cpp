@@ -293,7 +293,25 @@ namespace JoltPhysics
             AZ_Warning("JoltPhysics", false, "Shape configuration has a zero-scale component; ignoring the scale.");
             return shape;
         }
-        return new JPH::ScaledShape(shape.GetPtr(), Conversions::ToJolt(scale));
+        // Not every shape can represent every scale: a sphere or a capsule only scales
+        // uniformly, a cylinder only equally across the two axes normal to its own, and
+        // Jolt asserts inside the shape rather than at the wrap if it is given one it
+        // cannot use. Clamp to the nearest scale the shape does accept (for a sphere or
+        // capsule, the mean of the three components), which is what the shapes' own
+        // MakeScaleValid returns.
+        const JPH::Vec3 joltScale = Conversions::ToJolt(scale);
+        if (!shape->IsValidScale(joltScale))
+        {
+            const JPH::Vec3 validScale = shape->MakeScaleValid(joltScale);
+            AZ_Warning("JoltPhysics", false,
+                "This collider shape cannot take the non-uniform scale (%.3f, %.3f, %.3f); using "
+                "(%.3f, %.3f, %.3f) instead. Spheres and capsules only scale uniformly - scale the entity "
+                "uniformly, or use a box or mesh collider where the axes must differ.",
+                scale.GetX(), scale.GetY(), scale.GetZ(),
+                validScale.GetX(), validScale.GetY(), validScale.GetZ());
+            return new JPH::ScaledShape(shape.GetPtr(), validScale);
+        }
+        return new JPH::ScaledShape(shape.GetPtr(), joltScale);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateBoxShape(const Physics::BoxShapeConfiguration& config)

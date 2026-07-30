@@ -2,13 +2,19 @@
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
+#include <Clients/Components/JoltBakedMeshColliderComponent.h>
 #include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
+#include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltSphereColliderComponent.h>
 #include <Clients/Components/JoltStaticCompoundColliderComponent.h>
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+
+#include "JoltTestWarningCatcher.h"
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/TransformBus.h>
@@ -18,6 +24,9 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
+
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace JoltPhysics
 {
@@ -328,6 +337,192 @@ namespace JoltPhysics
         EXPECT_NEAR(boxZ, 1.0f, 0.05f);
 
         entity->Deactivate();
+    }
+
+    // Entity with a NonUniformScale component set to the given scale, ready for a
+    // collider component to be added before Init/Activate.
+    static AZStd::unique_ptr<AZ::Entity> MakeScaledEntity(const char* name, const AZ::Vector3& scale)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>(name);
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* scaleComponent = entity->CreateComponent<AzFramework::NonUniformScaleComponent>();
+        scaleComponent->SetScale(scale);
+        return entity;
+    }
+
+    // Releases the native shape cached on a cooked configuration by
+    // CreateJoltShapeFromConfig (in production this is balanced by
+    // JoltPhysicsSystemComponent::ReleaseNativeMeshObject, which this test does not run).
+    static void ReleaseCachedNativeMesh(Physics::CookedMeshShapeConfiguration& configuration)
+    {
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(configuration.GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            configuration.SetCachedNativeMesh(nullptr);
+        }
+    }
+
+    // Cooked convex blob for a 1 m cube centered on the origin.
+    static AZStd::vector<AZ::u8> MakeUnitCubeConvexBlob()
+    {
+        const AZ::Vector3 corners[8] = {
+            AZ::Vector3(-0.5f, -0.5f, -0.5f), AZ::Vector3(0.5f, -0.5f, -0.5f),
+            AZ::Vector3(-0.5f, 0.5f, -0.5f),  AZ::Vector3(0.5f, 0.5f, -0.5f),
+            AZ::Vector3(-0.5f, -0.5f, 0.5f),  AZ::Vector3(0.5f, -0.5f, 0.5f),
+            AZ::Vector3(-0.5f, 0.5f, 0.5f),   AZ::Vector3(0.5f, 0.5f, 0.5f),
+        };
+        return JoltMeshUtils::PackConvexMesh(corners, 8);
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, ScaledEntityScalesEveryColliderKind)
+    {
+        // The box case is pinned above; this pins every other collider kind that flows
+        // through the base's scale propagation: sphere, capsule, and the baked mesh.
+        // This is the pair level only - what the shape does with a non-uniform scale is
+        // per shape type, and pinned in ScaledColliderGeometryMatchesTheShapeTypesLimits.
+        const AZ::Vector3 expectedScale(2.0f, 3.0f, 4.0f);
+
+        auto expectPairsScaled = [expectedScale](const JoltColliderComponentBase* collider)
+        {
+            const AzPhysics::ShapeColliderPairList pairs = collider->GetShapeColliderPairs();
+            EXPECT_EQ(pairs.size(), 1u);
+            if (!pairs.empty())
+            {
+                EXPECT_TRUE(pairs[0].second->m_scale.IsClose(expectedScale));
+            }
+        };
+
+        {
+            auto entity = MakeScaledEntity("ScaledSphereEntity", expectedScale);
+            auto* collider = entity->CreateComponent<JoltSphereColliderComponent>();
+            entity->Init();
+            entity->Activate();
+            expectPairsScaled(collider);
+            entity->Deactivate();
+        }
+
+        {
+            auto entity = MakeScaledEntity("ScaledCapsuleEntity", expectedScale);
+            auto* collider = entity->CreateComponent<JoltCapsuleColliderComponent>();
+            entity->Init();
+            entity->Activate();
+            expectPairsScaled(collider);
+            entity->Deactivate();
+        }
+
+        {
+            auto entity = MakeScaledEntity("ScaledBakedMeshEntity", expectedScale);
+            auto* collider = entity->CreateComponent<JoltBakedMeshColliderComponent>();
+            const AZStd::vector<AZ::u8> blob = MakeUnitCubeConvexBlob();
+            collider->GetShapeConfiguration().SetCookedMeshData(
+                blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+            entity->Init();
+            entity->Activate();
+            expectPairsScaled(collider);
+            entity->Deactivate();
+            ReleaseCachedNativeMesh(collider->GetShapeConfiguration());
+        }
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, ScaledColliderGeometryMatchesTheShapeTypesLimits)
+    {
+        // Above pins the scale reaching the shape configuration; this pins what the
+        // native shape does with it, read off the created body's world bounds. Jolt
+        // scales a shape by wrapping it in a JPH::ScaledShape, and not every shape
+        // accepts every scale (JPH::Shape::IsValidScale): boxes and meshes take a
+        // non-uniform scale, spheres and capsules only a uniform one.
+        auto halfExtentsOfBodyFor = [this](AZ::Entity* entity)
+        {
+            const auto [foundSceneHandle, bodyHandle] =
+                m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+            EXPECT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+            if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+            {
+                return AZ::Vector3::CreateZero();
+            }
+            return m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetAabb().GetExtents() * 0.5f;
+        };
+
+        {
+            // Default 1 m box, scaled per axis: half extents are the scale halved.
+            auto entity = MakeScaledEntity("GeometryBoxEntity", AZ::Vector3(2.0f, 3.0f, 4.0f));
+            entity->CreateComponent<JoltBoxColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(1.0f, 1.5f, 2.0f), 0.01f));
+            entity->Deactivate();
+        }
+
+        {
+            // Default 0.5 m radius sphere at uniform scale 2 -> 1 m radius.
+            auto entity = MakeScaledEntity("GeometrySphereEntity", AZ::Vector3(2.0f));
+            entity->CreateComponent<JoltSphereColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(1.0f), 0.01f));
+            entity->Deactivate();
+        }
+
+        {
+            // Default capsule (1 m tall, 0.25 m radius) at uniform scale 2 -> 2 m tall,
+            // 0.5 m radius, still z-up.
+            auto entity = MakeScaledEntity("GeometryCapsuleEntity", AZ::Vector3(2.0f));
+            entity->CreateComponent<JoltCapsuleColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(0.5f, 0.5f, 1.0f), 0.01f));
+            entity->Deactivate();
+        }
+
+        {
+            // A baked convex mesh is a hull, which takes a non-uniform scale like a box.
+            auto entity = MakeScaledEntity("GeometryBakedMeshEntity", AZ::Vector3(2.0f, 3.0f, 4.0f));
+            auto* collider = entity->CreateComponent<JoltBakedMeshColliderComponent>();
+            const AZStd::vector<AZ::u8> blob = MakeUnitCubeConvexBlob();
+            collider->GetShapeConfiguration().SetCookedMeshData(
+                blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(1.0f, 1.5f, 2.0f), 0.01f));
+            entity->Deactivate();
+            ReleaseCachedNativeMesh(collider->GetShapeConfiguration());
+        }
+
+        {
+            // A sphere has no non-uniform scale in Jolt (JPH::SphereShape::IsValidScale
+            // requires a uniform one), so CreateJoltShapeFromConfig clamps to what the
+            // shape does accept - the mean of the components, 3 here - and warns. Without
+            // the clamp Jolt asserts inside the shape, so this case is worth pinning.
+            JoltWarningCatcher warnings;
+
+            auto entity = MakeScaledEntity("GeometryNonUniformSphereEntity", AZ::Vector3(2.0f, 3.0f, 4.0f));
+            entity->CreateComponent<JoltSphereColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(1.5f), 0.01f));
+            EXPECT_TRUE(warnings.ContainsWarningWith("cannot take the non-uniform scale"));
+            entity->Deactivate();
+        }
+
+        {
+            // Same for the capsule, whose z-up rotation wrapper passes the scale through
+            // to the capsule: uniform 3 gives a 3 m tall, 0.75 m radius capsule.
+            JoltWarningCatcher warnings;
+
+            auto entity = MakeScaledEntity("GeometryNonUniformCapsuleEntity", AZ::Vector3(2.0f, 3.0f, 4.0f));
+            entity->CreateComponent<JoltCapsuleColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            entity->Init();
+            entity->Activate();
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(0.75f, 0.75f, 1.5f), 0.01f));
+            EXPECT_TRUE(warnings.ContainsWarningWith("cannot take the non-uniform scale"));
+            entity->Deactivate();
+        }
     }
 
 } // namespace JoltPhysics
