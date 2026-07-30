@@ -119,12 +119,17 @@ namespace JoltPhysics
     void EditorJoltBakedMeshColliderComponent::OnTick(
         [[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
-        // A decomposition job runs on a worker thread; collect it once it reports done.
-        if (m_decompositionJob)
+        // A decomposition runs on VHACD's own thread; polling it here is both the
+        // completion check and what pumps its progress messages.
+        if (m_decompositionSession)
         {
-            if (m_decompositionJob->m_finished)
+            if (m_decompositionSession->IsFinished())
             {
                 FinishDecompositionBake();
+            }
+            else
+            {
+                ReportDecompositionProgress();
             }
             return;
         }
@@ -183,9 +188,9 @@ namespace JoltPhysics
 
     bool EditorJoltBakedMeshColliderComponent::StartDecompositionBake(bool warnOnFailure)
     {
-        if (m_decompositionJob)
+        if (m_decompositionSession)
         {
-            return false; // a worker is already decomposing the previous soup
+            return false; // a run is already decomposing the previous soup
         }
 
         AzFramework::VisibleGeometryContainer geometryContainer;
@@ -213,18 +218,25 @@ namespace JoltPhysics
         params.m_maxVerticesPerHull = m_decompositionMaxVerticesPerHull;
         params.m_concavity = m_decompositionConcavity;
 
-        // The job struct is shared with the worker, so the component can drop its own
-        // reference (Deactivate, settings change) without the worker ever touching it.
-        m_decompositionJob = AZStd::make_shared<DecompositionJob>();
-        AZStd::shared_ptr<DecompositionJob> job = m_decompositionJob;
-        job->m_thread = AZStd::thread(
-            [job, params, vertices = AZStd::move(vertices), indices = AZStd::move(indices)]() mutable
-            {
-                job->m_result = EditorConvexDecomposition::DecomposeToHullPointClouds(vertices, indices, params);
-                job->m_finished = true;
-            });
+        auto session = AZStd::make_unique<EditorConvexDecomposition::DecompositionSession>(vertices, indices, params);
+        if (!session->IsValid())
+        {
+            AZ_Warning("JoltPhysics", !warnOnFailure,
+                "Jolt Baked Mesh Collider: the render geometry on entity '%s' cannot be decomposed (it is flat or "
+                "not triangulated). Bake it as a single hull instead.",
+                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
+            return false;
+        }
 
-        // The tick bus polls for the job's completion.
+        AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s': decomposing %zu triangles into at most "
+            "%u hulls...\n",
+            GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+            indices.size() / 3, m_decompositionMaxHulls);
+
+        m_decompositionSession = AZStd::move(session);
+        m_reportedProgressDecile = -1;
+
+        // The tick bus polls the run for progress and completion.
         if (!AZ::TickBus::Handler::BusIsConnected())
         {
             AZ::TickBus::Handler::BusConnect();
@@ -234,14 +246,12 @@ namespace JoltPhysics
 
     void EditorJoltBakedMeshColliderComponent::FinishDecompositionBake()
     {
-        AZStd::shared_ptr<DecompositionJob> job = AZStd::move(m_decompositionJob);
-        if (job->m_thread.joinable())
-        {
-            job->m_thread.join();
-        }
+        AZStd::unique_ptr<EditorConvexDecomposition::DecompositionSession> session =
+            AZStd::move(m_decompositionSession);
+        const EditorConvexDecomposition::DecompositionResult result = session->TakeResult();
 
-        const size_t hullCount = job->m_result.m_hulls.size();
-        const AZStd::vector<AZ::u8> cookedData = JoltMeshUtils::PackConvexHulls(job->m_result.m_hulls);
+        const size_t hullCount = result.m_hulls.size();
+        const AZStd::vector<AZ::u8> cookedData = JoltMeshUtils::PackConvexHulls(result.m_hulls);
         if (!cookedData.empty())
         {
             m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
@@ -264,26 +274,40 @@ namespace JoltPhysics
         AZ::TickBus::Handler::BusDisconnect();
     }
 
-    void EditorJoltBakedMeshColliderComponent::CancelDecompositionJob()
+    void EditorJoltBakedMeshColliderComponent::ReportDecompositionProgress()
     {
-        if (!m_decompositionJob)
+        // One line per 10%: VHACD reports far more often than that, and a per-tick line
+        // would bury whatever else the console is saying.
+        const int decile = static_cast<int>(m_decompositionSession->GetProgress()) / 10;
+        if (decile <= m_reportedProgressDecile)
         {
             return;
         }
-        if (m_decompositionJob->m_thread.joinable())
+        m_reportedProgressDecile = decile;
+
+        AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s': decomposing, %d%%...\n",
+            GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+            decile * 10);
+    }
+
+    void EditorJoltBakedMeshColliderComponent::CancelDecompositionJob()
+    {
+        if (!m_decompositionSession)
         {
-            if (m_decompositionJob->m_finished)
-            {
-                m_decompositionJob->m_thread.join();
-            }
-            else
-            {
-                // The worker holds its own reference to the job struct and never touches
-                // the component, so it can finish in peace after we detach.
-                m_decompositionJob->m_thread.detach();
-            }
+            return;
         }
-        m_decompositionJob.reset();
+
+        if (!m_decompositionSession->IsFinished())
+        {
+            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s': decomposition canceled at %.0f%%.\n",
+                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+                m_decompositionSession->GetProgress());
+        }
+
+        // The destructor signals VHACD and waits for its thread, so the work stops here
+        // rather than running on to a result nobody will read.
+        m_decompositionSession.reset();
+        m_reportedProgressDecile = -1;
     }
 
     AZ::u32 EditorJoltBakedMeshColliderComponent::OnBakeButtonPressed()
@@ -300,12 +324,10 @@ namespace JoltPhysics
                 m_shapeConfiguration.GetCookedMeshData().size() / 1024);
             AZ::TickBus::Handler::BusDisconnect();
         }
-        else if (m_decompositionJob)
+        else if (m_decompositionSession)
         {
-            // Decomposed mode only starts the worker here; completion lands on tick.
-            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' is decomposing on a worker thread; "
-                "the collider updates when it finishes.\n",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
+            // Decomposed mode only starts the run here; progress and completion land on
+            // tick (StartDecompositionBake has already said it started).
         }
         return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
     }

@@ -1,6 +1,8 @@
 #include <Editor/EditorJoltConvexDecomposition.h>
 
 #include <AzCore/Math/Aabb.h>
+#include <AzCore/std/parallel/thread.h>
+#include <AzCore/std/smart_ptr/unique_ptr.h>
 
 #include <VHACD.h>
 
@@ -8,94 +10,61 @@ namespace JoltPhysics::EditorConvexDecomposition
 {
     namespace
     {
-        // Forwards VHACD's progress callbacks to the caller's handler.
-        class ProgressForwarder : public VHACD::IVHACD::IUserCallback
+        //! VHACD spins forever on flat (zero-volume) input, which could never yield a hull
+        //! anyway, and wants a triangulated soup. Rejecting both here keeps the session
+        //! constructor from starting a run that cannot end well.
+        bool IsUsableSoup(const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices)
         {
-        public:
-            explicit ProgressForwarder(const AZStd::function<void(float)>& callback)
-                : m_callback(callback)
+            if (vertices.size() < 4 || indices.size() < 12 || indices.size() % 3 != 0)
             {
+                return false;
             }
 
-            void Update(const double overallProgress,
-                [[maybe_unused]] const double stageProgress,
-                [[maybe_unused]] const double operationProgress,
-                [[maybe_unused]] const char* const stage,
-                [[maybe_unused]] const char* const operation) override
+            AZ::Aabb bounds = AZ::Aabb::CreateNull();
+            for (const AZ::Vector3& vertex : vertices)
             {
-                if (m_callback)
-                {
-                    m_callback(static_cast<float>(overallProgress));
-                }
+                bounds.AddPoint(vertex);
             }
-
-        private:
-            AZStd::function<void(float)> m_callback;
-        };
-    } // namespace
-
-    DecompositionResult DecomposeToHullPointClouds(
-        const AZStd::vector<AZ::Vector3>& vertices,
-        const AZStd::vector<AZ::u32>& indices,
-        const DecompositionParams& params,
-        const AZStd::function<void(float)>& progressCallback)
-    {
-        DecompositionResult result;
-        if (vertices.size() < 4 || indices.size() < 12 || indices.size() % 3 != 0)
-        {
-            return result;
+            const AZ::Vector3 extent = bounds.GetMax() - bounds.GetMin();
+            return extent.GetX() > 1e-6f && extent.GetY() > 1e-6f && extent.GetZ() > 1e-6f;
         }
 
-        // VHACD spins forever on flat (zero-volume) input, which could never yield a
-        // hull anyway - reject it before calling in.
-        AZ::Aabb bounds = AZ::Aabb::CreateNull();
-        for (const AZ::Vector3& vertex : vertices)
+        //! VHACD consumes one flat float array of XYZ triples.
+        AZStd::vector<float> FlattenPoints(const AZStd::vector<AZ::Vector3>& vertices)
         {
-            bounds.AddPoint(vertex);
-        }
-        const AZ::Vector3 extent = bounds.GetMax() - bounds.GetMin();
-        if (extent.GetX() <= 1e-6f || extent.GetY() <= 1e-6f || extent.GetZ() <= 1e-6f)
-        {
-            return result;
-        }
-
-        // VHACD consumes one flat float array of XYZ triples.
-        AZStd::vector<float> points;
-        points.reserve(vertices.size() * 3);
-        for (const AZ::Vector3& vertex : vertices)
-        {
-            points.push_back(vertex.GetX());
-            points.push_back(vertex.GetY());
-            points.push_back(vertex.GetZ());
+            AZStd::vector<float> points;
+            points.reserve(vertices.size() * 3);
+            for (const AZ::Vector3& vertex : vertices)
+            {
+                points.push_back(vertex.GetX());
+                points.push_back(vertex.GetY());
+                points.push_back(vertex.GetZ());
+            }
+            return points;
         }
 
-        VHACD::IVHACD* vhacd = VHACD::CreateVHACD();
-        VHACD::IVHACD::Parameters vhacdParams;
-        vhacdParams.m_maxConvexHulls = params.m_maxHulls;
-        vhacdParams.m_resolution = params.m_voxelResolution;
-        vhacdParams.m_maxNumVerticesPerCH = params.m_maxVerticesPerHull;
-        vhacdParams.m_concavity = params.m_concavity;
-        // CPU only: deterministic output and no GPU/OpenCL dependence in the editor.
-        vhacdParams.m_oclAcceleration = false;
-
-        ProgressForwarder forwarder(progressCallback);
-        if (progressCallback)
+        VHACD::IVHACD::Parameters ToVhacdParams(const DecompositionParams& params)
         {
-            vhacdParams.m_callback = &forwarder;
+            VHACD::IVHACD::Parameters vhacdParams;
+            vhacdParams.m_maxConvexHulls = params.m_maxHulls;
+            vhacdParams.m_resolution = params.m_voxelResolution;
+            vhacdParams.m_maxNumVerticesPerCH = params.m_maxVerticesPerHull;
+            vhacdParams.m_concavity = params.m_concavity;
+            // CPU only: deterministic output and no GPU/OpenCL dependence in the editor.
+            vhacdParams.m_oclAcceleration = false;
+            return vhacdParams;
         }
 
-        const bool computed = vhacd->Compute(
-            points.data(), static_cast<uint32_t>(vertices.size()),
-            indices.data(), static_cast<uint32_t>(indices.size() / 3),
-            vhacdParams);
-        if (computed)
+        //! Reads the hulls VHACD produced into point clouds.
+        DecompositionResult CollectHulls(VHACD::IVHACD& vhacd)
         {
-            const uint32_t hullCount = vhacd->GetNConvexHulls();
+            DecompositionResult result;
+            const uint32_t hullCount = vhacd.GetNConvexHulls();
             result.m_hulls.reserve(hullCount);
             for (uint32_t hullIndex = 0; hullIndex < hullCount; ++hullIndex)
             {
                 VHACD::IVHACD::ConvexHull hull;
-                vhacd->GetConvexHull(hullIndex, hull);
+                vhacd.GetConvexHull(hullIndex, hull);
 
                 AZStd::vector<AZ::Vector3>& cloud = result.m_hulls.emplace_back();
                 cloud.reserve(hull.m_nPoints);
@@ -107,11 +76,154 @@ namespace JoltPhysics::EditorConvexDecomposition
                         static_cast<float>(hull.m_points[i * 3 + 2]));
                 }
             }
+            return result;
+        }
+    } // namespace
+
+    //! Records VHACD's progress. VHACD dispatches its messages from whichever thread polls
+    //! IsReady(), not from its worker, so this needs no synchronization of its own.
+    class DecompositionSession::ProgressForwarder : public VHACD::IVHACD::IUserCallback
+    {
+    public:
+        explicit ProgressForwarder(float& progress)
+            : m_progress(progress)
+        {
         }
 
+        void Update(const double overallProgress,
+            [[maybe_unused]] const double stageProgress,
+            [[maybe_unused]] const double operationProgress,
+            [[maybe_unused]] const char* const stage,
+            [[maybe_unused]] const char* const operation) override
+        {
+            m_progress = static_cast<float>(overallProgress);
+            ++m_updateCount;
+        }
+
+        //! Zero until VHACD has reported anything, which it only does once the run proper
+        //! has begun. Cancel needs that distinction; see below.
+        AZ::u32 GetUpdateCount() const
+        {
+            return m_updateCount;
+        }
+
+    private:
+        float& m_progress;
+        AZ::u32 m_updateCount = 0;
+    };
+
+    DecompositionSession::DecompositionSession(
+        const AZStd::vector<AZ::Vector3>& vertices,
+        const AZStd::vector<AZ::u32>& indices,
+        const DecompositionParams& params)
+    {
+        if (!IsUsableSoup(vertices, indices))
+        {
+            return;
+        }
+
+        m_progressForwarder = AZStd::make_unique<ProgressForwarder>(m_progress);
+
+        VHACD::IVHACD::Parameters vhacdParams = ToVhacdParams(params);
+        vhacdParams.m_callback = m_progressForwarder.get();
+
+        VHACD::IVHACD* vhacd = VHACD::CreateVHACD_ASYNC();
+        const AZStd::vector<float> points = FlattenPoints(vertices);
+        // The async Compute copies the soup into its own buffers before starting, so the
+        // locals here can go out of scope; it returns as soon as the thread is running.
+        vhacd->Compute(
+            points.data(), static_cast<uint32_t>(vertices.size()),
+            indices.data(), static_cast<uint32_t>(indices.size() / 3),
+            vhacdParams);
+        m_vhacd = vhacd;
+    }
+
+    DecompositionSession::~DecompositionSession()
+    {
+        Cancel();
+        if (auto* vhacd = static_cast<VHACD::IVHACD*>(m_vhacd))
+        {
+            vhacd->Clean();
+            vhacd->Release();
+            m_vhacd = nullptr;
+        }
+    }
+
+    bool DecompositionSession::IsFinished()
+    {
+        auto* vhacd = static_cast<VHACD::IVHACD*>(m_vhacd);
+        // IsReady also dispatches the pending progress messages, which is what advances
+        // m_progress - so this call is the progress pump as well as the completion check.
+        return vhacd == nullptr || vhacd->IsReady();
+    }
+
+    DecompositionResult DecompositionSession::TakeResult()
+    {
+        auto* vhacd = static_cast<VHACD::IVHACD*>(m_vhacd);
+        if (vhacd == nullptr || !vhacd->IsReady())
+        {
+            return {};
+        }
+
+        DecompositionResult result = CollectHulls(*vhacd);
         vhacd->Clean();
         vhacd->Release();
+        m_vhacd = nullptr;
         return result;
+    }
+
+    void DecompositionSession::Cancel()
+    {
+        auto* vhacd = static_cast<VHACD::IVHACD*>(m_vhacd);
+        if (vhacd == nullptr)
+        {
+            return;
+        }
+
+        // VHACD clears its own cancel flag as the run starts (VHACD::Init), so a cancel
+        // raised before then is dropped - and since Cancel joins the thread, the caller
+        // would sit through the entire run it meant to stop. Waiting for the first
+        // progress message is what makes cancelling a just-started run prompt: VHACD only
+        // reports once it is past Init, and that first report costs milliseconds.
+        constexpr AZStd::chrono::milliseconds pollInterval{ 1 };
+        while (m_progressForwarder->GetUpdateCount() == 0 && !vhacd->IsReady())
+        {
+            AZStd::this_thread::sleep_for(pollInterval);
+        }
+
+        // Signals the run and joins VHACD's thread; a no-op once it has finished.
+        vhacd->Cancel();
+    }
+
+    DecompositionResult DecomposeToHullPointClouds(
+        const AZStd::vector<AZ::Vector3>& vertices,
+        const AZStd::vector<AZ::u32>& indices,
+        const DecompositionParams& params,
+        const AZStd::function<void(float)>& progressCallback)
+    {
+        DecompositionSession session(vertices, indices, params);
+        if (!session.IsValid())
+        {
+            return {};
+        }
+
+        // Polling is what pumps VHACD's progress messages, so a caller that wants progress
+        // gets it at this interval; one that does not just waits.
+        constexpr AZStd::chrono::milliseconds pollInterval{ 10 };
+        while (!session.IsFinished())
+        {
+            if (progressCallback)
+            {
+                progressCallback(session.GetProgress());
+            }
+            AZStd::this_thread::sleep_for(pollInterval);
+        }
+
+        if (progressCallback)
+        {
+            progressCallback(session.GetProgress());
+        }
+        return session.TakeResult();
     }
 
 } // namespace JoltPhysics::EditorConvexDecomposition

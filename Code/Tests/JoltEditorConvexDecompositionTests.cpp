@@ -1,5 +1,7 @@
 #include <AzTest/AzTest.h>
 
+#include <AzCore/std/chrono/chrono.h>
+#include <AzCore/std/parallel/thread.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
 
 #include <Configuration/JoltSettingsRegistryManager.h>
@@ -173,6 +175,75 @@ namespace JoltPhysics
         vertices.resize(3);
         indices.resize(3);
         EXPECT_FALSE(DecomposeToHullPointClouds(vertices, indices, DecompositionParams()).Succeeded());
+    }
+
+    TEST_F(JoltEditorConvexDecompositionTests, ASessionRunsOnItsOwnThreadAndReportsProgressAsItIsPolled)
+    {
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeLShape(vertices, indices);
+
+        DecompositionSession session(vertices, indices, DecompositionParams());
+        ASSERT_TRUE(session.IsValid());
+
+        // Polling is what dispatches VHACD's progress messages, which is the whole reason
+        // the editor can report a percentage without touching the worker thread.
+        while (!session.IsFinished())
+        {
+            AZStd::this_thread::sleep_for(AZStd::chrono::milliseconds(1));
+        }
+        EXPECT_GT(session.GetProgress(), 0.0f);
+
+        const DecompositionResult result = session.TakeResult();
+        EXPECT_GE(result.m_hulls.size(), 2u);
+
+        // The result moves out, so a second call has nothing left to give.
+        EXPECT_FALSE(session.TakeResult().Succeeded());
+    }
+
+    TEST_F(JoltEditorConvexDecompositionTests, CancellingASessionStopsTheRunRatherThanAbandoningIt)
+    {
+        // Enough resolution that the run cannot plausibly finish before the cancel below.
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeLShape(vertices, indices);
+
+        DecompositionParams params;
+        params.m_voxelResolution = 16000000;
+
+        DecompositionSession session(vertices, indices, params);
+        ASSERT_TRUE(session.IsValid());
+
+        // Cancel returns only once VHACD's thread has exited, so the run is over - not
+        // detached and still burning a core - by the time this line is passed. Cancelling
+        // this early is the case worth pinning: VHACD clears its own cancel flag as the
+        // run starts, so a signal raised before that used to be swallowed and this call
+        // sat through the whole ~20 s run instead of stopping it.
+        const auto start = AZStd::chrono::steady_clock::now();
+        session.Cancel();
+        const auto cancelDuration = AZStd::chrono::steady_clock::now() - start;
+
+        EXPECT_TRUE(session.IsFinished());
+        EXPECT_LT(cancelDuration, AZStd::chrono::seconds(5))
+            << "cancel should stop the run in well under the time it takes to finish it";
+
+        // Cancelling twice, and cancelling a stopped run, are both fine.
+        session.Cancel();
+    }
+
+    TEST_F(JoltEditorConvexDecompositionTests, ASessionOverDegenerateInputStartsNothing)
+    {
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        AppendBoxSoup(vertices, indices, AZ::Vector3::CreateZero(), AZ::Vector3::CreateOne());
+        vertices.resize(3);
+        indices.resize(3);
+
+        DecompositionSession session(vertices, indices, DecompositionParams());
+        EXPECT_FALSE(session.IsValid());
+        // An invalid session still answers, so a caller polling it is not left hanging.
+        EXPECT_TRUE(session.IsFinished());
+        EXPECT_FALSE(session.TakeResult().Succeeded());
     }
 
 } // namespace JoltPhysics

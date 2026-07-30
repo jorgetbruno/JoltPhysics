@@ -1,9 +1,7 @@
 #pragma once
 
 #include <AzCore/Component/TickBus.h>
-#include <AzCore/std/parallel/atomic.h>
-#include <AzCore/std/parallel/thread.h>
-#include <AzCore/std/smart_ptr/shared_ptr.h>
+#include <AzCore/std/smart_ptr/unique_ptr.h>
 
 #include <Editor/Components/EditorJoltColliderComponentBase.h>
 #include <Editor/EditorJoltConvexDecomposition.h>
@@ -64,16 +62,22 @@ namespace JoltPhysics
         //! completion lands on a later OnTick.
         bool BakeFromRenderMesh(bool warnOnFailure);
 
-        //! Decomposed-mode bake: gathers the triangle soup and hands it to a worker
-        //! thread running VHACD. False while a job is already in flight.
+        //! Decomposed-mode bake: gathers the triangle soup and starts VHACD on its own
+        //! thread. False while a run is already in flight.
         bool StartDecompositionBake(bool warnOnFailure);
 
-        //! Collects a finished decomposition job: packs the hull group blob and marks
-        //! the data dirty. Gives up auto-retry when VHACD itself produced nothing.
+        //! Collects a finished decomposition: packs the hull group blob and marks the
+        //! data dirty. Gives up auto-retry when VHACD itself produced nothing.
         void FinishDecompositionBake();
 
-        //! Drops an in-flight decomposition job (settings changed, or the component
-        //! is going away). The worker keeps its own reference and dies quietly.
+        //! Reports the running decomposition's progress to the console, once per 10%.
+        //! A decomposition of a dense mesh runs for tens of seconds, and in silence the
+        //! editor looks like it ignored the button.
+        void ReportDecompositionProgress();
+
+        //! Stops an in-flight decomposition (settings changed, or the component is going
+        //! away). VHACD is signalled and its thread joined, so the work really stops
+        //! rather than running on to produce a result nobody reads.
         void CancelDecompositionJob();
 
         //! A bake changed serialized component data, so the level has to know: without
@@ -99,15 +103,6 @@ namespace JoltPhysics
         //! Decodes the baked data into a world-space-ready line list for DrawShape.
         void RebuildDebugLines() const;
 
-        //! A decomposition run on a worker thread. The thread holds a shared_ptr to
-        //! this struct, so the component can drop its own reference at any time.
-        struct DecompositionJob
-        {
-            AZStd::thread m_thread;
-            AZStd::atomic<bool> m_finished{ false };
-            EditorConvexDecomposition::DecompositionResult m_result; //!< Written before m_finished is set.
-        };
-
         Physics::CookedMeshShapeConfiguration::MeshType m_meshType =
             Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh;
         ConvexMode m_convexMode = ConvexMode::SingleHull;
@@ -118,7 +113,10 @@ namespace JoltPhysics
         AZ::u32 m_decompositionMaxVerticesPerHull = 64;
         double m_decompositionConcavity = 0.001;
 
-        AZStd::shared_ptr<DecompositionJob> m_decompositionJob; //!< Set only while a worker runs.
+        //! Set only while VHACD is running; destroying it cancels the run.
+        AZStd::unique_ptr<EditorConvexDecomposition::DecompositionSession> m_decompositionSession;
+        //! Last progress decile already printed, so the console gets one line per 10%.
+        int m_reportedProgressDecile = -1;
 
         //! Edge list (point pairs, entity-local space) of the baked mesh, for viewport drawing.
         mutable AZStd::vector<AZ::Vector3> m_debugLines;
