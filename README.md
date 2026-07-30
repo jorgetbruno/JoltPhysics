@@ -28,9 +28,16 @@ outside it (see [The gem family](#the-gem-family)).
 
 **Shapes and colliders**
 - Primitives: Box, Sphere, Capsule, Cylinder
-- Mesh colliders: convex hull and triangle mesh, from cooked data — with a
-  **Bake from render mesh** button that cooks the entity's own model, retrying until
-  the asset finishes loading
+- Mesh colliders, two ways to author them:
+  - **Jolt Mesh Collider** (PhysX-style): references a `.joltmesh` asset cooked by the
+    Asset Processor from the source scene — authored in the Scene Settings "Jolt
+    Physics" tab with triangle mesh, convex (one hull per node), merge, and VHACD
+    decomposition options; shared across entities and re-cooked automatically when the
+    model changes
+  - **Jolt Baked Mesh Collider**: bakes the entity's own render mesh into the prefab —
+    triangle mesh, single hull, hull per mesh node, or VHACD decomposition — with a
+    **Bake from render mesh** button that retries until the asset finishes loading
+- Shape configuration scale honored for every shape type (wrapped as `JPH::ScaledShape`)
 - Compound colliders: multiple colliders per entity, plus static/mutable compound
   components that gather child-entity colliders, with per-sub-shape materials
 - Heightfield collider fed by `Physics::HeightfieldProviderRequestsBus` (terrain gems),
@@ -256,9 +263,11 @@ JoltPhysics/
 │   │   ├── Clients/                # SystemComponent and runtime components
 │   │   ├── Configuration/          # Settings management
 │   │   ├── Debug/                  # Debug draw
-│   │   ├── Editor/                 # Editor components, component modes, viewport draw
+│   │   ├── Editor/                 # Editor components, Scene Builder pipeline plugins,
+│   │   │                           #   component modes, viewport draw
 │   │   ├── Joint/                  # Constraint wrapping
 │   │   ├── Material/               # Physics materials
+│   │   ├── Pipeline/               # .joltmesh asset type and handler
 │   │   ├── RigidBody/              # Rigid body implementations
 │   │   ├── Scene/                  # Scene/World management, state snapshots
 │   │   ├── Shape/                  # Shape, mesh cooking and heightfield utilities

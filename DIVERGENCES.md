@@ -303,20 +303,22 @@ feature, trust the topic sections below the milestones.**
 
 ## Mesh colliders
 
-- **Nothing is cooked offline, by either side of the pipeline.** PhysX cooks in the
-  Asset Processor: a source scene produces a `.pxmesh` product asset, and the PhysX
-  Mesh Collider references it. This gem has no asset builder at all. Jolt's
-  `MeshShape` and `ConvexHullShape` build from raw vertices at `Create()` time, so the
-  "cooked" blob in `Physics::CookedMeshShapeConfiguration` is just packed geometry
-  (`JoltMeshUtils::PackTriangleMesh` / `PackConvexMesh`), and the gem writes and reads
-  it itself.
-- **The geometry comes from the entity's render mesh, at edit time.** The editor
-  component asks `AzFramework::VisibleGeometryRequestBus` — the bus the Mesh component
-  answers — and bakes the result into the component. Consequences worth knowing before
-  building content on it: the blob is serialized into the **prefab**, not into a shared
-  asset, so two entities using the same model carry two copies and the level file grows
-  with the mesh; changing the model does not update the collider until it is re-baked;
-  and a collider on an entity with no Mesh component has nothing to bake from.
+- **Jolt needs no cooking pass, so "cooked" is packed geometry on every path.** Jolt's
+  `MeshShape` and `ConvexHullShape` build from raw vertices at `Create()` time, so
+  everywhere this gem stores cooked data — the blob baked into a prefab by the "Jolt
+  Baked Mesh Collider" and the `.joltmesh` product cooked by the Scene Builder (see
+  "Asset pipeline mesh colliders" below) — the bytes are just `JoltMeshUtils::Pack*`
+  output that the gem writes and reads itself. PhysX's cooking is a real offline pass;
+  ours is a memcpy with a header.
+- **The baked component's geometry comes from the entity's render mesh, at edit time.**
+  The editor component asks `AzFramework::VisibleGeometryRequestBus` — the bus the Mesh
+  component answers — and bakes the result into the component. Consequences worth
+  knowing before building content on it: the blob is serialized into the **prefab**,
+  not into a shared asset, so two entities using the same model carry two copies and
+  the level file grows with the mesh; changing the model does not update the collider
+  until it is re-baked; and a collider on an entity with no Mesh component has nothing
+  to bake from. All three are what the asset pipeline solves; the bake stays the
+  quick path for one-off props.
 - **Baking is automatic, and retried, because the asset load is a race.** The bake
   attempted on activation almost always loses to the model's asynchronous load, so the
   component stays on the tick bus and retries until the mesh can answer, then reports
