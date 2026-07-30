@@ -76,7 +76,15 @@ namespace JoltPhysics
         //! forwards the sub-shape id to its inner shape untouched, so ids stay valid either
         //! way. Returns 0 for a non-compound shape, which is the only collider such a body
         //! has.
-        static size_t GetColliderIndexFromSubShapeId(const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId);
+        //!
+        //! colliderCount is the number of colliders the body actually has, and it is not
+        //! redundant: a single-collider body can still be a compound, because a mesh
+        //! collider baked as a convex hull group stores its hulls as compound children.
+        //! Those children are hulls, not colliders, so their indices must not be reported
+        //! as collider indices (JoltScene::GetMaterialForSubShape draws the same
+        //! distinction for materials).
+        static size_t GetColliderIndexFromSubShapeId(
+            const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId, size_t colliderCount);
 
         static JPH::RefConst<JPH::Shape> CreateBoxShape(
             const Physics::BoxShapeConfiguration& config);

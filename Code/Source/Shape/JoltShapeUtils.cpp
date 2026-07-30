@@ -509,9 +509,12 @@ namespace JoltPhysics
         return mutableCompound;
     }
 
-    size_t JoltShapeUtils::GetColliderIndexFromSubShapeId(const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId)
+    size_t JoltShapeUtils::GetColliderIndexFromSubShapeId(
+        const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId, size_t colliderCount)
     {
-        if (!baseShape)
+        // With one collider there is nothing to map: any compound below is that collider's
+        // own structure (a hull group), whose children are hulls rather than colliders.
+        if (!baseShape || colliderCount <= 1)
         {
             return 0;
         }

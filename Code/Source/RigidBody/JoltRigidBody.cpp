@@ -221,7 +221,8 @@ namespace JoltPhysics
 
     AZStd::shared_ptr<Physics::Shape> JoltRigidBody::GetShapeFromSubShapeId(const JPH::SubShapeID& subShapeId) const
     {
-        const size_t colliderIndex = JoltShapeUtils::GetColliderIndexFromSubShapeId(m_baseShape, subShapeId);
+        const size_t colliderIndex =
+            JoltShapeUtils::GetColliderIndexFromSubShapeId(m_baseShape, subShapeId, m_colliderMaterials.size());
         return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].m_shape : nullptr;
     }
 

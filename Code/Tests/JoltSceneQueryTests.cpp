@@ -4,6 +4,7 @@
 
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
@@ -232,6 +233,63 @@ namespace JoltPhysics
         EXPECT_EQ(rightHits.m_hits[0].m_shape, body->GetShape(1).get());
 
         EXPECT_NE(leftHits.m_hits[0].m_shape, rightHits.m_hits[0].m_shape);
+    }
+
+    TEST_F(JoltSceneQueryTests, RaycastHitOnAHullGroupNamesTheOneColliderTheHullsBelongTo)
+    {
+        // A single collider can still be a compound: a mesh collider baked as a convex
+        // hull group (hull per mesh node, or a decomposition) stores its hulls as compound
+        // children. Those children are hulls, not colliders, so a hit on the second one
+        // still belongs to collider 0 - reading it as a collider index used to leave the
+        // hit with no shape at all.
+        auto makeCube = [](float x)
+        {
+            AZStd::vector<AZ::Vector3> points;
+            for (const float dx : { -0.5f, 0.5f })
+            {
+                for (const float dy : { -0.5f, 0.5f })
+                {
+                    for (const float dz : { -0.5f, 0.5f })
+                    {
+                        points.push_back(AZ::Vector3(x + dx, dy, dz));
+                    }
+                }
+            }
+            return points;
+        };
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackConvexHulls({ makeCube(-3.0f), makeCube(3.0f) });
+        cookedConfig->SetCookedMeshData(
+            blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_position = AZ::Vector3::CreateZero();
+        staticConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), cookedConfig);
+
+        auto* body = azdynamic_cast<AzPhysics::StaticRigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(m_scene->AddSimulatedBody(&staticConfig)));
+        ASSERT_NE(body, nullptr);
+        ASSERT_EQ(body->GetShapeCount(), 1u);
+
+        auto firstHullRequest = CreateRayDown(AZ::Vector3(-3.0f, 0.0f, 5.0f));
+        AzPhysics::SceneQueryHits firstHullHits = m_scene->QueryScene(&firstHullRequest);
+        ASSERT_EQ(firstHullHits.m_hits.size(), 1u);
+        EXPECT_EQ(firstHullHits.m_hits[0].m_shape, body->GetShape(0).get());
+
+        auto secondHullRequest = CreateRayDown(AZ::Vector3(3.0f, 0.0f, 5.0f));
+        AzPhysics::SceneQueryHits secondHullHits = m_scene->QueryScene(&secondHullRequest);
+        ASSERT_EQ(secondHullHits.m_hits.size(), 1u);
+        EXPECT_EQ(secondHullHits.m_hits[0].m_shape, body->GetShape(0).get());
+
+        // Release the native mesh cached on the configuration (in production this is
+        // balanced by JoltPhysicsSystemComponent::ReleaseNativeMeshObject).
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(cookedConfig->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            cookedConfig->SetCachedNativeMesh(nullptr);
+        }
     }
 
     TEST_F(JoltSceneQueryTests, FilterCallbackReceivesTheHitShape)
