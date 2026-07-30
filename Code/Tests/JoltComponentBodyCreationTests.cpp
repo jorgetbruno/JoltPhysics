@@ -553,6 +553,41 @@ namespace JoltPhysics
         entity->Deactivate();
     }
 
+    TEST_F(JoltComponentBodyCreationTests, OffAxisRotatedColliderApproximatesTheScaleAlongItsOwnAxes)
+    {
+        // A rotation that does not map axes onto axes cannot take a non-uniform scale
+        // exactly - that would shear. The mesh pipeline's primitive fit produces such
+        // rotations routinely (the PCA frame tilts a few degrees on tapered geometry),
+        // and clamping to a uniform scale there turned a plank's 0.1 thickness scale
+        // into 0.7 in every direction. Instead the scale is approximated along the
+        // collider's own axes, which degrades continuously: 3 degrees off gives a
+        // shape a few percent off, not a different shape.
+        JoltWarningCatcher warnings;
+
+        auto entity = MakeScaledEntity("OffAxisRotatedBoxEntity", AZ::Vector3(1.0f, 1.0f, 0.5f));
+        auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+        collider->GetShapeConfiguration().m_dimensions = AZ::Vector3(2.0f, 4.0f, 6.0f);
+        collider->GetColliderConfiguration().m_rotation = AZ::Quaternion::CreateRotationX(AZ::DegToRad(93.0f));
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        // Per-axis image lengths under the scale: (1, 0.502, 0.999); the scaled local
+        // box spans (1, 3.045, 1.160) in entity space. The uniform-mean clamp gave
+        // (0.83, 2.58, 1.80) and the exact 90-degree answer is (1, 3.10, 1.08) - the
+        // approximation must land beside the latter.
+        const auto [foundSceneHandle, bodyHandle] =
+            m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const AZ::Vector3 halfExtents =
+            m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetAabb().GetExtents() * 0.5f;
+        EXPECT_TRUE(halfExtents.IsClose(AZ::Vector3(1.0f, 3.045f, 1.16f), 0.02f))
+            << "half extents: " << halfExtents.GetX() << ", " << halfExtents.GetY() << ", " << halfExtents.GetZ();
+        EXPECT_TRUE(warnings.ContainsWarningWith("approximating"));
+
+        entity->Deactivate();
+    }
+
     TEST_F(JoltComponentBodyCreationTests, RotatedColliderInACompoundScalesInEntitySpaceToo)
     {
         // Same as above through the multi-collider compound path: an unrotated cube at

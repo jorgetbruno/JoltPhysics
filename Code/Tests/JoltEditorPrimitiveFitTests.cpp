@@ -66,6 +66,43 @@ namespace JoltPhysics
         }
     }
 
+    TEST_F(JoltEditorPrimitiveFitTests, BoxFitOfAnAxisAlignedPlankIsTheAxisAlignedBox)
+    {
+        // A plank: long on x, near-square cross-section. The cross-section's two
+        // principal directions have near-equal variance, so PCA is free to pick any
+        // pair of perpendicular axes in that plane - and power iteration picks a
+        // diagonal, giving a box rotated ~45 degrees around the plank whose
+        // cross-section is sqrt(2) too big. The axis-aligned candidate must win.
+        // (The rotation matters beyond fit quality: an axis-aligned box takes the
+        // entity's non-uniform scale exactly; an arbitrarily rotated one cannot.)
+        const AZStd::vector<AZ::Vector3> points =
+            MakeBoxCloud(AZ::Vector3(1.0f, 2.0f, 3.0f), AZ::Vector3(5.0f, 0.2f, 0.21f));
+
+        const AZStd::optional<PrimitiveFitResult> fit = FitPrimitiveToPoints(points, PrimitiveFitTarget::Box);
+        ASSERT_TRUE(fit.has_value());
+        const auto& box = static_cast<const Physics::BoxShapeConfiguration&>(*fit->m_shapeConfig);
+
+        const float volume = box.m_dimensions.GetX() * box.m_dimensions.GetY() * box.m_dimensions.GetZ();
+        const float aabbVolume = 10.0f * 0.4f * 0.42f;
+        EXPECT_LE(volume, aabbVolume * 1.01f)
+            << "fitted " << box.m_dimensions.GetX() << " x " << box.m_dimensions.GetY()
+            << " x " << box.m_dimensions.GetZ();
+
+        // The winning frame is axis-aligned, so each fitted axis maps onto a world axis.
+        const AZ::Quaternion rotation = fit->m_transform.GetRotation();
+        const AZ::Vector3 localAxes[3] = {
+            AZ::Vector3::CreateAxisX(), AZ::Vector3::CreateAxisY(), AZ::Vector3::CreateAxisZ()
+        };
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const AZ::Vector3 mapped = rotation.TransformVector(localAxes[axis]);
+            EXPECT_NEAR(
+                AZStd::max(AZStd::max(AZStd::abs(mapped.GetX()), AZStd::abs(mapped.GetY())), AZStd::abs(mapped.GetZ())),
+                1.0f, 0.001f)
+                << "axis " << axis << " is not axis-aligned";
+        }
+    }
+
     TEST_F(JoltEditorPrimitiveFitTests, SphereFitCentersOnTheCloud)
     {
         const AZStd::vector<AZ::Vector3> points = MakeSphereCloud(AZ::Vector3(5.0f, 0.0f, 2.0f), 3.0f, 64);

@@ -39,6 +39,50 @@ namespace JoltPhysics
             return AZ::IsClose(scale.GetX(), scale.GetY()) && AZ::IsClose(scale.GetX(), scale.GetZ());
         }
 
+        // Builds a rotated collider's shape with the entity's non-uniform scale applied in
+        // entity space (outside the rotation), without the collider's translation - the
+        // caller places it. Exact when Jolt can rotate the scale into the child, which is
+        // whenever the rotation maps axes onto axes; otherwise the exact result would
+        // shear, which no Jolt shape represents, so the scale is approximated by scaling
+        // the shape's own axes by the length of each axis's image under the entity scale.
+        // That approximation is what the exact path degrades into continuously - a few
+        // degrees off axis-aligned gives a shape a few percent off - where clamping to a
+        // uniform scale (the WrapInScale fallback) would snap to something else entirely.
+        JPH::RefConst<JPH::Shape> MakeEntitySpaceScaledChild(
+            const Physics::ShapeConfiguration& shapeConfiguration,
+            const AZ::Quaternion& colliderRotation,
+            AZStd::string_view debugName)
+        {
+            JPH::RefConst<JPH::Shape> unscaled = CreateJoltShapeFromConfigUnscaled(shapeConfiguration, debugName);
+            if (!unscaled)
+            {
+                return nullptr;
+            }
+
+            const AZ::Vector3& scale = shapeConfiguration.m_scale;
+            const JPH::Quat joltRotation = Conversions::ToJolt(colliderRotation);
+            JPH::RefConst<JPH::Shape> rotated =
+                new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(), joltRotation, unscaled);
+            if (rotated->IsValidScale(Conversions::ToJolt(scale)))
+            {
+                return WrapInScale(rotated, scale, debugName);
+            }
+
+            const AZ::Vector3 localScale(
+                (scale * colliderRotation.TransformVector(AZ::Vector3::CreateAxisX())).GetLength(),
+                (scale * colliderRotation.TransformVector(AZ::Vector3::CreateAxisY())).GetLength(),
+                (scale * colliderRotation.TransformVector(AZ::Vector3::CreateAxisZ())).GetLength());
+            AZ_Warning("JoltPhysics", false,
+                "Collider%s is rotated off-axis, so the non-uniform scale (%.3f, %.3f, %.3f) cannot apply "
+                "exactly (the exact result would shear, which physics shapes cannot); approximating with "
+                "(%.3f, %.3f, %.3f) along the collider's own axes.",
+                Internal::NameClause(debugName).c_str(),
+                scale.GetX(), scale.GetY(), scale.GetZ(),
+                localScale.GetX(), localScale.GetY(), localScale.GetZ());
+            return new JPH::RotatedTranslatedShape(
+                JPH::Vec3::sZero(), joltRotation, WrapInScale(unscaled, localScale, debugName));
+        }
+
         // Creates the shape for a single collider/shape pair, wrapping it in a
         // RotatedTranslatedShape when the collider configuration has a non-identity
         // offset or rotation. Note: the trigger flag (m_isTrigger) is applied per body
@@ -56,26 +100,15 @@ namespace JoltPhysics
             // entity space, *outside* the collider rotation: the render mesh of a rotated
             // collider squashes along the entity's axis, not its own. Scale and rotation
             // only commute when the scale is uniform, so a rotated collider under a
-            // non-uniform scale needs the ScaledShape outside the RotatedTranslatedShape.
-            // (Jolt then rotates the scale into the child where the rotation permutes axes,
-            // and the clamp in WrapInScale handles rotations that cannot take the scale.)
+            // non-uniform scale needs the scale handled outside the rotation.
             // The collider offset needs no such care - it was already scaled into entity
             // space by the caller (ApplyOverallScale / ExpandJoltMeshAssetColliderShapes).
             if (colliderAndShape.first && !colliderAndShape.first->m_rotation.IsIdentity() &&
                 !IsUniformScale(colliderAndShape.second->m_scale))
             {
-                JPH::RefConst<JPH::Shape> unscaled =
-                    CreateJoltShapeFromConfigUnscaled(*colliderAndShape.second, debugName);
-                if (!unscaled)
-                {
-                    return nullptr;
-                }
-
-                JPH::RefConst<JPH::Shape> rotated = new JPH::RotatedTranslatedShape(
-                    JPH::Vec3::sZero(), Conversions::ToJolt(colliderAndShape.first->m_rotation), unscaled);
-                JPH::RefConst<JPH::Shape> scaled =
-                    WrapInScale(rotated, colliderAndShape.second->m_scale, debugName);
-                if (colliderAndShape.first->m_position.IsZero())
+                JPH::RefConst<JPH::Shape> scaled = MakeEntitySpaceScaledChild(
+                    *colliderAndShape.second, colliderAndShape.first->m_rotation, debugName);
+                if (!scaled || colliderAndShape.first->m_position.IsZero())
                 {
                     return scaled;
                 }
@@ -192,20 +225,17 @@ namespace JoltPhysics
                         rotation = Conversions::ToJolt(colliderAndShape.first->m_rotation);
                     }
 
-                    // Entity-space scale under a rotated collider: ScaledShape outside the
-                    // rotation, same reasoning as CreateOffsetJoltShape above.
+                    // Entity-space scale under a rotated collider: the scale is handled
+                    // outside the rotation, same reasoning as CreateOffsetJoltShape above.
                     if (colliderAndShape.first && !colliderAndShape.first->m_rotation.IsIdentity() &&
                         !IsUniformScale(colliderAndShape.second->m_scale))
                     {
-                        JPH::RefConst<JPH::Shape> unscaled =
-                            CreateJoltShapeFromConfigUnscaled(*colliderAndShape.second, debugName);
-                        if (!unscaled)
+                        JPH::RefConst<JPH::Shape> scaled = MakeEntitySpaceScaledChild(
+                            *colliderAndShape.second, colliderAndShape.first->m_rotation, debugName);
+                        if (!scaled)
                         {
                             continue;
                         }
-                        JPH::RefConst<JPH::Shape> scaled = WrapInScale(
-                            new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(), rotation, unscaled),
-                            colliderAndShape.second->m_scale, debugName);
                         compoundSettings.AddShape(position, JPH::Quat::sIdentity(), scaled);
                         continue;
                     }

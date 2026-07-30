@@ -412,10 +412,13 @@ feature, trust the topic sections below the milestones.**
   render mesh (`CreateJoltShapeFromPair` puts the `ScaledShape` outside the
   `RotatedTranslatedShape`; Jolt rotates the scale into the child when the rotation
   permutes axes). A rotation that does not map axes onto axes cannot take a non-uniform
-  scale at all — that would shear, which no Jolt shape represents (nor any PhysX one) —
-  so those clamp to `MakeScaleValid` with the same warning. The render mesh *does* shear
-  in that case, so collision and visuals diverge there by necessity; authoring the scale
-  into the source mesh is the way out.
+  scale exactly — that would shear, which no Jolt shape represents (nor any PhysX one).
+  Those approximate instead, scaling the collider's own axes by the length of each
+  axis's image under the entity scale (with a warning naming the entity): exact at 0 and
+  90 degrees and degrading continuously in between, which matters because the mesh
+  pipeline's primitive fit routinely produces frames a few degrees off axis-aligned.
+  The dropped shear means collision and visuals still diverge slightly on genuinely
+  angled colliders; authoring the scale into the source mesh is the way out.
 - **Baking into the prefab stays as the quick path.** The editor "Jolt Baked Mesh Collider"
   component (render-mesh bake) is untouched; the asset pipeline (exposed as "Jolt Mesh
   Collider", matching PhysX's asset-based Mesh Collider) is the shared,
