@@ -37,10 +37,11 @@ namespace JoltPhysics
         AZ_RTTI(JoltMaterialManager, "{B8C9D0E1-F2A3-4B5C-9D0E-1F2A3B4C5D6E}", Physics::MaterialManager);
 
         //! Resolves the material for a collider configuration: the material from the
-        //! first material slot, or the default material when no asset is assigned.
-        //! Returns nullptr when no material manager is registered.
+        //! given material slot (clamped to the slot count), or the default material
+        //! when no asset is assigned. Returns nullptr when no material manager is
+        //! registered.
         static AZStd::shared_ptr<Physics::Material> ResolveMaterial(
-            const Physics::ColliderConfiguration& colliderConfiguration);
+            const Physics::ColliderConfiguration& colliderConfiguration, size_t slotIndex = 0);
 
         //! Reads the current {friction, restitution} values from a material
         //! (defaults when the material is null or not a JoltMaterial).

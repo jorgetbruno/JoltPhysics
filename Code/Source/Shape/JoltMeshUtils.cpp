@@ -26,6 +26,14 @@ namespace JoltPhysics
             AZ::u32 m_indexCount = 0; // always a multiple of 3
         };
 
+        // Mesh blob versions: v1 is vertices + indices, v2 appends a u32 table size
+        // and a per-face u8 material index table (see PackTriangleMesh's overload).
+        // Jolt's tree packs material indices as 5 bits per triangle (FLAGS_MATERIAL_BITS),
+        // so 31 is the largest index that survives the round trip into a MeshShape.
+        constexpr AZ::u32 cMeshBlobVersionNoMaterials = 1;
+        constexpr AZ::u32 cMeshBlobVersionPerFaceMaterials = 2;
+        constexpr AZ::u8 cMaxMeshMaterialIndex = 31;
+
         // Distinct magic from MeshBlobHeader so a convex blob fed to the triangle-mesh
         // decoder (or vice versa) fails loudly instead of misinterpreting the bytes.
         struct ConvexBlobHeader
@@ -187,6 +195,37 @@ namespace JoltPhysics
         return result;
     }
 
+    AZStd::vector<AZ::u8> JoltMeshUtils::PackTriangleMesh(
+        const AZ::Vector3* vertices,
+        AZ::u32 vertexCount,
+        const AZ::u32* indices,
+        AZ::u32 indexCount,
+        const AZ::u8* materialIndices,
+        AZ::u32 faceCount)
+    {
+        if (!materialIndices || faceCount != indexCount / 3)
+        {
+            // No table (or one that cannot match the faces) is exactly the v1 blob.
+            return PackTriangleMesh(vertices, vertexCount, indices, indexCount);
+        }
+
+        AZStd::vector<AZ::u8> result = PackTriangleMesh(vertices, vertexCount, indices, indexCount);
+        if (result.empty())
+        {
+            return result;
+        }
+
+        // Upgrade the header to v2 and append the table: u32 count, then one u8 per face.
+        auto* header = reinterpret_cast<MeshBlobHeader*>(result.data());
+        header->m_version = cMeshBlobVersionPerFaceMaterials;
+
+        const auto* countBytes = reinterpret_cast<const AZ::u8*>(&faceCount);
+        result.insert(result.end(), countBytes, countBytes + sizeof(faceCount));
+        result.insert(result.end(), materialIndices, materialIndices + faceCount);
+
+        return result;
+    }
+
     JPH::RefConst<JPH::Shape> JoltMeshUtils::CreateMeshShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData)
     {
         if (cookedData.size() < sizeof(MeshBlobHeader))
@@ -197,7 +236,8 @@ namespace JoltPhysics
         MeshBlobHeader header;
         memcpy(&header, cookedData.data(), sizeof(MeshBlobHeader));
 
-        if (header.m_magic != MeshBlobHeader().m_magic || header.m_version != MeshBlobHeader().m_version ||
+        if (header.m_magic != MeshBlobHeader().m_magic ||
+            (header.m_version != cMeshBlobVersionNoMaterials && header.m_version != cMeshBlobVersionPerFaceMaterials) ||
             header.m_vertexCount == 0 || header.m_indexCount == 0 || header.m_indexCount % 3 != 0)
         {
             AZ_Error("JoltPhysics", false,
@@ -209,7 +249,10 @@ namespace JoltPhysics
 
         const size_t vertexBytes = static_cast<size_t>(header.m_vertexCount) * 3 * sizeof(float);
         const size_t indexBytes = static_cast<size_t>(header.m_indexCount) * sizeof(AZ::u32);
-        const size_t expectedSize = sizeof(MeshBlobHeader) + vertexBytes + indexBytes;
+        const AZ::u32 triangleCount = header.m_indexCount / 3;
+        const bool hasMaterials = header.m_version == cMeshBlobVersionPerFaceMaterials;
+        const size_t materialBytes = hasMaterials ? sizeof(AZ::u32) + triangleCount : 0;
+        const size_t expectedSize = sizeof(MeshBlobHeader) + vertexBytes + indexBytes + materialBytes;
         if (cookedData.size() != expectedSize)
         {
             AZ_Error("JoltPhysics", false, "JoltMeshUtils: cooked mesh blob size mismatch (expected %zu, got %zu)",
@@ -219,6 +262,23 @@ namespace JoltPhysics
 
         const AZ::u8* vertexCursor = cookedData.data() + sizeof(MeshBlobHeader);
         const AZ::u8* indexCursor = vertexCursor + vertexBytes;
+
+        // v2 blobs carry the per-face material table after the index array.
+        const AZ::u8* materialCursor = nullptr;
+        if (hasMaterials)
+        {
+            AZ::u32 materialIndexCount = 0;
+            const AZ::u8* countCursor = indexCursor + indexBytes;
+            memcpy(&materialIndexCount, countCursor, sizeof(materialIndexCount));
+            if (materialIndexCount != triangleCount)
+            {
+                AZ_Error("JoltPhysics", false,
+                    "JoltMeshUtils: mesh blob material table size mismatch (%u entries for %u faces)",
+                    materialIndexCount, triangleCount);
+                return nullptr;
+            }
+            materialCursor = countCursor + sizeof(materialIndexCount);
+        }
 
         JPH::VertexList joltVertices;
         joltVertices.reserve(header.m_vertexCount);
@@ -230,17 +290,46 @@ namespace JoltPhysics
         }
 
         JPH::IndexedTriangleList joltTriangles;
-        const AZ::u32 triangleCount = header.m_indexCount / 3;
         joltTriangles.reserve(triangleCount);
         AZStd::vector<AZ::u32> rawIndices(header.m_indexCount);
         memcpy(rawIndices.data(), indexCursor, indexBytes);
+        bool clampedMaterialIndex = false;
         for (AZ::u32 t = 0; t < triangleCount; ++t)
         {
+            AZ::u32 materialIndex = 0;
+            if (materialCursor)
+            {
+                materialIndex = materialCursor[t];
+                if (materialIndex > cMaxMeshMaterialIndex)
+                {
+                    // Jolt packs 5 bits per triangle; anything above falls to the last
+                    // representable slot rather than corrupting a neighbor.
+                    materialIndex = cMaxMeshMaterialIndex;
+                    clampedMaterialIndex = true;
+                }
+            }
             joltTriangles.push_back(JPH::IndexedTriangle(
-                rawIndices[t * 3 + 0], rawIndices[t * 3 + 1], rawIndices[t * 3 + 2], /*materialIndex*/ 0));
+                rawIndices[t * 3 + 0], rawIndices[t * 3 + 1], rawIndices[t * 3 + 2], materialIndex));
         }
+        AZ_Warning("JoltPhysics", !clampedMaterialIndex,
+            "JoltMeshUtils: mesh blob has material indices above %u; they were clamped.", cMaxMeshMaterialIndex);
 
         JPH::MeshShapeSettings settings(joltVertices, joltTriangles);
+        if (materialCursor)
+        {
+            // Jolt rejects materialized triangles with an empty material list. The
+            // entries are placeholders: friction and restitution are resolved live at
+            // contact time from the collider's slot list (see
+            // JoltScene::GetMaterialForSubShape), never from this list - only the
+            // per-triangle index has to survive.
+            AZ::u32 maxMaterialIndex = 0;
+            for (AZ::u32 t = 0; t < triangleCount; ++t)
+            {
+                maxMaterialIndex = AZStd::max<AZ::u32>(maxMaterialIndex, materialCursor[t]);
+            }
+            maxMaterialIndex = AZStd::min(maxMaterialIndex, static_cast<AZ::u32>(cMaxMeshMaterialIndex));
+            settings.mMaterials.resize(maxMaterialIndex + 1, JPH::PhysicsMaterial::sDefault);
+        }
         JPH::ShapeSettings::ShapeResult result = settings.Create();
         if (result.HasError())
         {

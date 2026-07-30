@@ -192,6 +192,16 @@ namespace JoltPhysics
         return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].Get() : nullptr;
     }
 
+    const Physics::ColliderConfiguration* JoltRigidBody::GetColliderConfiguration(size_t colliderIndex) const
+    {
+        if (colliderIndex >= m_colliderMaterials.size())
+        {
+            return nullptr;
+        }
+        const auto* joltShape = azrtti_cast<const JoltShape*>(m_colliderMaterials[colliderIndex].m_shape.get());
+        return joltShape ? joltShape->GetColliderConfiguration() : nullptr;
+    }
+
     AZ::u32 JoltRigidBody::GetShapeCount() const
     {
         return static_cast<AZ::u32>(m_colliderMaterials.size());

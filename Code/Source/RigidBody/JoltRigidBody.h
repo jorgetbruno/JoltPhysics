@@ -58,6 +58,10 @@ namespace JoltPhysics
         //! contacts of existing bodies. Null when the index is out of range.
         AZStd::shared_ptr<Physics::Material> GetColliderMaterial(size_t colliderIndex) const;
 
+        //! The configuration the given collider was created with (nullptr when the
+        //! index is out of range or the collider came from a prebuilt Physics::Shape).
+        const Physics::ColliderConfiguration* GetColliderConfiguration(size_t colliderIndex) const;
+
         // AzPhysics shape access: one Physics::Shape per collider, in compound sub-shape
         // order, so callers can inspect what a body is actually made of.
         AZ::u32 GetShapeCount() const override;

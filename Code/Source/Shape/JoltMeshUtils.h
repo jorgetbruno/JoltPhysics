@@ -28,6 +28,18 @@ namespace JoltPhysics
             const AZ::u32* indices,
             AZ::u32 indexCount);
 
+        //! Same as above, plus a per-face material index table (blob version 2). The
+        //! indices map faces onto the material slots the product asset carries; Jolt
+        //! packs them as 5 bits per triangle, so valid slot indices are 0..31.
+        //! materialIndices must hold exactly indexCount / 3 entries.
+        static AZStd::vector<AZ::u8> PackTriangleMesh(
+            const AZ::Vector3* vertices,
+            AZ::u32 vertexCount,
+            const AZ::u32* indices,
+            AZ::u32 indexCount,
+            const AZ::u8* materialIndices,
+            AZ::u32 faceCount);
+
         //! Builds a Jolt mesh shape from a previously packed blob (as produced by
         //! PackTriangleMesh). Returns nullptr if the blob is malformed or empty.
         static JPH::RefConst<JPH::Shape> CreateMeshShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);

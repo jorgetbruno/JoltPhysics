@@ -26,6 +26,8 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/Shape/DecoratedShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -420,6 +422,21 @@ namespace JoltPhysics
         return m_physicsSystem->GetBodyLockInterfaceNoLock().TryGetBody(bodyId);
     }
 
+    namespace
+    {
+        // Strips decorated-shape wrappers (scaled, rotated/translated) down to the leaf;
+        // wrappers forward sub-shape ids to their inner shape unchanged, so the id stays
+        // valid for whatever this returns.
+        const JPH::Shape* UnwrapDecoratedShape(const JPH::Shape* shape)
+        {
+            while (shape && shape->GetType() == JPH::EShapeType::Decorated)
+            {
+                shape = static_cast<const JPH::DecoratedShape*>(shape)->GetInnerShape();
+            }
+            return shape;
+        }
+    } // namespace
+
     bool JoltScene::GetMaterialForSubShape(
         const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution)
     {
@@ -448,7 +465,43 @@ namespace JoltPhysics
             return rigidBody ? rigidBody->GetColliderMaterial(index) : staticBody->GetColliderMaterial(index);
         };
 
+        auto getColliderConfig = [rigidBody, staticBody](size_t index)
+        {
+            return rigidBody ? rigidBody->GetColliderConfiguration(index) : staticBody->GetColliderConfiguration(index);
+        };
+
+        // Per-face trimesh materials: the mesh's tree carries a 5-bit material slot
+        // index per triangle (baked by JoltMeshUtils from the product's per-face
+        // table), resolved live against the collider's slot list.
+        auto resolvePerFaceMaterial = [&outFriction, &outRestitution](
+            const JPH::MeshShape* meshShape, const JPH::SubShapeID& meshSubShapeId,
+            const Physics::ColliderConfiguration* colliderConfig)
+        {
+            const size_t slotCount = colliderConfig ? colliderConfig->m_materialSlots.GetSlotsCount() : 0;
+            if (slotCount == 0)
+            {
+                return false;
+            }
+            const AZ::u32 slotIndex = meshShape->GetMaterialIndex(meshSubShapeId);
+            const auto values = JoltMaterialManager::GetFrictionRestitution(
+                JoltMaterialManager::ResolveMaterial(*colliderConfig, slotIndex).get());
+            outFriction = values.first;
+            outRestitution = values.second;
+            return true;
+        };
+
         const JPH::Shape* shape = body.GetShape();
+
+        // Bare triangle-mesh body (no compound): read the slot per triangle and
+        // resolve it against collider 0's slots. No slots falls through to the
+        // generic collider material below.
+        if (const JPH::Shape* leafShape = UnwrapDecoratedShape(shape);
+            leafShape && leafShape->GetSubType() == JPH::EShapeSubType::Mesh &&
+            resolvePerFaceMaterial(
+                static_cast<const JPH::MeshShape*>(leafShape), subShapeId, getColliderConfig(0)))
+        {
+            return true;
+        }
 
         // Heightfield bodies: per-triangle material from the provider data.
         if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(shape))
@@ -496,6 +549,21 @@ namespace JoltPhysics
             if (colliderIndex >= colliderCount)
             {
                 return false;
+            }
+
+            // Per-face materials when the touching child is a trimesh carrying a baked
+            // table; resolved against that collider's slots. (The child is looked up by
+            // subShapeIndex, the collider config by colliderIndex - they differ exactly
+            // for the single-collider hull group above.)
+            if (subShapeIndex < compoundShape->GetNumSubShapes())
+            {
+                if (const JPH::Shape* childShape = UnwrapDecoratedShape(compoundShape->GetSubShape(subShapeIndex).mShape);
+                    childShape && childShape->GetSubType() == JPH::EShapeSubType::Mesh &&
+                    resolvePerFaceMaterial(
+                        static_cast<const JPH::MeshShape*>(childShape), remainder, getColliderConfig(colliderIndex)))
+                {
+                    return true;
+                }
             }
 
             const auto subShapeValues =

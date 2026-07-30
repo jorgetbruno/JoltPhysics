@@ -491,4 +491,173 @@ namespace JoltPhysics
         EXPECT_GT(measureBounce(), 1.2f);
     }
 
+    TEST_F(JoltMaterialTests, PerFaceTrimeshMaterialsApply)
+    {
+        // One trimesh whose left half maps to a dead slot and its right half to a
+        // bouncy one: the per-face table baked into the blob (not the collider's
+        // single material) decides how each contact point responds.
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        auto appendQuad = [&vertices, &indices](float centerX, float halfExtent)
+        {
+            const AZ::u32 base = static_cast<AZ::u32>(vertices.size());
+            vertices.emplace_back(centerX - halfExtent, -halfExtent, 0.0f);
+            vertices.emplace_back(centerX + halfExtent, -halfExtent, 0.0f);
+            vertices.emplace_back(centerX + halfExtent, halfExtent, 0.0f);
+            vertices.emplace_back(centerX - halfExtent, halfExtent, 0.0f);
+            indices.insert(indices.end(), { base, base + 1, base + 2, base, base + 2, base + 3 });
+        };
+        appendQuad(-4.0f, 1.5f);
+        appendQuad(4.0f, 1.5f);
+        const AZ::u8 perFaceMaterials[4] = { 0, 0, 1, 1 };
+
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+            vertices.data(), static_cast<AZ::u32>(vertices.size()),
+            indices.data(), static_cast<AZ::u32>(indices.size()),
+            perFaceMaterials, 4);
+        ASSERT_FALSE(blob.empty());
+
+        auto slabShape = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        slabShape->SetCookedMeshData(blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_materialSlots.SetSlots({ "dead", "bouncy" });
+        slabCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
+        slabCollider->m_materialSlots.SetMaterialAsset(1, CreateMaterialAsset(0.5f, 0.9f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto dropSphere = [this](float x)
+        {
+            auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
+            sphereShape->m_radius = 0.5f;
+            AzPhysics::RigidBodyConfiguration sphereConfig;
+            sphereConfig.m_position = AZ::Vector3(x, 0.0f, 3.0f);
+            sphereConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, sphereShape);
+            return m_scene->AddSimulatedBody(&sphereConfig);
+        };
+
+        auto deadSphere = dropSphere(-4.0f);
+        auto bouncySphere = dropSphere(4.0f);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        float deadMaxAfterBounce = 0.0f;
+        float bouncyMaxAfterBounce = 0.0f;
+        bool deadTouched = false;
+        bool bouncyTouched = false;
+
+        for (int i = 0; i < 240; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+
+            const float deadZ = m_scene->GetSimulatedBodyFromHandle(deadSphere)->GetPosition().GetZ();
+            const float bouncyZ = m_scene->GetSimulatedBodyFromHandle(bouncySphere)->GetPosition().GetZ();
+
+            if (deadZ < 0.55f)
+            {
+                deadTouched = true;
+            }
+            else if (deadTouched)
+            {
+                deadMaxAfterBounce = AZStd::max(deadMaxAfterBounce, deadZ);
+            }
+
+            if (bouncyZ < 0.55f)
+            {
+                bouncyTouched = true;
+            }
+            else if (bouncyTouched)
+            {
+                bouncyMaxAfterBounce = AZStd::max(bouncyMaxAfterBounce, bouncyZ);
+            }
+        }
+
+        EXPECT_TRUE(deadTouched);
+        EXPECT_TRUE(bouncyTouched);
+        EXPECT_LT(deadMaxAfterBounce, 0.7f);
+        EXPECT_GT(bouncyMaxAfterBounce, 1.2f);
+
+        // Balance the AddRef that creating the cooked mesh shape took on the configuration.
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(slabShape->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            slabShape->SetCachedNativeMesh(nullptr);
+        }
+    }
+
+    TEST_F(JoltMaterialTests, PerFaceMaterialsApplyThroughCompounds)
+    {
+        // A compound body whose first child is a trimesh with a per-face table (every
+        // face on slot 1, the bouncy material): the compound's sub-shape mapping has to
+        // reach the mesh's table through the nesting, not just the collider's material.
+        const AZ::Vector3 quadVertices[4] = {
+            AZ::Vector3(-10.0f, -10.0f, 0.0f), AZ::Vector3(10.0f, -10.0f, 0.0f),
+            AZ::Vector3(10.0f, 10.0f, 0.0f),   AZ::Vector3(-10.0f, 10.0f, 0.0f),
+        };
+        const AZ::u32 quadIndices[6] = { 0, 1, 2, 0, 2, 3 };
+        const AZ::u8 perFaceMaterials[2] = { 1, 1 };
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+            quadVertices, 4, quadIndices, 6, perFaceMaterials, 2);
+
+        auto triShape = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        triShape->SetCookedMeshData(blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+        auto triCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triCollider->m_materialSlots.SetSlots({ "dead", "bouncy" });
+        triCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
+        triCollider->m_materialSlots.SetMaterialAsset(1, CreateMaterialAsset(0.5f, 0.9f));
+
+        // Second child: a plain dead box far from the trimesh.
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        boxShape->m_dimensions = AZ::Vector3(4.0f, 4.0f, 1.0f);
+        auto boxCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        boxCollider->m_position = AZ::Vector3(50.0f, 0.0f, -0.5f);
+
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{
+            AzPhysics::ShapeColliderPair(triCollider, triShape),
+            AzPhysics::ShapeColliderPair(boxCollider, boxShape),
+        };
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
+        sphereShape->m_radius = 0.5f;
+        AzPhysics::RigidBodyConfiguration sphereConfig;
+        sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        sphereConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, sphereShape);
+        auto sphereHandle = m_scene->AddSimulatedBody(&sphereConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        float maxAfterBounce = 0.0f;
+        bool touched = false;
+        for (int i = 0; i < 240; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+
+            const float sphereZ = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
+            if (sphereZ < 0.55f)
+            {
+                touched = true;
+            }
+            else if (touched)
+            {
+                maxAfterBounce = AZStd::max(maxAfterBounce, sphereZ);
+            }
+        }
+
+        EXPECT_TRUE(touched);
+        EXPECT_GT(maxAfterBounce, 1.2f);
+
+        // Balance the AddRef that creating the cooked mesh shape took on the configuration.
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(triShape->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            triShape->SetCachedNativeMesh(nullptr);
+        }
+    }
+
 } // namespace JoltPhysics

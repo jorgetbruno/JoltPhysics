@@ -2,6 +2,7 @@
 
 #include <Editor/EditorJoltConvexDecomposition.h>
 #include <Editor/Pipeline/JoltMeshGroup.h>
+#include <Editor/Pipeline/JoltPrimitiveShapeFitter.h>
 #include <Pipeline/JoltMeshAsset.h>
 #include <Shape/JoltMeshUtils.h>
 
@@ -65,7 +66,7 @@ namespace JoltPhysics::Pipeline
             // into the builder job's fingerprint, so bumping this version is the
             // mechanism that re-cooks .joltmesh products when the export logic changes.
             serializeContext->Class<JoltMeshExporter, AZ::SceneAPI::SceneCore::ExportingComponent>()
-                ->Version(1);
+                ->Version(2); // v2: per-face trimesh materials (blob v2) + Primitive export mode
         }
     }
 
@@ -322,9 +323,18 @@ namespace JoltPhysics::Pipeline
         {
             if (meshGroup.GetExportAsTriMesh())
             {
+                // The per-face table feeds the blob's material indices (u8; Jolt packs
+                // 5 bits per triangle, so anything past 31 falls to the last slot).
+                AZStd::vector<AZ::u8> materialIndices;
+                materialIndices.reserve(geometry.m_perFaceMaterialIndices.size());
+                for (const AZ::u16 materialIndex : geometry.m_perFaceMaterialIndices)
+                {
+                    materialIndices.push_back(static_cast<AZ::u8>(AZStd::min<AZ::u16>(materialIndex, 31)));
+                }
                 return JoltMeshUtils::PackTriangleMesh(
                     geometry.m_vertices.data(), static_cast<AZ::u32>(geometry.m_vertices.size()),
-                    geometry.m_indices.data(), static_cast<AZ::u32>(geometry.m_indices.size()));
+                    geometry.m_indices.data(), static_cast<AZ::u32>(geometry.m_indices.size()),
+                    materialIndices.data(), static_cast<AZ::u32>(materialIndices.size()));
             }
 
             if (meshGroup.GetDecomposeMeshes())
@@ -402,11 +412,20 @@ namespace JoltPhysics::Pipeline
             const AZStd::vector<NodeCollisionGeomExportData>& totalExportData,
             const Utils::AssetMaterialsData& assetMaterialsData,
             const JoltMeshGroup& meshGroup,
-            bool mergedTriangleMesh)
+            bool mergedTriangleMesh [[maybe_unused]])
         {
             const AZStd::string& assetName = meshGroup.GetName();
             AZStd::string filename = SceneUtil::FileUtilities::CreateOutputFileName(
                 assetName, context.GetOutputDirectory(), JoltMeshAssetFileExtension, AZStd::string(context.GetScene().GetSourceExtension()));
+
+            // Jolt packs material indices as 5 bits per triangle, so a mesh can
+            // address at most 32 material slots; excess faces clamp to slot 31.
+            if (meshGroup.GetMaterialSlots().GetSlotsCount() > 32)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "WriteJoltMeshAsset: group '%s' has more than 32 material slots; faces above slot 31 will use slot 31.",
+                    assetName.c_str());
+            }
 
             JoltMeshAssetData assetData;
 
@@ -423,35 +442,61 @@ namespace JoltPhysics::Pipeline
 
             for (const NodeCollisionGeomExportData& subMesh : totalExportData)
             {
-                AZStd::vector<AZ::u8> cookedData = CookJoltMesh(subMesh, meshGroup);
-                if (cookedData.empty())
-                {
-                    AZ_TracePrintf(
-                        AZ::SceneAPI::Utilities::ErrorWindow,
-                        "WriteJoltMeshAsset: Failed to cook mesh data. Node: %s",
-                        subMesh.m_nodeName.c_str());
-                    return SceneEvents::ProcessingResult::Failure;
-                }
-
-                AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration> shapeConfig =
-                    AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
-                shapeConfig->SetCookedMeshData(cookedData.data(), cookedData.size(), meshType);
-
-                // Default collider configuration with no overrides: the collider
-                // components fill in their own settings when they instantiate the asset.
+                AZStd::shared_ptr<Physics::ShapeConfiguration> shapeConfig;
                 AZStd::shared_ptr<JoltAssetColliderConfiguration> colliderConfig =
                     AZStd::make_shared<JoltAssetColliderConfiguration>();
 
+                if (meshGroup.GetExportAsPrimitive())
+                {
+                    // Primitives are not packed geometry: the fit yields a shape
+                    // configuration directly, with its transform stored on the entry's
+                    // collider configuration (the collider components compose it).
+                    const AZStd::optional<PrimitiveFitResult> fit =
+                        FitPrimitiveToPoints(subMesh.m_vertices, meshGroup.GetPrimitiveTarget());
+                    if (!fit)
+                    {
+                        AZ_TracePrintf(
+                            AZ::SceneAPI::Utilities::ErrorWindow,
+                            "WriteJoltMeshAsset: Failed to fit a primitive to mesh data. Node: %s",
+                            subMesh.m_nodeName.c_str());
+                        return SceneEvents::ProcessingResult::Failure;
+                    }
+                    shapeConfig = fit->m_shapeConfig;
+                    colliderConfig->m_transform = fit->m_transform;
+                }
+                else
+                {
+                    AZStd::vector<AZ::u8> cookedData = CookJoltMesh(subMesh, meshGroup);
+                    if (cookedData.empty())
+                    {
+                        AZ_TracePrintf(
+                            AZ::SceneAPI::Utilities::ErrorWindow,
+                            "WriteJoltMeshAsset: Failed to cook mesh data. Node: %s",
+                            subMesh.m_nodeName.c_str());
+                        return SceneEvents::ProcessingResult::Failure;
+                    }
+
+                    AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration> cookedShapeConfig =
+                        AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+                    cookedShapeConfig->SetCookedMeshData(cookedData.data(), cookedData.size(), meshType);
+                    shapeConfig = AZStd::move(cookedShapeConfig);
+                }
+
+                // Default collider configuration with no overrides: the collider
+                // components fill in their own settings when they instantiate the asset.
                 assetData.m_colliderShapes.emplace_back(AZStd::move(colliderConfig), AZStd::move(shapeConfig));
 
-                if (mergedTriangleMesh)
+                if (meshGroup.GetExportAsTriMesh())
                 {
-                    // The merged soup mixes faces from several nodes, but Jolt's packed
-                    // triangle-mesh blob does not carry a per-face material table (unlike
-                    // PhysX's cooked format), so the whole mesh maps to a single slot.
-                    // Slot 0 is the first material encountered while gathering. Per-face
-                    // materials for merged triangle meshes are a follow-up.
-                    assetData.m_materialIndexPerShape.push_back(0);
+                    AZ_Assert(
+                        !subMesh.m_perFaceMaterialIndices.empty(),
+                        "WriteJoltMeshAsset: m_perFaceMaterialIndices must not be empty! Please make sure you have a material assigned to the geometry. Node: %s",
+                        subMesh.m_nodeName.c_str());
+
+                    // Trimesh entries carry the whole slot list and resolve each face's
+                    // material from the table baked into the mesh itself; the sentinel
+                    // tells the collider components to leave the slot list untouched.
+                    assetData.m_materialIndexPerShape.push_back(JoltMeshAssetData::TriangleMeshMaterialIndex);
                 }
                 else
                 {
@@ -460,6 +505,8 @@ namespace JoltPhysics::Pipeline
                         "WriteJoltMeshAsset: m_perFaceMaterialIndices must not be empty! Please make sure you have a material assigned to the geometry. Node: %s",
                         subMesh.m_nodeName.c_str());
 
+                    // Convex entries (hulls, decomposed parts) are single-material shapes:
+                    // the node's first material becomes the shape's one slot.
                     const AZ::u16 materialIndex = !subMesh.m_perFaceMaterialIndices.empty()
                         ? subMesh.m_perFaceMaterialIndices[0]
                         : 0;
@@ -636,12 +683,13 @@ namespace JoltPhysics::Pipeline
                 return enumerationResult;
             }
 
-            // Merge triangle meshes into one soup if requested and there is more than one
-            // node: a single static triangle mesh is the common case for level geometry.
-            const bool mergedTriangleMesh = joltMeshGroup.GetExportAsTriMesh()
+            // Merge the selected nodes into one soup if requested and there is more
+            // than one: a single static triangle mesh (or one fitted primitive) is the
+            // common case for level geometry.
+            const bool mergedForExport = (joltMeshGroup.GetExportAsTriMesh() || joltMeshGroup.GetExportAsPrimitive())
                 && joltMeshGroup.GetTriangleMeshAssetParams().GetMergeMeshes()
                 && totalExportData.size() > 1;
-            if (mergedTriangleMesh)
+            if (mergedForExport)
             {
                 NodeCollisionGeomExportData mergedData;
                 mergedData.m_nodeName = groupName;
@@ -678,7 +726,7 @@ namespace JoltPhysics::Pipeline
 
             if (!totalExportData.empty())
             {
-                result += WriteJoltMeshAsset(context, totalExportData, *assetMaterialData, joltMeshGroup, mergedTriangleMesh);
+                result += WriteJoltMeshAsset(context, totalExportData, *assetMaterialData, joltMeshGroup, mergedForExport);
             }
         }
 

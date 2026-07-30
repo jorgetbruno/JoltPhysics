@@ -16,11 +16,33 @@
 #include <AzFramework/Visibility/VisibleGeometryBus.h>
 
 #include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/CompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace JoltPhysics
 {
+    namespace
+    {
+        // First-hit ray collector for checking which triangle a ray lands on.
+        struct FirstHitCollector : public JPH::CastRayCollector
+        {
+            void AddHit(const JPH::RayCastResult& result) override
+            {
+                if (!m_hit)
+                {
+                    m_hit = true;
+                    m_subShapeId = result.mSubShapeID2;
+                }
+            }
+
+            bool m_hit = false;
+            JPH::SubShapeID m_subShapeId;
+        };
+    } // namespace
+
     class JoltMeshColliderTests : public ::testing::Test
     {
     protected:
@@ -421,6 +443,94 @@ namespace JoltPhysics
         shape->GetGeometry(vertices, indices, nullptr);
         EXPECT_FALSE(vertices.empty());
         EXPECT_EQ(vertices.size(), indices.size());
+    }
+
+    TEST_F(JoltMeshColliderTests, PerFaceMaterialIndicesSurviveTheRoundTrip)
+    {
+        // Two quads side by side; the left one maps to slot 0, the right one to slot 1.
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        auto appendQuad = [&vertices, &indices](float centerX)
+        {
+            const AZ::u32 base = static_cast<AZ::u32>(vertices.size());
+            vertices.emplace_back(centerX - 0.5f, -1.0f, 0.0f);
+            vertices.emplace_back(centerX + 0.5f, -1.0f, 0.0f);
+            vertices.emplace_back(centerX + 0.5f, 1.0f, 0.0f);
+            vertices.emplace_back(centerX - 0.5f, 1.0f, 0.0f);
+            indices.insert(indices.end(), { base, base + 1, base + 2, base, base + 2, base + 3 });
+        };
+        appendQuad(-1.0f);
+        appendQuad(1.0f);
+        const AZ::u8 materials[4] = { 0, 0, 1, 1 };
+
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+            vertices.data(), static_cast<AZ::u32>(vertices.size()),
+            indices.data(), static_cast<AZ::u32>(indices.size()),
+            materials, 4);
+        ASSERT_FALSE(blob.empty());
+        const JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateMeshShapeFromCookedData(blob);
+        ASSERT_NE(shape, nullptr);
+        ASSERT_EQ(shape->GetSubType(), JPH::EShapeSubType::Mesh);
+        const auto* mesh = static_cast<const JPH::MeshShape*>(shape.GetPtr());
+
+        // Rays straight down at each quad report their face's slot.
+        auto materialIndexAt = [mesh](float x)
+        {
+            FirstHitCollector collector;
+            mesh->CastRay(
+                JPH::RayCast(JPH::Vec3(x, 0.0f, 1.0f), JPH::Vec3(0.0f, 0.0f, -1.0f)),
+                JPH::RayCastSettings(), JPH::SubShapeIDCreator(), collector);
+            EXPECT_TRUE(collector.m_hit);
+            return mesh->GetMaterialIndex(collector.m_subShapeId);
+        };
+        EXPECT_EQ(materialIndexAt(-1.0f), 0u);
+        EXPECT_EQ(materialIndexAt(1.0f), 1u);
+    }
+
+    TEST_F(JoltMeshColliderTests, VersionOneBlobCarriesNoMaterialTable)
+    {
+        const AZ::Vector3 vertices[4] = {
+            AZ::Vector3(-1.0f, -1.0f, 0.0f), AZ::Vector3(1.0f, -1.0f, 0.0f),
+            AZ::Vector3(1.0f, 1.0f, 0.0f),   AZ::Vector3(-1.0f, 1.0f, 0.0f),
+        };
+        const AZ::u32 indices[6] = { 0, 1, 2, 0, 2, 3 };
+
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(vertices, 4, indices, 6);
+        ASSERT_FALSE(blob.empty());
+        const JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateMeshShapeFromCookedData(blob);
+        ASSERT_NE(shape, nullptr);
+        const auto* mesh = static_cast<const JPH::MeshShape*>(shape.GetPtr());
+
+        FirstHitCollector collector;
+        mesh->CastRay(
+            JPH::RayCast(JPH::Vec3(0.0f, 0.0f, 1.0f), JPH::Vec3(0.0f, 0.0f, -1.0f)),
+            JPH::RayCastSettings(), JPH::SubShapeIDCreator(), collector);
+        ASSERT_TRUE(collector.m_hit);
+        EXPECT_EQ(mesh->GetMaterialIndex(collector.m_subShapeId), 0u);
+    }
+
+    TEST_F(JoltMeshColliderTests, MaterialIndicesAbove31Clamp)
+    {
+        // Jolt packs material indices as 5 bits per triangle; an oversized index falls
+        // to the last representable slot instead of wrapping into a neighbor's bits.
+        const AZ::Vector3 vertices[3] = {
+            AZ::Vector3(-1.0f, -1.0f, 0.0f), AZ::Vector3(1.0f, -1.0f, 0.0f), AZ::Vector3(0.0f, 1.0f, 0.0f),
+        };
+        const AZ::u32 indices[3] = { 0, 1, 2 };
+        const AZ::u8 materials[1] = { 200 };
+
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(vertices, 3, indices, 3, materials, 1);
+        ASSERT_FALSE(blob.empty());
+        const JPH::RefConst<JPH::Shape> shape = JoltMeshUtils::CreateMeshShapeFromCookedData(blob);
+        ASSERT_NE(shape, nullptr);
+        const auto* mesh = static_cast<const JPH::MeshShape*>(shape.GetPtr());
+
+        FirstHitCollector collector;
+        mesh->CastRay(
+            JPH::RayCast(JPH::Vec3(0.0f, 0.0f, 1.0f), JPH::Vec3(0.0f, 0.0f, -1.0f)),
+            JPH::RayCastSettings(), JPH::SubShapeIDCreator(), collector);
+        ASSERT_TRUE(collector.m_hit);
+        EXPECT_EQ(mesh->GetMaterialIndex(collector.m_subShapeId), 31u);
     }
 
 } // namespace JoltPhysics
