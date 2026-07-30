@@ -7,7 +7,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/Utils.h>
 
-#include <Clients/Components/JoltMeshAssetColliderComponent.h>
+#include <Clients/Components/JoltMeshColliderComponent.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <Pipeline/JoltMeshAsset.h>
 #include <Scene/JoltScene.h>

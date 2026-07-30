@@ -47,10 +47,10 @@ set(FILES
     Source/Editor/Components/EditorJoltCapsuleColliderComponent.h
     Source/Editor/Components/EditorJoltCylinderColliderComponent.cpp
     Source/Editor/Components/EditorJoltCylinderColliderComponent.h
+    Source/Editor/Components/EditorJoltBakedMeshColliderComponent.cpp
+    Source/Editor/Components/EditorJoltBakedMeshColliderComponent.h
     Source/Editor/Components/EditorJoltMeshColliderComponent.cpp
     Source/Editor/Components/EditorJoltMeshColliderComponent.h
-    Source/Editor/Components/EditorJoltMeshAssetColliderComponent.cpp
-    Source/Editor/Components/EditorJoltMeshAssetColliderComponent.h
     Source/Editor/Components/EditorJoltRigidBodyComponent.cpp
     Source/Editor/Components/EditorJoltRigidBodyComponent.h
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.cpp

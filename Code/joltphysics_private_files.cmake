@@ -15,10 +15,10 @@ set(FILES
     Source/Clients/Components/JoltCapsuleColliderComponent.h
     Source/Clients/Components/JoltCylinderColliderComponent.cpp
     Source/Clients/Components/JoltCylinderColliderComponent.h
+    Source/Clients/Components/JoltBakedMeshColliderComponent.cpp
+    Source/Clients/Components/JoltBakedMeshColliderComponent.h
     Source/Clients/Components/JoltMeshColliderComponent.cpp
     Source/Clients/Components/JoltMeshColliderComponent.h
-    Source/Clients/Components/JoltMeshAssetColliderComponent.cpp
-    Source/Clients/Components/JoltMeshAssetColliderComponent.h
     Source/Pipeline/JoltMeshAsset.cpp
     Source/Pipeline/JoltMeshAsset.h
     Source/Pipeline/JoltMeshAssetHandler.cpp

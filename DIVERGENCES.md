@@ -368,7 +368,7 @@ feature, trust the topic sections below the milestones.**
 - **Node transforms are baked into the vertices at export**, using the group's
   `CoordinateSystemRule` — identical to PhysX — so the product stores no transforms
   and collision matches the render mesh's coordinate conversion.
-- **Consumption mirrors PhysX too.** `JoltMeshAssetColliderComponent` holds a
+- **Consumption mirrors PhysX too.** `JoltMeshColliderComponent` holds a
   `Physics::PhysicsAssetShapeConfiguration` and expands the asset into one
   collider/shape pair per asset shape (`GetShapeColliderPairs`), so the existing body
   path compounds them into one body with per-shape materials and offsets. The product

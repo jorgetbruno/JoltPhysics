@@ -1,93 +1,94 @@
 #include <Editor/Components/EditorJoltMeshColliderComponent.h>
 
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Component/TransformBus.h>
-#include <AzCore/std/smart_ptr/make_shared.h>
-#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzCore/Math/Color.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
-#include <AzFramework/Visibility/VisibleGeometryBus.h>
+#include <AzFramework/StringFunc/StringFunc.h>
+
+#include <AzToolsFramework/API/EditorAssetSystemAPI.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
 #include <Clients/Components/JoltMeshColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderGeometryUtils.h>
-#include <Shape/JoltMeshUtils.h>
+#include <Shape/JoltShapeUtils.h>
 #include <Utils/ReflectionUtils.h>
+
+#include <AzCore/Asset/AssetSerializer.h>
+
+#include <Pipeline/JoltMeshAsset.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace JoltPhysics
 {
+    void EditorProxyJoltMeshAsset::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            // The asset field below needs the generic Asset<T> instantiation registered
+            // for our asset type (the engine only registers the PhysX mesh asset's).
+            serializeContext->RegisterGenericType<AZ::Data::Asset<Pipeline::JoltMeshAsset>>();
+
+            serializeContext->Class<EditorProxyJoltMeshAsset>()
+                ->Version(1)
+                ->Field("Asset", &EditorProxyJoltMeshAsset::m_asset)
+                ->Field("Configuration", &EditorProxyJoltMeshAsset::m_configuration)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<EditorProxyJoltMeshAsset>("EditorProxyJoltMeshAsset", "Jolt mesh asset.")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorProxyJoltMeshAsset::m_asset,
+                        "Jolt Mesh", "The .joltmesh physics asset this collider uses, cooked from a source scene by the Asset Processor.")
+                        ->Attribute(AZ_CRC_CE("EditButton"), "")
+                        ->Attribute(AZ_CRC_CE("EditDescription"), "Open in Scene Settings")
+                        ->Attribute(AZ_CRC_CE("DisableEditButtonWhenNoAssetSelected"), true)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorProxyJoltMeshAsset::m_configuration,
+                        "Configuration", "Jolt mesh asset collider configuration.")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
+                    ;
+            }
+        }
+    }
+
     void EditorJoltMeshColliderComponent::Reflect(AZ::ReflectContext* context)
     {
         EditorJoltColliderComponentBase::Reflect(context);
-        Internal::ReflectOnce<Physics::CookedMeshShapeConfiguration>(context);
+        Internal::ReflectOnce<Physics::ShapeConfiguration>(context);
+        Internal::ReflectOnce<Physics::PhysicsAssetShapeConfiguration>(context);
+        EditorProxyJoltMeshAsset::Reflect(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-
             serializeContext->Class<EditorJoltMeshColliderComponent, EditorJoltColliderComponentBase>()
-                ->Version(2)
-                ->Field("MeshType", &EditorJoltMeshColliderComponent::m_meshType)
-                ->Field("ConvexMode", &EditorJoltMeshColliderComponent::m_convexMode)
-                ->Field("DecompositionMaxHulls", &EditorJoltMeshColliderComponent::m_decompositionMaxHulls)
-                ->Field("DecompositionVoxelResolution", &EditorJoltMeshColliderComponent::m_decompositionVoxelResolution)
-                ->Field("DecompositionMaxVerticesPerHull", &EditorJoltMeshColliderComponent::m_decompositionMaxVerticesPerHull)
-                ->Field("DecompositionConcavity", &EditorJoltMeshColliderComponent::m_decompositionConcavity)
-                ->Field("ShapeConfiguration", &EditorJoltMeshColliderComponent::m_shapeConfiguration)
+                ->Version(1)
+                ->Field("ShapeConfiguration", &EditorJoltMeshColliderComponent::m_proxyShapeConfiguration)
+                ->Field("ContentLabel", &EditorJoltMeshColliderComponent::m_contentLabel)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
             {
                 editContext->Class<EditorJoltMeshColliderComponent>(
-                    "Jolt Baked Mesh Collider", "Collider baked from the entity's render mesh for the Jolt physics backend (editor)")
+                    "Jolt Mesh Collider",
+                    "Collider that references a .joltmesh physics asset cooked from a source scene by the Asset Processor "
+                    "(Jolt physics backend, editor)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
-                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &EditorJoltMeshColliderComponent::m_meshType,
-                        "Mesh Type",
-                        "Triangle Mesh matches the render geometry exactly (static bodies only); "
-                        "Convex Hull wraps it in convex shape(s) and also works on dynamic rigid bodies.")
-                        ->EnumAttribute(Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh, "Triangle Mesh")
-                        ->EnumAttribute(Physics::CookedMeshShapeConfiguration::MeshType::Convex, "Convex Hull")
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &EditorJoltMeshColliderComponent::m_convexMode,
-                        "Convex Mode",
-                        "Single Hull wraps all render geometry in one hull; Hull per Mesh Node bakes one hull "
-                        "per render node (e.g. wheels separate from the body); Decomposed runs VHACD over the "
-                        "merged geometry to approximate it with a set of hulls.")
-                        ->EnumAttribute(ConvexMode::SingleHull, "Single Hull")
-                        ->EnumAttribute(ConvexMode::HullPerMeshNode, "Hull per Mesh Node")
-                        ->EnumAttribute(ConvexMode::Decomposed, "Decomposed (VHACD)")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &EditorJoltMeshColliderComponent::IsConvexModeVisible)
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_decompositionMaxHulls,
-                        "Max Hulls", "Maximum convex hulls the decomposition may produce.")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &EditorJoltMeshColliderComponent::IsDecomposedModeVisible)
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                        ->Attribute(AZ::Edit::Attributes::Min, 1)
-                        ->Attribute(AZ::Edit::Attributes::Max, 256)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_decompositionVoxelResolution,
-                        "Voxel Resolution", "Voxelization resolution for the decomposition; higher is more faithful and slower.")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &EditorJoltMeshColliderComponent::IsDecomposedModeVisible)
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                        ->Attribute(AZ::Edit::Attributes::Min, 10000)
-                        ->Attribute(AZ::Edit::Attributes::Max, 1000000)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_decompositionMaxVerticesPerHull,
-                        "Max Vertices per Hull", "Per-hull vertex cap for the decomposition (Jolt hulls cap at 256).")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &EditorJoltMeshColliderComponent::IsDecomposedModeVisible)
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                        ->Attribute(AZ::Edit::Attributes::Min, 4)
-                        ->Attribute(AZ::Edit::Attributes::Max, 256)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_decompositionConcavity,
-                        "Concavity", "Maximum concavity error allowed before a hull is split further.")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, &EditorJoltMeshColliderComponent::IsDecomposedModeVisible)
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakingSettingsChanged)
-                        ->Attribute(AZ::Edit::Attributes::Min, 0.0)
-                    ->UIElement(AZ::Edit::UIHandlers::Button, "", "Re-bake the collision mesh from the entity's current render geometry.")
-                        ->Attribute(AZ::Edit::Attributes::ButtonText, "Bake from render mesh")
-                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnBakeButtonPressed)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_proxyShapeConfiguration,
+                        "Shape Configuration", "The .joltmesh asset and its shape settings.")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltMeshColliderComponent::OnShapeConfigurationChanged)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltMeshColliderComponent::m_contentLabel,
+                        "Contents", "Collider shapes inside the loaded .joltmesh asset.")
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, true)
                     ;
             }
         }
@@ -98,243 +99,290 @@ namespace JoltPhysics
         EditorJoltColliderComponentBase::Activate();
 
         m_debugLinesDirty = true;
+        UpdateContentLabel();
 
-        // No baked data yet: keep trying each editor tick. The immediate attempt in
-        // the old code lost the race against the render mesh's async asset load on
-        // almost every level open, and nothing ever retried - so colliders stayed
-        // empty until someone found the bake button.
-        if (m_shapeConfiguration.GetCookedMeshData().empty())
-        {
-            AZ::TickBus::Handler::BusConnect();
-        }
+        // Only the NonUniformScale component needs a listener: the uniform scale is
+        // applied by the world transform at draw time, but the non-uniform part is
+        // baked into the cached wireframe (same split as the runtime expansion).
+        m_nonUniformScaleChangedHandler = AZ::NonUniformScaleChangedEvent::Handler(
+            [this]([[maybe_unused]] const AZ::Vector3& nonUniformScale)
+            {
+                m_debugLinesDirty = true;
+            });
+        AZ::NonUniformScaleRequestBus::Event(
+            GetEntityId(), &AZ::NonUniformScaleRequests::RegisterScaleChangedEvent, m_nonUniformScaleChangedHandler);
+
+        // Connecting fires OnModelReady immediately when the render mesh is already
+        // loaded; that event drives the .joltmesh auto-assignment.
+        AZ::Render::MeshComponentNotificationBus::Handler::BusConnect(GetEntityId());
+
+        UpdateMeshAsset();
     }
 
     void EditorJoltMeshColliderComponent::Deactivate()
     {
-        AZ::TickBus::Handler::BusDisconnect();
-        CancelDecompositionJob();
+        AZ::Data::AssetBus::Handler::BusDisconnect();
+        AZ::Render::MeshComponentNotificationBus::Handler::BusDisconnect();
+        m_nonUniformScaleChangedHandler.Disconnect();
         EditorJoltColliderComponentBase::Deactivate();
     }
 
-    void EditorJoltMeshColliderComponent::OnTick(
-        [[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    void EditorJoltMeshColliderComponent::UpdateMeshAsset()
     {
-        // A decomposition job runs on a worker thread; collect it once it reports done.
-        if (m_decompositionJob)
+        // Disconnect first: the user may have swapped the asset for a different one.
+        AZ::Data::AssetBus::Handler::BusDisconnect();
+        m_proxyShapeConfiguration.m_configuration.m_asset = m_proxyShapeConfiguration.m_asset;
+
+        if (m_proxyShapeConfiguration.m_asset.GetId().IsValid())
         {
-            if (m_decompositionJob->m_finished)
-            {
-                FinishDecompositionBake();
-            }
-            return;
-        }
-
-        // Quiet: "the mesh is not ready yet" is the expected state here, and the mesh
-        // component already logs its own warning when asked too early.
-        if (BakeFromRenderMesh(/*warnOnFailure*/ false))
-        {
-            MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
-                "Save the level to keep it.\n",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
-                m_shapeConfiguration.GetCookedMeshData().size() / 1024);
-            AZ::TickBus::Handler::BusDisconnect();
-        }
-    }
-
-    void EditorJoltMeshColliderComponent::MarkBakedDataDirty()
-    {
-        AzToolsFramework::ScopedUndoBatch undoBatch("Bake collision mesh");
-        AzToolsFramework::ScopedUndoBatch::MarkEntityDirty(GetEntityId());
-    }
-
-    bool EditorJoltMeshColliderComponent::BakeFromRenderMesh(bool warnOnFailure)
-    {
-        if (m_meshType == Physics::CookedMeshShapeConfiguration::MeshType::Convex &&
-            m_convexMode == ConvexMode::Decomposed)
-        {
-            return StartDecompositionBake(warnOnFailure);
-        }
-
-        AzFramework::VisibleGeometryContainer geometryContainer;
-        AzFramework::VisibleGeometryRequestBus::Event(
-            GetEntityId(), &AzFramework::VisibleGeometryRequests::BuildVisibleGeometry,
-            AZ::Aabb::CreateNull(), geometryContainer);
-
-        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
-        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-        if (!JoltMeshUtils::CookVisibleGeometry(
-                geometryContainer, worldTransform, m_meshType, m_shapeConfiguration,
-                m_convexMode == ConvexMode::HullPerMeshNode
-                    ? JoltMeshUtils::ConvexGrouping::PerGeometryEntry
-                    : JoltMeshUtils::ConvexGrouping::Single))
-        {
-            AZ_Warning("JoltPhysics", !warnOnFailure,
-                "Jolt Baked Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
-                "its asset to load), then press 'Bake from render mesh'.",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
-            return false;
+            AZ::Data::AssetBus::Handler::BusConnect(m_proxyShapeConfiguration.m_asset.GetId());
+            m_proxyShapeConfiguration.m_asset.QueueLoad();
         }
 
         m_debugLinesDirty = true;
-        return true;
+        UpdateContentLabel();
     }
 
-    bool EditorJoltMeshColliderComponent::StartDecompositionBake(bool warnOnFailure)
+    void EditorJoltMeshColliderComponent::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
     {
-        if (m_decompositionJob)
+        if (asset == m_proxyShapeConfiguration.m_asset)
         {
-            return false; // a worker is already decomposing the previous soup
-        }
+            m_proxyShapeConfiguration.m_asset = asset;
+            m_proxyShapeConfiguration.m_configuration.m_asset = asset;
 
-        AzFramework::VisibleGeometryContainer geometryContainer;
-        AzFramework::VisibleGeometryRequestBus::Event(
-            GetEntityId(), &AzFramework::VisibleGeometryRequests::BuildVisibleGeometry,
-            AZ::Aabb::CreateNull(), geometryContainer);
-
-        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
-        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-        AZStd::vector<AZ::Vector3> vertices;
-        AZStd::vector<AZ::u32> indices;
-        if (!JoltMeshUtils::GatherVisibleGeometrySoup(geometryContainer, worldTransform, vertices, indices))
-        {
-            AZ_Warning("JoltPhysics", !warnOnFailure,
-                "Jolt Baked Mesh Collider: no render geometry found on entity '%s'. Add a Mesh component (and wait for "
-                "its asset to load), then press 'Bake from render mesh'.",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
-            return false;
-        }
-
-        EditorConvexDecomposition::DecompositionParams params;
-        params.m_maxHulls = m_decompositionMaxHulls;
-        params.m_voxelResolution = m_decompositionVoxelResolution;
-        params.m_maxVerticesPerHull = m_decompositionMaxVerticesPerHull;
-        params.m_concavity = m_decompositionConcavity;
-
-        // The job struct is shared with the worker, so the component can drop its own
-        // reference (Deactivate, settings change) without the worker ever touching it.
-        m_decompositionJob = AZStd::make_shared<DecompositionJob>();
-        AZStd::shared_ptr<DecompositionJob> job = m_decompositionJob;
-        job->m_thread = AZStd::thread(
-            [job, params, vertices = AZStd::move(vertices), indices = AZStd::move(indices)]() mutable
-            {
-                job->m_result = EditorConvexDecomposition::DecomposeToHullPointClouds(vertices, indices, params);
-                job->m_finished = true;
-            });
-
-        // The tick bus polls for the job's completion.
-        if (!AZ::TickBus::Handler::BusIsConnected())
-        {
-            AZ::TickBus::Handler::BusConnect();
-        }
-        return false; // the bake itself lands in FinishDecompositionBake
-    }
-
-    void EditorJoltMeshColliderComponent::FinishDecompositionBake()
-    {
-        AZStd::shared_ptr<DecompositionJob> job = AZStd::move(m_decompositionJob);
-        if (job->m_thread.joinable())
-        {
-            job->m_thread.join();
-        }
-
-        const size_t hullCount = job->m_result.m_hulls.size();
-        const AZStd::vector<AZ::u8> cookedData = JoltMeshUtils::PackConvexHulls(job->m_result.m_hulls);
-        if (!cookedData.empty())
-        {
-            m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
-            m_shapeConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), m_meshType);
+            UpdateMaterialSlotsFromMeshAsset();
+            UpdateContentLabel();
             m_debugLinesDirty = true;
-            MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' decomposed into %zu hulls (%zu KiB). "
-                "Save the level to keep it.\n",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
-                hullCount, cookedData.size() / 1024);
+
+            // The Contents row and the material slots changed behind the property
+            // editor's back (the asset finished loading), so repaint the component.
+            AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(
+                &AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay,
+                AzToolsFramework::Refresh_EntireTree);
         }
-        else
-        {
-            // The geometry was there and VHACD still produced nothing; retrying every
-            // tick would just burn worker threads, so give up until the user re-bakes.
-            AZ_Warning("JoltPhysics", false,
-                "Jolt Baked Mesh Collider: convex decomposition produced no hulls on entity '%s'.",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
-        }
-        AZ::TickBus::Handler::BusDisconnect();
     }
 
-    void EditorJoltMeshColliderComponent::CancelDecompositionJob()
+    void EditorJoltMeshColliderComponent::OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset)
     {
-        if (!m_decompositionJob)
+        // Same handling as the initial load: slots, label and wireframe all follow
+        // the asset data.
+        OnAssetReady(asset);
+    }
+
+    void EditorJoltMeshColliderComponent::UpdateMaterialSlotsFromMeshAsset()
+    {
+        const auto* asset = m_proxyShapeConfiguration.m_asset.GetAs<Pipeline::JoltMeshAsset>();
+        if (!m_proxyShapeConfiguration.m_asset.IsReady() || asset == nullptr)
         {
             return;
         }
-        if (m_decompositionJob->m_thread.joinable())
+
+        ApplyJoltMeshAssetMaterialSlots(
+            asset->m_assetData,
+            m_proxyShapeConfiguration.m_configuration.m_useMaterialsFromAsset,
+            m_colliderConfiguration.m_materialSlots);
+        m_colliderConfiguration.m_materialSlots.SetSlotsReadOnly(
+            m_proxyShapeConfiguration.m_configuration.m_useMaterialsFromAsset);
+
+        // The slots were rewritten from the asset, outside any property edit; without
+        // the dirty mark the prefab would save the stale slot list and the asset's
+        // materials would silently revert on the next level open.
+        AzToolsFramework::ScopedUndoBatch undoBatch("Jolt mesh asset collider material slots updated");
+        AzToolsFramework::ScopedUndoBatch::MarkEntityDirty(GetEntityId());
+    }
+
+    void EditorJoltMeshColliderComponent::UpdateContentLabel()
+    {
+        if (!m_proxyShapeConfiguration.m_asset.GetId().IsValid())
         {
-            if (m_decompositionJob->m_finished)
+            m_contentLabel = "No asset assigned";
+            return;
+        }
+
+        const auto* asset = m_proxyShapeConfiguration.m_asset.GetAs<Pipeline::JoltMeshAsset>();
+        if (!m_proxyShapeConfiguration.m_asset.IsReady() || asset == nullptr)
+        {
+            m_contentLabel = "Loading...";
+            return;
+        }
+
+        size_t convexCount = 0;
+        size_t triangleMeshCount = 0;
+        size_t primitiveCount = 0;
+        for (const Pipeline::JoltMeshAssetData::ShapeConfigurationPair& shapeEntry : asset->m_assetData.m_colliderShapes)
+        {
+            const Physics::ShapeConfiguration* shapeConfig = shapeEntry.second.get();
+            if (shapeConfig == nullptr)
             {
-                m_decompositionJob->m_thread.join();
+                continue;
+            }
+            if (shapeConfig->GetShapeType() == Physics::ShapeType::CookedMesh)
+            {
+                const auto* cookedMeshConfig = static_cast<const Physics::CookedMeshShapeConfiguration*>(shapeConfig);
+                if (cookedMeshConfig->GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
+                {
+                    ++convexCount;
+                }
+                else
+                {
+                    ++triangleMeshCount;
+                }
             }
             else
             {
-                // The worker holds its own reference to the job struct and never touches
-                // the component, so it can finish in peace after we detach.
-                m_decompositionJob->m_thread.detach();
+                ++primitiveCount;
             }
         }
-        m_decompositionJob.reset();
+
+        m_contentLabel.clear();
+        auto appendCount = [this](size_t count, const char* singular, const char* plural)
+        {
+            if (count == 0)
+            {
+                return;
+            }
+            if (!m_contentLabel.empty())
+            {
+                m_contentLabel += ", ";
+            }
+            m_contentLabel += AZStd::string::format("%zu %s", count, count == 1 ? singular : plural);
+        };
+        appendCount(convexCount, "convex", "convex");
+        appendCount(triangleMeshCount, "triangle mesh", "triangle meshes");
+        appendCount(primitiveCount, "primitive", "primitives");
+
+        if (m_contentLabel.empty())
+        {
+            m_contentLabel = "No collider shapes";
+        }
     }
 
-    AZ::u32 EditorJoltMeshColliderComponent::OnBakeButtonPressed()
+    AZ::u32 EditorJoltMeshColliderComponent::OnShapeConfigurationChanged()
     {
-        if (BakeFromRenderMesh(/*warnOnFailure*/ true))
+        UpdateMeshAsset();
+        return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
+    }
+
+    bool EditorJoltMeshColliderComponent::ShouldUpdateCollisionMeshFromRender() const
+    {
+        // Auto-assignment fills in an empty field only; a user-picked asset always wins.
+        return !m_proxyShapeConfiguration.m_asset.GetId().IsValid();
+    }
+
+    void EditorJoltMeshColliderComponent::OnModelReady(
+        [[maybe_unused]] const AZ::Data::Asset<AZ::RPI::ModelAsset>& modelAsset,
+        [[maybe_unused]] const AZ::Data::Instance<AZ::RPI::Model>& model)
+    {
+        if (ShouldUpdateCollisionMeshFromRender())
         {
-            // Success used to be silent, which reads as the button doing nothing when
-            // the mesh happens to be off screen. Say what happened, and mark the entity
-            // dirty so saving the level actually keeps the result.
-            MarkBakedDataDirty();
-            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' baked its collision mesh (%zu KiB). "
-                "Save the level to keep it.\n",
-                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
-                m_shapeConfiguration.GetCookedMeshData().size() / 1024);
-            AZ::TickBus::Handler::BusDisconnect();
+            SetCollisionMeshFromRender();
         }
-        else if (m_decompositionJob)
+    }
+
+    void EditorJoltMeshColliderComponent::SetCollisionMeshFromRender()
+    {
+        AZ::Data::Asset<const AZ::RPI::ModelAsset> renderMeshAsset;
+        AZ::Render::MeshComponentRequestBus::EventResult(
+            renderMeshAsset, GetEntityId(), &AZ::Render::MeshComponentRequests::GetModelAsset);
+        if (!renderMeshAsset.GetId().IsValid())
         {
-            // Decomposed mode only starts the worker here; completion lands on tick.
-            AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' is decomposing on a worker thread; "
-                "the collider updates when it finishes.\n",
+            return; // no Mesh component (or no model set) on this entity
+        }
+
+        bool querySucceeded = false;
+        AZStd::vector<AZ::Data::AssetInfo> productsInfo;
+        AzToolsFramework::AssetSystemRequestBus::BroadcastResult(querySucceeded,
+            &AzToolsFramework::AssetSystemRequestBus::Events::GetAssetsProducedBySourceUUID,
+            renderMeshAsset.GetId().m_guid, productsInfo);
+        if (!querySucceeded)
+        {
+            AZ_Warning("JoltPhysics", false,
+                "Jolt Mesh Collider on entity '%s': could not query the assets produced by the render mesh's "
+                "source scene; assign the .joltmesh asset manually.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
+            return;
         }
-        return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
+
+        AZStd::vector<AZ::Data::AssetId> joltMeshAssets;
+        for (const AZ::Data::AssetInfo& productInfo : productsInfo)
+        {
+            if (productInfo.m_assetType == azrtti_typeid<Pipeline::JoltMeshAsset>())
+            {
+                joltMeshAssets.push_back(productInfo.m_assetId);
+            }
+        }
+
+        // One produced .joltmesh is unambiguous; with several, prefer the one named
+        // after the render mesh (mirrors PhysX's SetCollisionMeshFromRender). None is
+        // fine too: the source scene simply has no physics mesh group configured.
+        if (joltMeshAssets.size() == 1)
+        {
+            AssignMeshAsset(joltMeshAssets.front());
+        }
+        else if (joltMeshAssets.size() > 1)
+        {
+            const AZ::Data::AssetId matchingAsset = FindMatchingJoltMeshAsset(renderMeshAsset.GetHint(), joltMeshAssets);
+            if (matchingAsset.IsValid())
+            {
+                AssignMeshAsset(matchingAsset);
+            }
+            else
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Jolt Mesh Collider on entity '%s': the render mesh's source scene produced several .joltmesh "
+                    "assets and none matches the render mesh name; assign one manually.",
+                    GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
+            }
+        }
     }
 
-    AZ::u32 EditorJoltMeshColliderComponent::OnBakingSettingsChanged()
+    AZ::Data::AssetId EditorJoltMeshColliderComponent::FindMatchingJoltMeshAsset(
+        const AZStd::string& renderMeshHint, const AZStd::vector<AZ::Data::AssetId>& joltMeshAssets) const
     {
-        // Changing the type, mode, or decomposition parameters invalidates the baked
-        // blob; drop any in-flight decomposition and re-bake right away when geometry
-        // is available (quietly otherwise - the old data is cleared regardless).
-        CancelDecompositionJob();
-        if (!BakeFromRenderMesh(/*warnOnFailure*/ false))
+        AZStd::string renderMeshFileName;
+        AzFramework::StringFunc::Path::Split(renderMeshHint.c_str(), nullptr, nullptr, &renderMeshFileName);
+
+        for (const AZ::Data::AssetId& assetId : joltMeshAssets)
         {
-            m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
-            m_debugLinesDirty = true;
+            AZStd::string assetPath;
+            AZ::Data::AssetCatalogRequestBus::BroadcastResult(
+                assetPath, &AZ::Data::AssetCatalogRequests::GetAssetPathById, assetId);
+
+            AZStd::string assetFileName;
+            AzFramework::StringFunc::Path::Split(assetPath.c_str(), nullptr, nullptr, &assetFileName);
+
+            if (assetFileName == renderMeshFileName)
+            {
+                return assetId;
+            }
         }
-        return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
+        return AZ::Data::AssetId();
+    }
+
+    void EditorJoltMeshColliderComponent::AssignMeshAsset(const AZ::Data::AssetId& assetId)
+    {
+        m_proxyShapeConfiguration.m_asset.Create(assetId);
+        UpdateMeshAsset();
+
+        // The assignment happened outside the property editor; without the dirty mark
+        // saving the level would drop it (same trap as the bake component's baked data).
+        AzToolsFramework::ScopedUndoBatch undoBatch("Assign Jolt mesh asset");
+        AzToolsFramework::ScopedUndoBatch::MarkEntityDirty(GetEntityId());
     }
 
     void EditorJoltMeshColliderComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
-        AZ_Warning("JoltPhysics", !m_shapeConfiguration.GetCookedMeshData().empty(),
-            "Jolt Baked Mesh Collider on entity '%s' has no baked collision mesh; the runtime collider will be empty. "
-            "Press 'Bake from render mesh' in the editor.",
+        AZ_Warning("JoltPhysics", m_proxyShapeConfiguration.m_asset.GetId().IsValid(),
+            "Jolt Mesh Collider on entity '%s' has no .joltmesh asset assigned; the runtime collider will be empty.",
             GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
 
         if (auto* component = gameEntity->CreateComponent<JoltMeshColliderComponent>())
         {
             component->GetColliderConfiguration() = m_colliderConfiguration;
-            component->GetShapeConfiguration() = m_shapeConfiguration;
+            // The runtime component owns its configuration; copy it, never share the
+            // editor's serialized instance.
+            component->GetShapeConfiguration() = m_proxyShapeConfiguration.m_configuration;
+            component->GetShapeConfiguration().m_asset = m_proxyShapeConfiguration.m_asset;
         }
     }
 
@@ -344,31 +392,73 @@ namespace JoltPhysics
         m_debugBounds = AZ::Aabb::CreateNull();
         m_debugLinesDirty = false;
 
-        const AZStd::vector<AZ::u8>& cookedData = m_shapeConfiguration.GetCookedMeshData();
-        if (cookedData.empty())
+        const auto* asset = m_proxyShapeConfiguration.m_asset.GetAs<Pipeline::JoltMeshAsset>();
+        if (!m_proxyShapeConfiguration.m_asset.IsReady() || asset == nullptr)
         {
             return;
         }
 
-        // Build a throwaway native shape from the baked blob and extract its triangle
-        // soup; for convex hulls this draws the actual hull, not the input point cloud.
-        const JPH::RefConst<JPH::Shape> shape =
-            (m_shapeConfiguration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
-            ? JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData)
-            : JoltMeshUtils::CreateMeshShapeFromCookedData(cookedData);
+        AZ::Vector3 nonUniformScale = AZ::Vector3::CreateOne();
+        AZ::NonUniformScaleRequestBus::EventResult(nonUniformScale, GetEntityId(), &AZ::NonUniformScaleRequests::GetScale);
 
-        EditorColliderGeometry::BuildShapeWireframe(shape.GetPtr(), m_debugLines, m_debugBounds);
+        // Expand exactly like the runtime component, minus the entity's uniform scale:
+        // DrawShape transforms by the world transform, which already carries it.
+        const AZ::Vector3 drawScale = nonUniformScale * m_proxyShapeConfiguration.m_configuration.m_assetScale;
+        const AzPhysics::ShapeColliderPairList shapeColliderPairs =
+            ExpandJoltMeshAssetColliderShapes(asset->m_assetData, m_colliderConfiguration, drawScale);
+
+        AZStd::vector<AZ::Vector3> shapeLines;
+        for (const AzPhysics::ShapeColliderPair& pair : shapeColliderPairs)
+        {
+            const JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(*pair.second);
+            if (!shape)
+            {
+                continue;
+            }
+
+            AZ::Aabb shapeBounds = AZ::Aabb::CreateNull();
+            EditorColliderGeometry::BuildShapeWireframe(shape.GetPtr(), shapeLines, shapeBounds);
+
+            // Each shape sits at its own collider offset (the Scene Builder may store
+            // per-shape offsets), so bring every wireframe into entity space with its
+            // pair's transform rather than drawing one shared offset afterwards.
+            const AZ::Transform shapeOffset = AZ::Transform::CreateFromQuaternionAndTranslation(
+                pair.first->m_rotation, pair.first->m_position);
+            for (const AZ::Vector3& lineEnd : shapeLines)
+            {
+                m_debugLines.push_back(shapeOffset.TransformPoint(lineEnd));
+            }
+            m_debugBounds.AddAabb(shapeBounds.GetTransformedAabb(shapeOffset));
+        }
     }
 
     AZ::Aabb EditorJoltMeshColliderComponent::GetLocalShapeBounds() const
     {
-        // The baked triangles are the only description of this collider's extent, so the
-        // same pass that builds the wireframe supplies what the viewport picks against.
         if (m_debugLinesDirty)
         {
             RebuildDebugLines();
         }
         return m_debugBounds;
+    }
+
+    AZ::Aabb EditorJoltMeshColliderComponent::GetEditorSelectionBoundsViewport(
+        [[maybe_unused]] const AzFramework::ViewportInfo& viewportInfo)
+    {
+        if (m_debugLinesDirty)
+        {
+            RebuildDebugLines();
+        }
+        if (!m_debugBounds.IsValid())
+        {
+            return AZ::Aabb::CreateNull();
+        }
+
+        // The cached bounds are entity-local with every shape's collider offset baked
+        // in, so only the world transform applies (the base would add the component's
+        // own offset a second time).
+        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+        return m_debugBounds.GetTransformedAabb(worldTransform);
     }
 
     void EditorJoltMeshColliderComponent::DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const
@@ -384,13 +474,11 @@ namespace JoltPhysics
 
         AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-        const AZ::Transform colliderTransform = worldTransform * AZ::Transform::CreateFromQuaternionAndTranslation(
-            m_colliderConfiguration.m_rotation, m_colliderConfiguration.m_position);
 
         m_debugLinesWorld.resize(m_debugLines.size());
         for (size_t i = 0; i < m_debugLines.size(); ++i)
         {
-            m_debugLinesWorld[i] = colliderTransform.TransformPoint(m_debugLines[i]);
+            m_debugLinesWorld[i] = worldTransform.TransformPoint(m_debugLines[i]);
         }
 
         debugDisplay.DrawLines(m_debugLinesWorld, AZ::Color(0.0f, 1.0f, 0.0f, 1.0f));
