@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 
 namespace JoltPhysics
 {
@@ -189,19 +190,21 @@ namespace JoltPhysics
         return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData);
     }
 
-    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
+    // Builds the shape for the configuration's type, ignoring m_scale (the public
+    // CreateJoltShapeFromConfig wraps the result; see below).
+    static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfigUnscaled(
         const Physics::ShapeConfiguration& shapeConfiguration)
     {
         switch (shapeConfiguration.GetShapeType())
         {
         case Physics::ShapeType::Box:
-            return CreateBoxShape(static_cast<const Physics::BoxShapeConfiguration&>(shapeConfiguration));
+            return JoltShapeUtils::CreateBoxShape(static_cast<const Physics::BoxShapeConfiguration&>(shapeConfiguration));
 
         case Physics::ShapeType::Sphere:
-            return CreateSphereShape(static_cast<const Physics::SphereShapeConfiguration&>(shapeConfiguration));
+            return JoltShapeUtils::CreateSphereShape(static_cast<const Physics::SphereShapeConfiguration&>(shapeConfiguration));
 
         case Physics::ShapeType::Capsule:
-            return CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
+            return JoltShapeUtils::CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
 
         case Physics::ShapeType::Cylinder:
         {
@@ -211,7 +214,7 @@ namespace JoltPhysics
             // some other backend's configuration and cannot be read here.
             if (const auto* cylinder = azrtti_cast<const JoltCylinderShapeConfiguration*>(&shapeConfiguration))
             {
-                return CreateCylinderShape(*cylinder);
+                return JoltShapeUtils::CreateCylinderShape(*cylinder);
             }
             AZ_Warning("JoltPhysics", false,
                 "Cylinder collider uses an unrecognized configuration type; use JoltCylinderShapeConfiguration "
@@ -268,6 +271,29 @@ namespace JoltPhysics
         default:
             return nullptr;
         }
+    }
+
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
+        const Physics::ShapeConfiguration& shapeConfiguration)
+    {
+        JPH::RefConst<JPH::Shape> shape = CreateJoltShapeFromConfigUnscaled(shapeConfiguration);
+
+        // Every shape configuration carries a scale, but native shapes have none - it
+        // becomes a ScaledShape decorator. The wrap happens after any CookedMesh caching
+        // (see above), so the cached native mesh stays the unscaled shape and each caller
+        // gets its own wrapper.
+        const AZ::Vector3& scale = shapeConfiguration.m_scale;
+        if (!shape || scale == AZ::Vector3::CreateOne())
+        {
+            return shape;
+        }
+        // Zero scale is invalid in Jolt and almost certainly a content mistake.
+        if (scale.GetX() * scale.GetY() * scale.GetZ() == 0.0f)
+        {
+            AZ_Warning("JoltPhysics", false, "Shape configuration has a zero-scale component; ignoring the scale.");
+            return shape;
+        }
+        return new JPH::ScaledShape(shape.GetPtr(), Conversions::ToJolt(scale));
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateBoxShape(const Physics::BoxShapeConfiguration& config)
