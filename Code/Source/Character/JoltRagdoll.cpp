@@ -18,6 +18,8 @@
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     namespace
@@ -125,7 +127,8 @@ namespace JoltPhysics
                         config.m_colliders.FindNodeConfigByName(nodeConfig.m_debugName);
                     colliderNode != nullptr && !colliderNode->m_shapes.empty() && colliderNode->m_shapes.front().second)
                 {
-                    shape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderNode->m_shapes.front().second);
+                    shape = JoltShapeUtils::CreateJoltShapeFromConfig(
+                        *colliderNode->m_shapes.front().second, nodeConfig.m_debugName);
                     nodeColliderConfig = colliderNode->m_shapes.front().first.get();
                 }
                 if (!shape)
@@ -537,7 +540,9 @@ namespace JoltPhysics
     {
         // The ragdoll is driven through its per-node state; moving it as a whole is not
         // supported here (use SetState with repositioned nodes instead).
-        AZ_WarningOnce("JoltPhysics", false, "JoltRagdoll::SetTransform is a no-op; drive the ragdoll via SetState.");
+        AZ_WarningOnce("JoltPhysics", false,
+            "JoltRagdoll::SetTransform%s is a no-op; drive the ragdoll via SetState.",
+            Internal::NameClause(GetEntityId()).c_str());
     }
 
     AZ::Vector3 JoltRagdoll::GetPosition() const

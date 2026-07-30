@@ -22,6 +22,8 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     AZ_CLASS_ALLOCATOR_IMPL(JoltRigidBody, AZ::SystemAllocator);
@@ -766,9 +768,9 @@ namespace JoltPhysics
         // is honoured as "never sleep" and any positive value as "may sleep". The magnitude
         // itself is not applied; see DIVERGENCES.md.
         AZ_WarningOnce("JoltPhysics", threshold <= 0.0f,
-            "JoltRigidBody::SetSleepThreshold: Jolt's sleep velocity threshold is scene-wide, so the value "
+            "JoltRigidBody::SetSleepThreshold%s: Jolt's sleep velocity threshold is scene-wide, so the value "
             "%.3f only toggles whether this body may sleep. Configure the threshold on the scene instead.",
-            threshold);
+            Internal::NameClause(m_configuration.m_debugName).c_str(), threshold);
 
         if (!m_scene || m_bodyId.IsInvalid())
         {
@@ -882,8 +884,9 @@ namespace JoltPhysics
         if (attachedIt == m_attachedShapes.end())
         {
             AZ_Warning("JoltPhysics", false,
-                "JoltRigidBody::RemoveShape: the shape is not attached to this body. Only shapes added "
-                "with AddShape can be removed; colliders the body was created with are part of its geometry.");
+                "JoltRigidBody::RemoveShape%s: the shape is not attached to this body. Only shapes added "
+                "with AddShape can be removed; colliders the body was created with are part of its geometry.",
+                Internal::NameClause(m_configuration.m_debugName).c_str());
             return;
         }
 

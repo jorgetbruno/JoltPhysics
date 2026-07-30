@@ -17,6 +17,8 @@
 #include <Jolt/Physics/Vehicle/VehicleDifferential.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     namespace
@@ -121,9 +123,10 @@ namespace JoltPhysics
             const float suggestedConstant =
                 rollInertia * (2.0f * AZ::Constants::Pi * suggestedFrequencyHz) * (2.0f * AZ::Constants::Pi * suggestedFrequencyHz);
             AZ_Warning("JoltPhysics", frequencyHz <= maxReasonableFrequencyHz,
-                "Motorcycle lean spring constant %.0f is very stiff for this chassis (roll inertia %.1f kg m^2, "
+                "Motorcycle%s: lean spring constant %.0f is very stiff for this chassis (roll inertia %.1f kg m^2, "
                 "implying a %.1f Hz lean response); the balance correction is likely to throw the bike around. "
                 "Try a lean spring constant near %.0f with damping near %.0f.",
+                Internal::NameClause(configuration.m_debugName).c_str(),
                 configuration.m_leanSpringConstant, rollInertia, frequencyHz, suggestedConstant,
                 2.0f * rollInertia * (2.0f * AZ::Constants::Pi * suggestedFrequencyHz));
         }
@@ -263,9 +266,9 @@ namespace JoltPhysics
         if (leftDriveWheel >= wheelCount || rightDriveWheel >= wheelCount)
         {
             AZ_Warning("JoltPhysics", false,
-                "Vehicle drive wheel index out of range (left %d, right %d, %d wheels); the differential is "
-                "left unconnected and the vehicle will not drive.",
-                leftDriveWheel, rightDriveWheel, wheelCount);
+                "Vehicle%s has a drive wheel index out of range (left %d, right %d, %d wheels); the differential "
+                "is left unconnected and the vehicle will not drive.",
+                Internal::NameClause(configuration.m_debugName).c_str(), leftDriveWheel, rightDriveWheel, wheelCount);
         }
         else if (leftDriveWheel >= 0 || rightDriveWheel >= 0)
         {
@@ -319,15 +322,17 @@ namespace JoltPhysics
                 bar.m_rightWheel < 0 || bar.m_rightWheel >= wheelCount)
             {
                 AZ_Warning("JoltPhysics", false,
-                    "Vehicle anti-roll bar names wheels %d and %d, but the vehicle has %d; this bar is ignored.",
-                    bar.m_leftWheel, bar.m_rightWheel, wheelCount);
+                    "Vehicle%s has an anti-roll bar naming wheels %d and %d, but the vehicle has %d; this bar is "
+                    "ignored.",
+                    Internal::NameClause(configuration.m_debugName).c_str(), bar.m_leftWheel, bar.m_rightWheel, wheelCount);
                 continue;
             }
             if (bar.m_leftWheel == bar.m_rightWheel)
             {
                 AZ_Warning("JoltPhysics", false,
-                    "Vehicle anti-roll bar couples wheel %d to itself, which does nothing; this bar is ignored.",
-                    bar.m_leftWheel);
+                    "Vehicle%s has an anti-roll bar coupling wheel %d to itself, which does nothing; this bar is "
+                    "ignored.",
+                    Internal::NameClause(configuration.m_debugName).c_str(), bar.m_leftWheel);
                 continue;
             }
 
@@ -368,8 +373,9 @@ namespace JoltPhysics
             if (track.mWheels.empty())
             {
                 AZ_Warning("JoltPhysics", false,
-                    "Tracked vehicle has no wheels on one of its sides. Wheels are assigned to the left or right "
-                    "track by the sign of their Y position, so both signs need to be represented.");
+                    "Tracked vehicle%s has no wheels on one of its sides. Wheels are assigned to the left or right "
+                    "track by the sign of their Y position, so both signs need to be represented.",
+                    Internal::NameClause(configuration.m_debugName).c_str());
                 continue;
             }
 

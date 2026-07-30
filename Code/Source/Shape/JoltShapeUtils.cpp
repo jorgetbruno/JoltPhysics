@@ -3,6 +3,7 @@
 #include <Shape/JoltShapeUtils.h>
 #include <Shape/JoltShape.h>
 #include <Utils/Conversions.h>
+#include <Utils/JoltDiagnostics.h>
 
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
@@ -27,14 +28,16 @@ namespace JoltPhysics
         // offset or rotation. Note: the trigger flag (m_isTrigger) is applied per body
         // (Jolt sensors are body-level), not per shape - a compound mixing trigger and
         // solid shapes is not supported.
-        JPH::RefConst<JPH::Shape> CreateOffsetJoltShape(const AzPhysics::ShapeColliderPair& colliderAndShape)
+        JPH::RefConst<JPH::Shape> CreateOffsetJoltShape(
+            const AzPhysics::ShapeColliderPair& colliderAndShape, AZStd::string_view debugName)
         {
             if (!colliderAndShape.second)
             {
                 return nullptr;
             }
 
-            JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second);
+            JPH::RefConst<JPH::Shape> shape =
+                JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second, debugName);
             if (!shape || !colliderAndShape.first)
             {
                 return shape;
@@ -52,11 +55,12 @@ namespace JoltPhysics
                 shape);
         }
 
-        JPH::RefConst<JPH::Shape> CreateJoltShapeFromVariant(const AzPhysics::ShapeVariantData& colliderAndShapeData)
+        JPH::RefConst<JPH::Shape> CreateJoltShapeFromVariant(
+            const AzPhysics::ShapeVariantData& colliderAndShapeData, AZStd::string_view debugName)
         {
             if (const AzPhysics::ShapeColliderPair* singleCollider = AZStd::get_if<AzPhysics::ShapeColliderPair>(&colliderAndShapeData))
             {
-                return CreateOffsetJoltShape(*singleCollider);
+                return CreateOffsetJoltShape(*singleCollider, debugName);
             }
 
             // A pre-built Physics::Shape (e.g. from Physics::SystemRequests::CreateShape,
@@ -106,7 +110,8 @@ namespace JoltPhysics
                 JPH::ShapeSettings::ShapeResult result = compoundSettings.Create();
                 if (result.HasError())
                 {
-                    AZ_Error("JoltPhysics", false, "Failed to create compound shape from prebuilt shapes: %s", result.GetError().c_str());
+                    AZ_Error("JoltPhysics", false, "Failed to create compound shape%s from prebuilt shapes: %s",
+                        Internal::NameClause(debugName).c_str(), result.GetError().c_str());
                     return nullptr;
                 }
                 return result.Get();
@@ -121,7 +126,7 @@ namespace JoltPhysics
 
                 if (colliderList->size() == 1)
                 {
-                    return CreateOffsetJoltShape(colliderList->front());
+                    return CreateOffsetJoltShape(colliderList->front(), debugName);
                 }
 
                 JPH::StaticCompoundShapeSettings compoundSettings;
@@ -132,7 +137,8 @@ namespace JoltPhysics
                         continue;
                     }
 
-                    JPH::RefConst<JPH::Shape> subShape = JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second);
+                    JPH::RefConst<JPH::Shape> subShape =
+                        JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second, debugName);
                     if (!subShape)
                     {
                         continue;
@@ -156,7 +162,8 @@ namespace JoltPhysics
                 JPH::ShapeSettings::ShapeResult result = compoundSettings.Create();
                 if (result.HasError())
                 {
-                    AZ_Error("JoltPhysics", false, "Failed to create compound shape: %s", result.GetError().c_str());
+                    AZ_Error("JoltPhysics", false, "Failed to create compound shape%s: %s",
+                        Internal::NameClause(debugName).c_str(), result.GetError().c_str());
                     return nullptr;
                 }
                 return result.Get();
@@ -181,19 +188,19 @@ namespace JoltPhysics
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShape(
         const AzPhysics::RigidBodyConfiguration& configuration)
     {
-        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData);
+        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData, configuration.m_debugName);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromStatic(
         const AzPhysics::StaticRigidBodyConfiguration& configuration)
     {
-        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData);
+        return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData, configuration.m_debugName);
     }
 
     // Builds the shape for the configuration's type, ignoring m_scale (the public
     // CreateJoltShapeFromConfig wraps the result; see below).
     static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfigUnscaled(
-        const Physics::ShapeConfiguration& shapeConfiguration)
+        const Physics::ShapeConfiguration& shapeConfiguration, AZStd::string_view debugName)
     {
         switch (shapeConfiguration.GetShapeType())
         {
@@ -204,7 +211,8 @@ namespace JoltPhysics
             return JoltShapeUtils::CreateSphereShape(static_cast<const Physics::SphereShapeConfiguration&>(shapeConfiguration));
 
         case Physics::ShapeType::Capsule:
-            return JoltShapeUtils::CreateCapsuleShape(static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration));
+            return JoltShapeUtils::CreateCapsuleShape(
+                static_cast<const Physics::CapsuleShapeConfiguration&>(shapeConfiguration), debugName);
 
         case Physics::ShapeType::Cylinder:
         {
@@ -214,11 +222,12 @@ namespace JoltPhysics
             // some other backend's configuration and cannot be read here.
             if (const auto* cylinder = azrtti_cast<const JoltCylinderShapeConfiguration*>(&shapeConfiguration))
             {
-                return JoltShapeUtils::CreateCylinderShape(*cylinder);
+                return JoltShapeUtils::CreateCylinderShape(*cylinder, debugName);
             }
             AZ_Warning("JoltPhysics", false,
-                "Cylinder collider uses an unrecognized configuration type; use JoltCylinderShapeConfiguration "
-                "(the Jolt Cylinder Collider component) for cylinders in the Jolt backend.");
+                "Cylinder collider%s uses an unrecognized configuration type; use JoltCylinderShapeConfiguration "
+                "(the Jolt Cylinder Collider component) for cylinders in the Jolt backend.",
+                Internal::NameClause(debugName).c_str());
             return nullptr;
         }
 
@@ -274,9 +283,9 @@ namespace JoltPhysics
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
-        const Physics::ShapeConfiguration& shapeConfiguration)
+        const Physics::ShapeConfiguration& shapeConfiguration, AZStd::string_view debugName)
     {
-        JPH::RefConst<JPH::Shape> shape = CreateJoltShapeFromConfigUnscaled(shapeConfiguration);
+        JPH::RefConst<JPH::Shape> shape = CreateJoltShapeFromConfigUnscaled(shapeConfiguration, debugName);
 
         // Every shape configuration carries a scale, but native shapes have none - it
         // becomes a ScaledShape decorator. The wrap happens after any CookedMesh caching
@@ -290,7 +299,8 @@ namespace JoltPhysics
         // Zero scale is invalid in Jolt and almost certainly a content mistake.
         if (scale.GetX() * scale.GetY() * scale.GetZ() == 0.0f)
         {
-            AZ_Warning("JoltPhysics", false, "Shape configuration has a zero-scale component; ignoring the scale.");
+            AZ_Warning("JoltPhysics", false, "Collider%s has a zero-scale component; ignoring the scale.",
+                Internal::NameClause(debugName).c_str());
             return shape;
         }
         // Not every shape can represent every scale: a sphere or a capsule only scales
@@ -304,9 +314,10 @@ namespace JoltPhysics
         {
             const JPH::Vec3 validScale = shape->MakeScaleValid(joltScale);
             AZ_Warning("JoltPhysics", false,
-                "This collider shape cannot take the non-uniform scale (%.3f, %.3f, %.3f); using "
+                "Collider%s cannot take the non-uniform scale (%.3f, %.3f, %.3f); using "
                 "(%.3f, %.3f, %.3f) instead. Spheres and capsules only scale uniformly - scale the entity "
                 "uniformly, or use a box or mesh collider where the axes must differ.",
+                Internal::NameClause(debugName).c_str(),
                 scale.GetX(), scale.GetY(), scale.GetZ(),
                 validScale.GetX(), validScale.GetY(), validScale.GetZ());
             return new JPH::ScaledShape(shape.GetPtr(), validScale);
@@ -325,7 +336,8 @@ namespace JoltPhysics
         return new JPH::SphereShape(config.m_radius);
     }
 
-    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCapsuleShape(const Physics::CapsuleShapeConfiguration& config)
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCapsuleShape(
+        const Physics::CapsuleShapeConfiguration& config, AZStd::string_view debugName)
     {
         // A capsule is two hemispheres joined by a cylinder, so its total height must be at
         // least 2*radius. Below that the cylinder half-height would be negative (an invalid
@@ -335,9 +347,9 @@ namespace JoltPhysics
         {
             const float sphereRadius = AZStd::max(config.m_height * 0.5f, 0.001f);
             AZ_WarningOnce("JoltPhysics", false,
-                "Capsule height (%.3f) is less than twice its radius (%.3f); using a sphere of "
+                "Capsule collider%s has a height (%.3f) less than twice its radius (%.3f); using a sphere of "
                 "radius %.3f instead. Increase the height or reduce the radius for a capsule.",
-                config.m_height, 2.0f * config.m_radius, sphereRadius);
+                Internal::NameClause(debugName).c_str(), config.m_height, 2.0f * config.m_radius, sphereRadius);
             return new JPH::SphereShape(sphereRadius);
         }
 
@@ -350,7 +362,8 @@ namespace JoltPhysics
             new JPH::CapsuleShape(halfHeight, config.m_radius));
     }
 
-    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCylinderShape(const JoltCylinderShapeConfiguration& config)
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateCylinderShape(
+        const JoltCylinderShapeConfiguration& config, AZStd::string_view debugName)
     {
         // Jolt rejects a cylinder without extent in either direction, so clamp both to a
         // small positive value rather than letting the shape fail to build.
@@ -358,8 +371,8 @@ namespace JoltPhysics
         const float halfHeight = AZStd::max(config.m_height * 0.5f, minimumExtent);
         const float radius = AZStd::max(config.m_radius, minimumExtent);
         AZ_WarningOnce("JoltPhysics", config.m_height > 0.0f && config.m_radius > 0.0f,
-            "Cylinder collider has a non-positive height (%.3f) or radius (%.3f); clamping to %.3f m.",
-            config.m_height, config.m_radius, minimumExtent);
+            "Cylinder collider%s has a non-positive height (%.3f) or radius (%.3f); clamping to %.3f m.",
+            Internal::NameClause(debugName).c_str(), config.m_height, config.m_radius, minimumExtent);
 
         // Jolt rounds the cylinder's edges by its convex radius, which must not exceed
         // either dimension; the default (0.05) is too large for a small cylinder.

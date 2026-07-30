@@ -525,4 +525,27 @@ namespace JoltPhysics
         }
     }
 
+    TEST_F(JoltComponentBodyCreationTests, ColliderDiagnosticsNameTheEntityTheyCameFrom)
+    {
+        // Shape diagnostics fire several calls below the component that knows the entity,
+        // so the body's name travels down with the shape configuration. Without it, a
+        // warning about a collider is unactionable in a level of any size.
+        JoltWarningCatcher warnings;
+
+        auto entity = AZStd::make_unique<AZ::Entity>("SquashedCapsuleEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* collider = entity->CreateComponent<JoltCapsuleColliderComponent>();
+        // Height below twice the radius is not a capsule; the shape degrades to a sphere.
+        collider->GetShapeConfiguration().m_height = 0.5f;
+        collider->GetShapeConfiguration().m_radius = 0.5f;
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        EXPECT_TRUE(warnings.ContainsWarningWith("SquashedCapsuleEntity"));
+        EXPECT_TRUE(warnings.ContainsWarningWith("less than twice its radius"));
+
+        entity->Deactivate();
+    }
+
 } // namespace JoltPhysics

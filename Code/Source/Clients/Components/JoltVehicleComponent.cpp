@@ -13,6 +13,8 @@
 #include <Utils/ReflectionUtils.h>
 #include <Vehicle/JoltVehicle.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     JoltVehicleComponent::~JoltVehicleComponent()
@@ -143,6 +145,9 @@ namespace JoltPhysics
         {
             return;
         }
+
+        // Name the vehicle for its diagnostics; the configuration carries it no further.
+        m_configuration.m_debugName = GetEntity() ? GetEntity()->GetName() : AZStd::string();
 
         m_vehicle = aznew JoltVehicle(m_configuration, joltScene, chassisBody);
         if (!m_vehicle->IsValid())

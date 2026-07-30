@@ -22,6 +22,8 @@
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     namespace
@@ -60,12 +62,12 @@ namespace JoltPhysics
 
         if (m_configuration.m_shapeConfig)
         {
-            m_shape = JoltShapeUtils::CreateJoltShapeFromConfig(*m_configuration.m_shapeConfig);
+            m_shape = JoltShapeUtils::CreateJoltShapeFromConfig(*m_configuration.m_shapeConfig, m_configuration.m_debugName);
         }
         if (!m_shape)
         {
             Physics::CapsuleShapeConfiguration defaultShape(DefaultCharacterHeight, DefaultCharacterRadius);
-            m_shape = JoltShapeUtils::CreateJoltShapeFromConfig(defaultShape);
+            m_shape = JoltShapeUtils::CreateJoltShapeFromConfig(defaultShape, m_configuration.m_debugName);
         }
         if (!m_shape)
         {
@@ -420,7 +422,8 @@ namespace JoltPhysics
         // Jolt characters take a single shape at construction; adding one later would
         // mean rebuilding the character around a compound shape.
         AZ_WarningOnce("JoltPhysics", false,
-            "JoltCharacter::AttachShape is not supported (a Jolt character's shape is fixed at creation)");
+            "JoltCharacter::AttachShape is not supported%s (a Jolt character's shape is fixed at creation)",
+            Internal::NameClause(m_configuration.m_debugName).c_str());
     }
 
     AZ::EntityId JoltCharacter::GetEntityId() const

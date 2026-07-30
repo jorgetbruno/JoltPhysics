@@ -4,6 +4,7 @@
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/RTTI/RTTI.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/string/string.h>
 
 namespace JoltPhysics
 {
@@ -120,6 +121,11 @@ namespace JoltPhysics
         float m_trackAngularDamping = 0.5f;
         float m_trackMaxBrakeTorque = 15000.0f; //!< Nm on the driven wheel.
         float m_trackDifferentialRatio = 6.0f;
+
+        //! The owning entity's name, set at creation and not serialized: it exists so the
+        //! vehicle's diagnostics can say which vehicle they are about (see
+        //! Internal::NameClause). Mirrors m_debugName on the AzPhysics body configurations.
+        AZStd::string m_debugName;
 
         //! Property visibility helpers for the editor (the inspector only shows the
         //! settings that apply to the selected vehicle type).

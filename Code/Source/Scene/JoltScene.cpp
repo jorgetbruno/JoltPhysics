@@ -34,6 +34,8 @@
 #include <Jolt/Physics/Collision/Shape/CompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 
+#include <Utils/JoltDiagnostics.h>
+
 namespace JoltPhysics
 {
     namespace
@@ -736,7 +738,8 @@ namespace JoltPhysics
         else
         {
             AZ_WarningOnce("JoltPhysics", false,
-                "EnableSimulationOfBody: enabling is not supported for this body type (e.g. characters).");
+                "EnableSimulationOfBody%s: enabling is not supported for this body type (e.g. characters).",
+                Internal::NameClause(body.GetEntityId()).c_str());
             return;
         }
 
@@ -766,7 +769,8 @@ namespace JoltPhysics
         else
         {
             AZ_WarningOnce("JoltPhysics", false,
-                "DisableSimulationOfBody: disabling is not supported for this body type (e.g. characters).");
+                "DisableSimulationOfBody%s: disabling is not supported for this body type (e.g. characters).",
+                Internal::NameClause(body.GetEntityId()).c_str());
             return;
         }
 

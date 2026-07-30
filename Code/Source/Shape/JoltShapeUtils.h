@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzCore/std/smart_ptr/shared_ptr.h>
+#include <AzCore/std/string/string_view.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
@@ -31,8 +32,13 @@ namespace JoltPhysics
         static JPH::RefConst<JPH::Shape> CreateJoltShapeFromStatic(
             const AzPhysics::StaticRigidBodyConfiguration& configuration);
 
+        //! debugName is the owning body's name, used only to say which entity a shape
+        //! diagnostic came from; pass it whenever the caller knows it (see
+        //! Internal::NameClause). Shape creation is several calls away from the component
+        //! that knows, so the name travels down rather than being looked up.
         static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfig(
-            const Physics::ShapeConfiguration& shapeConfiguration);
+            const Physics::ShapeConfiguration& shapeConfiguration,
+            AZStd::string_view debugName = {});
 
         //! Returns the collider configuration of the first collider/shape pair found in the
         //! variant data, or nullptr if there is none. Per-body settings (collision filtering,
@@ -79,10 +85,12 @@ namespace JoltPhysics
             const Physics::SphereShapeConfiguration& config);
 
         static JPH::RefConst<JPH::Shape> CreateCapsuleShape(
-            const Physics::CapsuleShapeConfiguration& config);
+            const Physics::CapsuleShapeConfiguration& config,
+            AZStd::string_view debugName = {});
 
         static JPH::RefConst<JPH::Shape> CreateCylinderShape(
-            const JoltCylinderShapeConfiguration& config);
+            const JoltCylinderShapeConfiguration& config,
+            AZStd::string_view debugName = {});
     };
 
 } // namespace JoltPhysics
