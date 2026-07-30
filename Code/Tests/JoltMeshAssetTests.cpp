@@ -196,6 +196,25 @@ namespace JoltPhysics
         EXPECT_EQ(pairs[1].first->m_materialSlots.GetMaterialAsset(0).GetId(), materialB.GetId());
     }
 
+    TEST_F(JoltMeshAssetTests, PrimitiveEntryExpandsWithItsFitTransform)
+    {
+        // The Primitive export mode stores a plain shape config plus the fitted
+        // transform on the entry's collider configuration; expansion must compose it.
+        Pipeline::JoltMeshAssetData assetData;
+        auto colliderOverrides = AZStd::make_shared<Pipeline::JoltAssetColliderConfiguration>();
+        colliderOverrides->m_transform = AZ::Transform::CreateTranslation(AZ::Vector3(1.0f, 2.0f, 3.0f));
+        assetData.m_colliderShapes.emplace_back(
+            colliderOverrides, AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(2.0f, 4.0f, 6.0f)));
+        assetData.m_materialIndexPerShape = { 0 };
+        assetData.m_materialSlots.SetSlots({ "a" });
+
+        const AzPhysics::ShapeColliderPairList pairs =
+            ExpandJoltMeshAssetColliderShapes(assetData, Physics::ColliderConfiguration(), AZ::Vector3::CreateOne());
+        ASSERT_EQ(pairs.size(), 1u);
+        EXPECT_EQ(pairs[0].second->GetShapeType(), Physics::ShapeType::Box);
+        EXPECT_TRUE(pairs[0].first->m_position.IsClose(AZ::Vector3(1.0f, 2.0f, 3.0f)));
+    }
+
     TEST_F(JoltMeshAssetTests, ScaledShapeConfigProducesScaledShape)
     {
         auto boxConfig = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(1.0f, 2.0f, 3.0f));

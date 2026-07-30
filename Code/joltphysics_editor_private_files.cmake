@@ -13,6 +13,8 @@ set(FILES
     Source/Editor/Pipeline/JoltMeshBehavior.h
     Source/Editor/Pipeline/JoltMeshExporter.cpp
     Source/Editor/Pipeline/JoltMeshExporter.h
+    Source/Editor/Pipeline/JoltPrimitiveShapeFitter.cpp
+    Source/Editor/Pipeline/JoltPrimitiveShapeFitter.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWindowBus.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.cpp
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.h

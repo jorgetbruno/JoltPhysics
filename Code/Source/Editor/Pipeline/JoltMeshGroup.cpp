@@ -130,6 +130,7 @@ namespace JoltPhysics::Pipeline
                 ->Field("name", &JoltMeshGroup::m_name)
                 ->Field("NodeSelectionList", &JoltMeshGroup::m_nodeSelectionList)
                 ->Field("export method", &JoltMeshGroup::m_exportMethod)
+                ->Field("PrimitiveTarget", &JoltMeshGroup::m_primitiveTarget)
                 ->Field("TriangleMeshAssetParams", &JoltMeshGroup::m_triangleMeshAssetParams)
                 ->Field("DecomposeMeshes", &JoltMeshGroup::m_decomposeMeshes)
                 ->Field("ConvexDecompositionParams", &JoltMeshGroup::m_convexDecompositionParams)
@@ -159,7 +160,19 @@ namespace JoltPhysics::Pipeline
                         "a rigid body, select \"Convex\".</span>")
                         ->EnumAttribute(MeshExportMethod::TriMesh, "Triangle Mesh")
                         ->EnumAttribute(MeshExportMethod::Convex, "Convex")
+                        ->EnumAttribute(MeshExportMethod::Primitive, "Primitive")
                         ->Attribute(AZ::Edit::Attributes::ChangeNotify, &JoltMeshGroup::OnExportMethodChanged)
+
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltMeshGroup::m_primitiveTarget, "Primitive Target",
+                        "<span>Which primitive to fit to each selected mesh. Best Fit tries all three and keeps "
+                        "the smallest bounding volume. The fit is a fast PCA approximation, not an exact minimal "
+                        "shape - use Convex or Decompose for precision geometry.</span>")
+                        ->EnumAttribute(PrimitiveFitTarget::BestFit, "Best Fit")
+                        ->EnumAttribute(PrimitiveFitTarget::Sphere, "Sphere")
+                        ->EnumAttribute(PrimitiveFitTarget::Box, "Box")
+                        ->EnumAttribute(PrimitiveFitTarget::Capsule, "Capsule")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltMeshGroup::GetExportAsPrimitive)
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::AttributesAndValues)
 
                     ->DataElement(AZ_CRC_CE("DecomposeMeshes"), &JoltMeshGroup::m_decomposeMeshes, "Decompose Meshes",
                         "<span>If enabled, this option will apply the V-HACD algorithm to split each node "
@@ -221,6 +234,16 @@ namespace JoltPhysics::Pipeline
     bool JoltMeshGroup::GetExportAsTriMesh() const
     {
         return m_exportMethod == MeshExportMethod::TriMesh;
+    }
+
+    bool JoltMeshGroup::GetExportAsPrimitive() const
+    {
+        return m_exportMethod == MeshExportMethod::Primitive;
+    }
+
+    PrimitiveFitTarget JoltMeshGroup::GetPrimitiveTarget() const
+    {
+        return m_primitiveTarget;
     }
 
     bool JoltMeshGroup::GetDecomposeMeshes() const

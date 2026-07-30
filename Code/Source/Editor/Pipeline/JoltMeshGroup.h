@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Editor/Pipeline/JoltPrimitiveShapeFitter.h>
+
 #include <AzCore/Memory/Memory.h>
 #include <AzCore/RTTI/RTTI.h>
 #include <AzFramework/Physics/Material/PhysicsMaterialSlots.h>
@@ -23,13 +25,11 @@ namespace JoltPhysics::Pipeline
     class JoltMeshGroup;
 
     //! How the selected render meshes are turned into collision geometry.
-    //! There is intentionally no Primitive mode (PhysX has one): the gem already
-    //! ships dedicated primitive collider components, so the asset pipeline only
-    //! ever produces real mesh geometry.
     enum class MeshExportMethod : AZ::u8
     {
         TriMesh,
         Convex,
+        Primitive, //!< Fit box/sphere/capsule primitives instead of cooking meshes.
     };
 
     //! Knobs that only apply to triangle-mesh export. Jolt needs no cooking
@@ -96,8 +96,10 @@ namespace JoltPhysics::Pipeline
         void OverrideId(const AZ::Uuid& id);
         bool GetExportAsConvex() const;
         bool GetExportAsTriMesh() const;
+        bool GetExportAsPrimitive() const;
         bool GetDecomposeMeshes() const;
         MeshExportMethod GetExportMethod() const;
+        PrimitiveFitTarget GetPrimitiveTarget() const;
         const Physics::MaterialSlots& GetMaterialSlots() const;
 
         void SetSceneGraph(const AZ::SceneAPI::Containers::SceneGraph* graph);
@@ -126,6 +128,7 @@ namespace JoltPhysics::Pipeline
         AZStd::string m_name{};
         AZ::SceneAPI::SceneData::SceneNodeSelectionList m_nodeSelectionList{};
         MeshExportMethod m_exportMethod{ MeshExportMethod::Convex };
+        PrimitiveFitTarget m_primitiveTarget{ PrimitiveFitTarget::BestFit };
         bool m_decomposeMeshes{ false };
         JoltTriangleMeshAssetParams m_triangleMeshAssetParams{};
         JoltConvexDecompositionParams m_convexDecompositionParams{};
