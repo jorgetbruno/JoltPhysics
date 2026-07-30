@@ -17,6 +17,12 @@ set(FILES
     Source/Clients/Components/JoltCylinderColliderComponent.h
     Source/Clients/Components/JoltMeshColliderComponent.cpp
     Source/Clients/Components/JoltMeshColliderComponent.h
+    Source/Clients/Components/JoltMeshAssetColliderComponent.cpp
+    Source/Clients/Components/JoltMeshAssetColliderComponent.h
+    Source/Pipeline/JoltMeshAsset.cpp
+    Source/Pipeline/JoltMeshAsset.h
+    Source/Pipeline/JoltMeshAssetHandler.cpp
+    Source/Pipeline/JoltMeshAssetHandler.h
     Source/Clients/Components/JoltRigidBodyComponent.cpp
     Source/Clients/Components/JoltRigidBodyComponent.h
     Source/Clients/Components/JoltStaticRigidBodyComponent.cpp

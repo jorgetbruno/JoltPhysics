@@ -7,6 +7,12 @@ set(FILES
     Source/Editor/JoltEditorSettingsRegistryManager.h
     Source/Editor/EditorJoltConvexDecomposition.cpp
     Source/Editor/EditorJoltConvexDecomposition.h
+    Source/Editor/Pipeline/JoltMeshGroup.cpp
+    Source/Editor/Pipeline/JoltMeshGroup.h
+    Source/Editor/Pipeline/JoltMeshBehavior.cpp
+    Source/Editor/Pipeline/JoltMeshBehavior.h
+    Source/Editor/Pipeline/JoltMeshExporter.cpp
+    Source/Editor/Pipeline/JoltMeshExporter.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWindowBus.h
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.cpp
     Source/Editor/ConfigurationWindow/JoltConfigurationWidget.h
@@ -43,6 +49,8 @@ set(FILES
     Source/Editor/Components/EditorJoltCylinderColliderComponent.h
     Source/Editor/Components/EditorJoltMeshColliderComponent.cpp
     Source/Editor/Components/EditorJoltMeshColliderComponent.h
+    Source/Editor/Components/EditorJoltMeshAssetColliderComponent.cpp
+    Source/Editor/Components/EditorJoltMeshAssetColliderComponent.h
     Source/Editor/Components/EditorJoltRigidBodyComponent.cpp
     Source/Editor/Components/EditorJoltRigidBodyComponent.h
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.cpp

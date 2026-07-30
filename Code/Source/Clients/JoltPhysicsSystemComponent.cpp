@@ -1,5 +1,6 @@
 #include <Clients/JoltPhysicsSystemComponent.h>
 
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Console/IConsole.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
@@ -13,6 +14,8 @@
 #include <ISystem.h>
 
 #include <Joint/JoltJointConfiguration.h>
+#include <Pipeline/JoltMeshAsset.h>
+#include <Pipeline/JoltMeshAssetHandler.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
 #include <Shape/JoltShapeUtils.h>
@@ -34,6 +37,18 @@ namespace JoltPhysics
     {
         AZ_CVAR(int, jolt_Debug, 0, nullptr, AZ::ConsoleFunctorFlags::Null,
             "Draw Jolt physics collider shapes each frame (0 = off, 1 = wireframe).");
+
+        //! Adds an asset type and its file extension to the AssetCatalog and keeps the handler
+        //! alive for the rest of the component's lifetime. Mirrors PhysX's RegisterAsset helper.
+        template<typename AssetHandlerT, typename AssetT>
+        void RegisterAsset(AZStd::vector<AZStd::unique_ptr<AZ::Data::AssetHandler>>& assetHandlers)
+        {
+            auto handler = AZStd::make_unique<AssetHandlerT>();
+            handler->Register();
+            AZ::Data::AssetCatalogRequestBus::Broadcast(&AZ::Data::AssetCatalogRequests::EnableCatalogForAsset, AZ::AzTypeInfo<AssetT>::Uuid());
+            AZ::Data::AssetCatalogRequestBus::Broadcast(&AZ::Data::AssetCatalogRequests::AddExtension, AssetHandlerT::s_assetFileExtension);
+            assetHandlers.emplace_back(AZStd::move(handler));
+        }
     }
 
     void JoltPhysicsSystemComponent::Reflect(AZ::ReflectContext* context)
@@ -49,6 +64,10 @@ namespace JoltPhysics
         Internal::ReflectOnce<AzPhysics::SceneConfiguration>(context);
 
         JoltSystemConfiguration::Reflect(context);
+
+        // Reflected here so that every process loading this gem (game launcher, editor and
+        // Asset Processor alike) can ObjectStream-load .joltmesh product assets.
+        Pipeline::JoltMeshAsset::Reflect(context);
 
         // Reflected here rather than from a component, as the other joint configurations
         // are: gear and rack-and-pinion have no components of their own yet.
@@ -92,6 +111,10 @@ namespace JoltPhysics
 
     void JoltPhysicsSystemComponent::GetDependentServices([[maybe_unused]] AZ::ComponentDescriptor::DependencyArrayType& dependent)
     {
+        // Activate() registers the .joltmesh asset type with the asset catalog, so the catalog
+        // services must be up before this component activates (same reason PhysX declares these).
+        dependent.push_back(AZ_CRC_CE("AssetDatabaseService"));
+        dependent.push_back(AZ_CRC_CE("AssetCatalogService"));
     }
 
     void JoltPhysicsSystemComponent::Init()
@@ -101,6 +124,10 @@ namespace JoltPhysics
     void JoltPhysicsSystemComponent::Activate()
     {
         m_defaultWorldComponent.Activate();
+
+        // The .joltmesh handler is registered in the runtime component (not only in the builder)
+        // because games must load .joltmesh product assets as well.
+        RegisterAsset<Pipeline::JoltMeshAssetHandler, Pipeline::JoltMeshAsset>(m_assetHandlers);
 
         m_physicsSystem = GetJoltSystem();
         if (m_physicsSystem)
@@ -135,6 +162,12 @@ namespace JoltPhysics
         m_defaultWorldComponent.Deactivate();
 
         DisablePhysics();
+
+        // Destroying the handlers unregisters them from the asset manager and AssetTypeInfoBus
+        // (the catalog has no per-type unregister, so this is the full teardown). Done after
+        // physics shutdown, mirroring PhysX, so that any JoltMeshAsset still in flight can be
+        // released while its handler is still alive.
+        m_assetHandlers.clear();
     }
 
     void JoltPhysicsSystemComponent::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)

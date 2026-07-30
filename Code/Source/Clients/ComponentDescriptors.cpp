@@ -5,6 +5,7 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltCylinderColliderComponent.h>
 #include <Clients/Components/JoltMeshColliderComponent.h>
+#include <Clients/Components/JoltMeshAssetColliderComponent.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
 #include <Clients/Components/JoltStaticCompoundColliderComponent.h>
@@ -26,6 +27,7 @@ namespace JoltPhysics
         descriptors.push_back(JoltCapsuleColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltCylinderColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltMeshColliderComponent::CreateDescriptor());
+        descriptors.push_back(JoltMeshAssetColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(JoltStaticRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(JoltStaticCompoundColliderComponent::CreateDescriptor());

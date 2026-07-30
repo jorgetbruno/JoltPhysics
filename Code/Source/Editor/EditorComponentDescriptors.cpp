@@ -5,6 +5,9 @@
 #include <Editor/Components/EditorJoltCapsuleColliderComponent.h>
 #include <Editor/Components/EditorJoltCylinderColliderComponent.h>
 #include <Editor/Components/EditorJoltMeshColliderComponent.h>
+#include <Editor/Components/EditorJoltMeshAssetColliderComponent.h>
+#include <Editor/Pipeline/JoltMeshBehavior.h>
+#include <Editor/Pipeline/JoltMeshExporter.h>
 #include <Editor/Components/EditorJoltRigidBodyComponent.h>
 #include <Editor/Components/EditorJoltStaticRigidBodyComponent.h>
 #include <Editor/Components/EditorJoltHeightfieldColliderComponent.h>
@@ -34,6 +37,11 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltCapsuleColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltCylinderColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltMeshColliderComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltMeshAssetColliderComponent::CreateDescriptor());
+        // Scene Builder plugins: the Scene Settings "Jolt Physics" tab and the exporter
+        // that cooks .joltmesh products during the scene compilation job.
+        descriptors.push_back(Pipeline::JoltMeshBehavior::CreateDescriptor());
+        descriptors.push_back(Pipeline::JoltMeshExporter::CreateDescriptor());
         descriptors.push_back(EditorJoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltStaticRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltHeightfieldColliderComponent::CreateDescriptor());

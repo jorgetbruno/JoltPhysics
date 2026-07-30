@@ -239,7 +239,10 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
                 AZ::AzCore
                 AZ::AzFramework
                 AZ::AzToolsFramework
+                AZ::SceneCore
+                AZ::SceneData
                 Gem::LmbrCentral.Editor
+                Gem::CommonFeaturesAtom.Static # MeshComponentBus for asset auto-assignment
                 ${gem_name}.Private.Object
                 Jolt::Jolt
                 joltphysics_vhacd # editor-time convex decomposition (VHACD); runtime stays free of it

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
@@ -40,6 +41,9 @@ namespace JoltPhysics
 
         JoltPhysicsSystemComponent() = default;
         ~JoltPhysicsSystemComponent() override = default;
+        // Components are never copied; declaring this keeps the implicit copy ctor from
+        // being instantiated (it is ill-formed now that m_assetHandlers holds unique_ptrs).
+        JoltPhysicsSystemComponent(const JoltPhysicsSystemComponent&) = delete;
 
     protected:
         void Init() override;
@@ -120,6 +124,11 @@ namespace JoltPhysics
         bool m_enabled = false;
         JoltSystem* m_physicsSystem = nullptr;
         JoltDefaultWorldComponent m_defaultWorldComponent;
+
+        //! Asset handlers owned by this component (currently just the .joltmesh handler).
+        //! They live in the runtime component, not only in the builder, because games and the
+        //! Asset Processor must be able to load .joltmesh product assets too.
+        AZStd::vector<AZStd::unique_ptr<AZ::Data::AssetHandler>> m_assetHandlers;
     };
 
 } // namespace JoltPhysics
