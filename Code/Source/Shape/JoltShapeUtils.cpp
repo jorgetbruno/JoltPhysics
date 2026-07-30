@@ -21,8 +21,24 @@
 
 namespace JoltPhysics
 {
+    // Builds the shape for the configuration's type, ignoring m_scale (defined below;
+    // CreateOffsetJoltShape needs it for the rotated non-uniform-scale case).
+    static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfigUnscaled(
+        const Physics::ShapeConfiguration& shapeConfiguration, AZStd::string_view debugName);
+
+    // Wraps the shape in a ScaledShape, clamping a scale the shape cannot represent to
+    // the nearest one it can (defined below with CreateJoltShapeFromConfig, whose scale
+    // handling this is).
+    static JPH::RefConst<JPH::Shape> WrapInScale(
+        JPH::RefConst<JPH::Shape> shape, const AZ::Vector3& scale, AZStd::string_view debugName);
+
     namespace
     {
+        bool IsUniformScale(const AZ::Vector3& scale)
+        {
+            return AZ::IsClose(scale.GetX(), scale.GetY()) && AZ::IsClose(scale.GetX(), scale.GetZ());
+        }
+
         // Creates the shape for a single collider/shape pair, wrapping it in a
         // RotatedTranslatedShape when the collider configuration has a non-identity
         // offset or rotation. Note: the trigger flag (m_isTrigger) is applied per body
@@ -34,6 +50,37 @@ namespace JoltPhysics
             if (!colliderAndShape.second)
             {
                 return nullptr;
+            }
+
+            // The shape configuration's m_scale is the entity's overall scale and lives in
+            // entity space, *outside* the collider rotation: the render mesh of a rotated
+            // collider squashes along the entity's axis, not its own. Scale and rotation
+            // only commute when the scale is uniform, so a rotated collider under a
+            // non-uniform scale needs the ScaledShape outside the RotatedTranslatedShape.
+            // (Jolt then rotates the scale into the child where the rotation permutes axes,
+            // and the clamp in WrapInScale handles rotations that cannot take the scale.)
+            // The collider offset needs no such care - it was already scaled into entity
+            // space by the caller (ApplyOverallScale / ExpandJoltMeshAssetColliderShapes).
+            if (colliderAndShape.first && !colliderAndShape.first->m_rotation.IsIdentity() &&
+                !IsUniformScale(colliderAndShape.second->m_scale))
+            {
+                JPH::RefConst<JPH::Shape> unscaled =
+                    CreateJoltShapeFromConfigUnscaled(*colliderAndShape.second, debugName);
+                if (!unscaled)
+                {
+                    return nullptr;
+                }
+
+                JPH::RefConst<JPH::Shape> rotated = new JPH::RotatedTranslatedShape(
+                    JPH::Vec3::sZero(), Conversions::ToJolt(colliderAndShape.first->m_rotation), unscaled);
+                JPH::RefConst<JPH::Shape> scaled =
+                    WrapInScale(rotated, colliderAndShape.second->m_scale, debugName);
+                if (colliderAndShape.first->m_position.IsZero())
+                {
+                    return scaled;
+                }
+                return new JPH::RotatedTranslatedShape(
+                    Conversions::ToJolt(colliderAndShape.first->m_position), JPH::Quat::sIdentity(), scaled);
             }
 
             JPH::RefConst<JPH::Shape> shape =
@@ -137,19 +184,37 @@ namespace JoltPhysics
                         continue;
                     }
 
-                    JPH::RefConst<JPH::Shape> subShape =
-                        JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second, debugName);
-                    if (!subShape)
-                    {
-                        continue;
-                    }
-
                     JPH::Vec3 position = JPH::Vec3::sZero();
                     JPH::Quat rotation = JPH::Quat::sIdentity();
                     if (colliderAndShape.first)
                     {
                         position = Conversions::ToJolt(colliderAndShape.first->m_position);
                         rotation = Conversions::ToJolt(colliderAndShape.first->m_rotation);
+                    }
+
+                    // Entity-space scale under a rotated collider: ScaledShape outside the
+                    // rotation, same reasoning as CreateOffsetJoltShape above.
+                    if (colliderAndShape.first && !colliderAndShape.first->m_rotation.IsIdentity() &&
+                        !IsUniformScale(colliderAndShape.second->m_scale))
+                    {
+                        JPH::RefConst<JPH::Shape> unscaled =
+                            CreateJoltShapeFromConfigUnscaled(*colliderAndShape.second, debugName);
+                        if (!unscaled)
+                        {
+                            continue;
+                        }
+                        JPH::RefConst<JPH::Shape> scaled = WrapInScale(
+                            new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(), rotation, unscaled),
+                            colliderAndShape.second->m_scale, debugName);
+                        compoundSettings.AddShape(position, JPH::Quat::sIdentity(), scaled);
+                        continue;
+                    }
+
+                    JPH::RefConst<JPH::Shape> subShape =
+                        JoltShapeUtils::CreateJoltShapeFromConfig(*colliderAndShape.second, debugName);
+                    if (!subShape)
+                    {
+                        continue;
                     }
                     compoundSettings.AddShape(position, rotation, subShape);
                 }
@@ -282,16 +347,9 @@ namespace JoltPhysics
         }
     }
 
-    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
-        const Physics::ShapeConfiguration& shapeConfiguration, AZStd::string_view debugName)
+    static JPH::RefConst<JPH::Shape> WrapInScale(
+        JPH::RefConst<JPH::Shape> shape, const AZ::Vector3& scale, AZStd::string_view debugName)
     {
-        JPH::RefConst<JPH::Shape> shape = CreateJoltShapeFromConfigUnscaled(shapeConfiguration, debugName);
-
-        // Every shape configuration carries a scale, but native shapes have none - it
-        // becomes a ScaledShape decorator. The wrap happens after any CookedMesh caching
-        // (see above), so the cached native mesh stays the unscaled shape and each caller
-        // gets its own wrapper.
-        const AZ::Vector3& scale = shapeConfiguration.m_scale;
         if (!shape || scale == AZ::Vector3::CreateOne())
         {
             return shape;
@@ -304,25 +362,43 @@ namespace JoltPhysics
             return shape;
         }
         // Not every shape can represent every scale: a sphere or a capsule only scales
-        // uniformly, a cylinder only equally across the two axes normal to its own, and
-        // Jolt asserts inside the shape rather than at the wrap if it is given one it
-        // cannot use. Clamp to the nearest scale the shape does accept (for a sphere or
-        // capsule, the mean of the three components), which is what the shapes' own
-        // MakeScaleValid returns.
+        // uniformly, a cylinder only equally across the two axes normal to its own, a
+        // rotated shape only what its rotation lets through - and Jolt asserts inside the
+        // shape rather than at the wrap if it is given one it cannot use. Clamp to the
+        // nearest scale the shape does accept (for a sphere or capsule, the mean of the
+        // three components), which is what the shapes' own MakeScaleValid returns.
         const JPH::Vec3 joltScale = Conversions::ToJolt(scale);
         if (!shape->IsValidScale(joltScale))
         {
             const JPH::Vec3 validScale = shape->MakeScaleValid(joltScale);
             AZ_Warning("JoltPhysics", false,
                 "Collider%s cannot take the non-uniform scale (%.3f, %.3f, %.3f); using "
-                "(%.3f, %.3f, %.3f) instead. Spheres and capsules only scale uniformly - scale the entity "
-                "uniformly, or use a box or mesh collider where the axes must differ.",
+                "(%.3f, %.3f, %.3f) instead. Spheres and capsules only scale uniformly (a rotated collider "
+                "only along its rotation's axes) - scale the entity uniformly, or use a box or mesh "
+                "collider where the axes must differ.",
                 Internal::NameClause(debugName).c_str(),
                 scale.GetX(), scale.GetY(), scale.GetZ(),
                 validScale.GetX(), validScale.GetY(), validScale.GetZ());
             return new JPH::ScaledShape(shape.GetPtr(), validScale);
         }
         return new JPH::ScaledShape(shape.GetPtr(), joltScale);
+    }
+
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromConfig(
+        const Physics::ShapeConfiguration& shapeConfiguration, AZStd::string_view debugName)
+    {
+        // Every shape configuration carries a scale, but native shapes have none - it
+        // becomes a ScaledShape decorator. The wrap happens after any CookedMesh caching
+        // (see above), so the cached native mesh stays the unscaled shape and each caller
+        // gets its own wrapper.
+        return WrapInScale(
+            CreateJoltShapeFromConfigUnscaled(shapeConfiguration, debugName), shapeConfiguration.m_scale, debugName);
+    }
+
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateJoltShapeFromPair(
+        const AzPhysics::ShapeColliderPair& colliderAndShape, AZStd::string_view debugName)
+    {
+        return CreateOffsetJoltShape(colliderAndShape, debugName);
     }
 
     JPH::RefConst<JPH::Shape> JoltShapeUtils::CreateBoxShape(const Physics::BoxShapeConfiguration& config)

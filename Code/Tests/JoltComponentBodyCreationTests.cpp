@@ -525,6 +525,62 @@ namespace JoltPhysics
         }
     }
 
+    TEST_F(JoltComponentBodyCreationTests, RotatedColliderOnANonUniformlyScaledEntityScalesInEntitySpace)
+    {
+        // The entity's non-uniform scale lives in entity space, outside any collider
+        // rotation: the render mesh of a rotated child squashes along the *entity's* axis.
+        // Applying the scale in the shape's local frame (inside the rotation) squashes
+        // along whichever axis the rotation maps there instead - a box rotated 90 degrees
+        // about X with entity scale z=0.5 came out squashed along entity Y.
+        auto entity = MakeScaledEntity("RotatedScaledBoxEntity", AZ::Vector3(1.0f, 1.0f, 0.5f));
+        auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+        collider->GetShapeConfiguration().m_dimensions = AZ::Vector3(2.0f, 4.0f, 6.0f);
+        collider->GetColliderConfiguration().m_rotation = AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi);
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        // Half extents (1,2,3), rotated 90 about X -> spans (1,3,2) in entity space,
+        // then z halves: (1,3,1). The wrong frame gives (1,1.5,2).
+        const auto [foundSceneHandle, bodyHandle] =
+            m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const AZ::Vector3 halfExtents =
+            m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetAabb().GetExtents() * 0.5f;
+        EXPECT_TRUE(halfExtents.IsClose(AZ::Vector3(1.0f, 3.0f, 1.0f), 0.01f))
+            << "half extents: " << halfExtents.GetX() << ", " << halfExtents.GetY() << ", " << halfExtents.GetZ();
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, RotatedColliderInACompoundScalesInEntitySpaceToo)
+    {
+        // Same as above through the multi-collider compound path: an unrotated cube at
+        // the origin plus the rotated box offset along x.
+        auto entity = MakeScaledEntity("RotatedScaledCompoundEntity", AZ::Vector3(1.0f, 1.0f, 0.5f));
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        auto* rotated = entity->CreateComponent<JoltBoxColliderComponent>();
+        rotated->GetShapeConfiguration().m_dimensions = AZ::Vector3(2.0f, 4.0f, 6.0f);
+        rotated->GetColliderConfiguration().m_rotation = AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi);
+        rotated->GetColliderConfiguration().m_position = AZ::Vector3(5.0f, 0.0f, 0.0f);
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        // Cube: half (0.5,0.5,0.25) at the origin. Rotated box: half (1,3,1) at (5,0,0).
+        // Union: x in [-0.5,6], y in [-3,3], z in [-1,1].
+        const auto [foundSceneHandle, bodyHandle] =
+            m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const AZ::Aabb aabb = m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetAabb();
+        EXPECT_TRUE(aabb.GetMin().IsClose(AZ::Vector3(-0.5f, -3.0f, -1.0f), 0.01f))
+            << "min: " << aabb.GetMin().GetX() << ", " << aabb.GetMin().GetY() << ", " << aabb.GetMin().GetZ();
+        EXPECT_TRUE(aabb.GetMax().IsClose(AZ::Vector3(6.0f, 3.0f, 1.0f), 0.01f))
+            << "max: " << aabb.GetMax().GetX() << ", " << aabb.GetMax().GetY() << ", " << aabb.GetMax().GetZ();
+
+        entity->Deactivate();
+    }
+
     TEST_F(JoltComponentBodyCreationTests, ColliderDiagnosticsNameTheEntityTheyCameFrom)
     {
         // Shape diagnostics fire several calls below the component that knows the entity,

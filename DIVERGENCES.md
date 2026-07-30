@@ -407,6 +407,15 @@ feature, trust the topic sections below the milestones.**
   Jolt assert inside the shape. Authoring a squashed sphere or capsule means using a box
   or mesh collider. Heightfields are left unscaled entirely
   (`JoltColliderComponentBase::ApplyOverallScale` skips them).
+  The scale is applied in **entity space**, outside any collider rotation — a rotated
+  collider on a non-uniformly scaled entity squashes along the entity's axis, like its
+  render mesh (`CreateJoltShapeFromPair` puts the `ScaledShape` outside the
+  `RotatedTranslatedShape`; Jolt rotates the scale into the child when the rotation
+  permutes axes). A rotation that does not map axes onto axes cannot take a non-uniform
+  scale at all — that would shear, which no Jolt shape represents (nor any PhysX one) —
+  so those clamp to `MakeScaleValid` with the same warning. The render mesh *does* shear
+  in that case, so collision and visuals diverge there by necessity; authoring the scale
+  into the source mesh is the way out.
 - **Baking into the prefab stays as the quick path.** The editor "Jolt Baked Mesh Collider"
   component (render-mesh bake) is untouched; the asset pipeline (exposed as "Jolt Mesh
   Collider", matching PhysX's asset-based Mesh Collider) is the shared,

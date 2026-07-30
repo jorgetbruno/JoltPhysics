@@ -410,7 +410,12 @@ namespace JoltPhysics
         AZStd::vector<AZ::Vector3> shapeLines;
         for (const AzPhysics::ShapeColliderPair& pair : shapeColliderPairs)
         {
-            const JPH::RefConst<JPH::Shape> shape = JoltShapeUtils::CreateJoltShapeFromConfig(*pair.second);
+            // Build the same composed native shape the runtime body gets - offset,
+            // rotation, and the entity-space scale outside the rotation - so the
+            // wireframe is the collision, not a re-derivation that can drift from it
+            // (BuildShapeWireframe flattens the decorator chain via Jolt itself).
+            const JPH::RefConst<JPH::Shape> shape =
+                JoltShapeUtils::CreateJoltShapeFromPair(pair, GetEntity() ? GetEntity()->GetName() : AZStd::string());
             if (!shape)
             {
                 continue;
@@ -418,17 +423,8 @@ namespace JoltPhysics
 
             AZ::Aabb shapeBounds = AZ::Aabb::CreateNull();
             EditorColliderGeometry::BuildShapeWireframe(shape.GetPtr(), shapeLines, shapeBounds);
-
-            // Each shape sits at its own collider offset (the Scene Builder may store
-            // per-shape offsets), so bring every wireframe into entity space with its
-            // pair's transform rather than drawing one shared offset afterwards.
-            const AZ::Transform shapeOffset = AZ::Transform::CreateFromQuaternionAndTranslation(
-                pair.first->m_rotation, pair.first->m_position);
-            for (const AZ::Vector3& lineEnd : shapeLines)
-            {
-                m_debugLines.push_back(shapeOffset.TransformPoint(lineEnd));
-            }
-            m_debugBounds.AddAabb(shapeBounds.GetTransformedAabb(shapeOffset));
+            m_debugLines.insert(m_debugLines.end(), shapeLines.begin(), shapeLines.end());
+            m_debugBounds.AddAabb(shapeBounds);
         }
     }
 

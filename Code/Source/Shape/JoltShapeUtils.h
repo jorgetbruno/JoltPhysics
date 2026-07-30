@@ -40,6 +40,16 @@ namespace JoltPhysics
             const Physics::ShapeConfiguration& shapeConfiguration,
             AZStd::string_view debugName = {});
 
+        //! Creates the native shape for one collider/shape pair, with the collider's
+        //! offset and rotation applied - and with the shape configuration's scale applied
+        //! in entity space, outside the rotation, which is where the entity's scale
+        //! lives (a rotated collider on a non-uniformly scaled entity squashes along the
+        //! entity's axis, like its render mesh). This is what body creation builds each
+        //! collider from; the editor uses it so its wireframes show the same geometry.
+        static JPH::RefConst<JPH::Shape> CreateJoltShapeFromPair(
+            const AzPhysics::ShapeColliderPair& colliderAndShape,
+            AZStd::string_view debugName = {});
+
         //! Returns the collider configuration of the first collider/shape pair found in the
         //! variant data, or nullptr if there is none. Per-body settings (collision filtering,
         //! sensor flag) are currently taken from the first collider only.
