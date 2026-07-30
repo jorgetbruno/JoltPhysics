@@ -55,7 +55,10 @@ deviations from PhysX behavior.
   `CookTriangleMeshToFile/Memory` pack the geometry blob (Jolt needs no cooking pass),
   `SystemRequestBus::CreateShape` returns a `JoltShape` wrapper, and
   `JoltRigidBody::AddShape`/`RemoveShape` manage runtime compound shapes. The editor
-  mesh collider bakes triangle-mesh or convex-hull collision from the render mesh.
+  mesh collider bakes triangle-mesh or convex-hull collision from the render mesh
+  (single hull, hull per mesh node, or VHACD decomposition), and source scenes cook
+  into shared `.joltmesh` product assets in the Asset Processor via the Scene Builder
+  (see DIVERGENCES.md "Asset pipeline mesh colliders").
 - **Multiple colliders per entity** (M3): colliders no longer declare
   `JoltColliderService` self-incompatible; static and mutable compound collider
   components group child colliders into one body.

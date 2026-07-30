@@ -350,6 +350,39 @@ feature, trust the topic sections below the milestones.**
   a single hull group under one collider still maps all contact material lookups to
   that collider (`JoltScene::GetMaterialForSubShape`).
 
+## Asset pipeline mesh colliders
+
+- **`.joltmesh` mirrors PhysX's `.pxmesh`, and it is built the same way: no builder of
+  our own.** The gem plugs two SceneAPI components into the engine's Scene Builder
+  job — `Pipeline::JoltMeshBehavior` (the Scene Settings "Jolt Physics" tab and
+  manifest defaults) and `Pipeline::JoltMeshExporter` (packs geometry during the scene
+  compilation job) — discovered by reflection in the builder process, exactly like
+  PhysX's `MeshBehavior`/`MeshExporter`. The `JoltPhysics.Builders` alias (the editor
+  module) already existed, so no new builder registration was needed.
+- **"Cooked" is our packed blob, written per shape into the product.** The exporter
+  turns each selected mesh node into a `Physics::CookedMeshShapeConfiguration` holding
+  a `JoltMeshUtils` blob (triangle soup, one convex hull per node, or one entry per
+  VHACD hull when decomposing), collected into `JoltMeshAssetData` with material slots
+  and per-shape material indices. The on-disk format is the bare `JoltMeshAssetData`
+  struct as a binary ObjectStream — same split as PhysX's `MeshAsset`.
+- **Node transforms are baked into the vertices at export**, using the group's
+  `CoordinateSystemRule` — identical to PhysX — so the product stores no transforms
+  and collision matches the render mesh's coordinate conversion.
+- **Consumption mirrors PhysX too.** `JoltMeshAssetColliderComponent` holds a
+  `Physics::PhysicsAssetShapeConfiguration` and expands the asset into one
+  collider/shape pair per asset shape (`GetShapeColliderPairs`), so the existing body
+  path compounds them into one body with per-shape materials and offsets. The product
+  uuid is `CreateName(manifest group id)`: renaming a mesh group in Scene Settings
+  creates a *different* product and orphans old asset references — same behavior as
+  PhysX, worth knowing before renaming.
+- **Scale is honored everywhere now.** Shape configuration `m_scale` (entity scale ×
+  asset scale) is applied as a `JPH::ScaledShape` decorator in
+  `CreateJoltShapeFromConfig` for every shape type; previously the field was ignored.
+- **Baking into the prefab stays as the quick path.** The editor "Jolt Mesh Collider"
+  component (render-mesh bake) is untouched; the asset pipeline is the shared,
+  deduplicated workflow for real content. Per-face materials in merged triangle
+  meshes remain the known gap (the blob has no material table — Phase B).
+
 ## Collision filtering
 
 - **AzPhysics layer/group filtering is carried by Jolt's object layers.** AzPhysics

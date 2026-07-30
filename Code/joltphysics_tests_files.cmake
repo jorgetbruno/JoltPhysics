@@ -13,6 +13,7 @@ set(FILES
     Tests/JoltSceneQueryTests.cpp
     Tests/JoltMaterialTests.cpp
     Tests/JoltMeshColliderTests.cpp
+    Tests/JoltMeshAssetTests.cpp
     Tests/JoltTriggerTests.cpp
     Tests/JoltCollisionEventTests.cpp
     Tests/JoltRagdollTests.cpp
