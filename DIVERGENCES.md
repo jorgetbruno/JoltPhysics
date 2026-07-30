@@ -383,14 +383,29 @@ feature, trust the topic sections below the milestones.**
   the exporter skips it until nodes are selected in Scene Settings (or named to
   convention). Verified end-to-end with AssetProcessorBatch: authored selections
   produce `.joltmesh`, default empty groups are skipped cleanly.
+- **Triangle meshes carry per-face materials, resolved live.** The blob (v2) stores a
+  material-slot index per face, baked by Jolt into the mesh tree's 5-bit-per-triangle
+  flags — so at most 32 slots per mesh (excess clamps to slot 31 with a warning).
+  `JoltScene::GetMaterialForSubShape` reads the hit triangle's slot and resolves it
+  against the collider's slot list, so material edits apply to existing bodies (the
+  rejected alternative, baking `JPH::PhysicsMaterial` into the shape, is immutable).
+  The `mMaterials` list Jolt requires on the shape is placeholder defaults only —
+  nothing reads it.
+- **Primitive export mode fits by PCA, not by PhysX's optimizer.** "Primitive" in
+  Scene Settings fits a box/sphere/capsule (or best-fit by volume) per node from a
+  deterministic principal-component analysis — cheaper and looser than PhysX's
+  volume-minimizing fit; precision geometry belongs to convex/decompose. Non-uniform
+  scale needs no subdivision pass (unlike PhysX): `JPH::ScaledShape` wraps the
+  primitive natively.
 - **Scale is honored everywhere now.** Shape configuration `m_scale` (entity scale ×
   asset scale) is applied as a `JPH::ScaledShape` decorator in
   `CreateJoltShapeFromConfig` for every shape type; previously the field was ignored.
 - **Baking into the prefab stays as the quick path.** The editor "Jolt Baked Mesh Collider"
   component (render-mesh bake) is untouched; the asset pipeline (exposed as "Jolt Mesh
   Collider", matching PhysX's asset-based Mesh Collider) is the shared,
-  deduplicated workflow for real content. Per-face materials in merged triangle
-  meshes remain the known gap (the blob has no material table — Phase B).
+  deduplicated workflow for real content. Per-face materials live only on the asset
+  path (the baked component's blob has no material table — the render mesh reports no
+  physics materials).
 
 ## Collision filtering
 
