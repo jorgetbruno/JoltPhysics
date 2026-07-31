@@ -196,8 +196,9 @@ feature, trust the topic sections below the milestones.**
   the contact listener's `OnContactValidate` rejects contact generation for
   registered pairs (`JoltScene::AreBodiesJointed`, shared-mutex guarded for
   narrow-phase worker access). The ids ride on the joint so removal needs no body
-  lookup. Ragdoll-internal links are a separate construction path and are not
-  filtered yet.
+  lookup. Ragdoll-internal links disable collisions too, through Jolt's own
+  `RagdollSettings::DisableParentChildCollisions` group filter instead of this
+  registry (see `CollisionLayerFilters.h` for how the two filters coexist).
 
 ## M7 (vehicles)
 
