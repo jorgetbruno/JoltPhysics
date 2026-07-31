@@ -574,6 +574,88 @@ namespace JoltPhysics
         EXPECT_NEAR(distance, 2.0f, 0.1f);    // gravity pulls the tether taut
     }
 
+    TEST_F(JoltJointTests, JointedBodiesDoNotCollideWithEachOther)
+    {
+        // Two weightless boxes spawned 0.1 m interpenetrating, loosely tethered: PhysX parity
+        // means the joint suppresses their contact response, so nothing pushes them
+        // apart. (A distance joint is used on purpose - a rigid joint would hold the
+        // pair together even without the collision filter and make this test vacuous.)
+        auto boxA = CreateWeightlessBox(AZ::Vector3(-0.2f, 0.0f, 0.0f));
+        auto boxB = CreateWeightlessBox(AZ::Vector3(0.2f, 0.0f, 0.0f));
+
+        JoltDistanceJointConfiguration config;
+        config.m_parentLocalPosition = AZ::Vector3::CreateZero();
+        config.m_childLocalPosition = AZ::Vector3::CreateZero();
+        config.m_minDistance = 0.0f;
+        config.m_maxDistance = 10.0f; // loose: free to separate, but nothing should push
+        const AzPhysics::JointHandle jointHandle = m_scene->AddJoint(&config, boxA, boxB);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+
+        SimulateSteps(120);
+
+        // The overlap never resolves: the centers stay ~0.4 m apart instead of
+        // separating past the 1.0 m the two half-meter boxes need to stop touching.
+        const float distance = (GetBody(boxB)->GetPosition() - GetBody(boxA)->GetPosition()).GetLength();
+        EXPECT_NEAR(distance, 0.4f, 0.1f);
+    }
+
+    TEST_F(JoltJointTests, OverlappingUnjointedBodiesStillPushApart)
+    {
+        // Same spawn without the joint: contact response separates them. Keeps the
+        // jointed test above honest (proves contacts would otherwise generate).
+        auto boxA = CreateWeightlessBox(AZ::Vector3(-0.2f, 0.0f, 0.0f));
+        auto boxB = CreateWeightlessBox(AZ::Vector3(0.2f, 0.0f, 0.0f));
+
+        SimulateSteps(120);
+
+        const float distance = (GetBody(boxB)->GetPosition() - GetBody(boxA)->GetPosition()).GetLength();
+        EXPECT_GT(distance, 0.45f);
+    }
+
+    TEST_F(JoltJointTests, CollisionResumesAfterJointRemoved)
+    {
+        auto boxA = CreateWeightlessBox(AZ::Vector3(-0.2f, 0.0f, 0.0f));
+        auto boxB = CreateWeightlessBox(AZ::Vector3(0.2f, 0.0f, 0.0f));
+
+        JoltDistanceJointConfiguration config;
+        config.m_parentLocalPosition = AZ::Vector3::CreateZero();
+        config.m_childLocalPosition = AZ::Vector3::CreateZero();
+        config.m_minDistance = 0.0f;
+        config.m_maxDistance = 10.0f;
+        const AzPhysics::JointHandle jointHandle = m_scene->AddJoint(&config, boxA, boxB);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+        m_scene->RemoveJoint(jointHandle);
+
+        SimulateSteps(120);
+
+        // With the joint gone the filter is gone too, and the overlap resolves.
+        const float distance = (GetBody(boxB)->GetPosition() - GetBody(boxA)->GetPosition()).GetLength();
+        EXPECT_GT(distance, 0.45f);
+    }
+
+    TEST_F(JoltJointTests, ThirdBodyStillCollidesWithJointedPair)
+    {
+        // The filter is pair-specific: a falling third body shares no immunity and
+        // lands on a jointed box as normal. The stack is static so the outcome is
+        // deterministic; the joint registers the pair all the same.
+        auto floorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));
+        auto boxA = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.25f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+
+        JoltDistanceJointConfiguration config;
+        config.m_parentLocalPosition = AZ::Vector3::CreateZero();
+        config.m_childLocalPosition = AZ::Vector3::CreateZero();
+        config.m_minDistance = 0.0f;
+        config.m_maxDistance = 10.0f;
+        ASSERT_NE(m_scene->AddJoint(&config, floorHandle, boxA), AzPhysics::InvalidJointHandle);
+
+        auto falling = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 3.0f));
+        SimulateSteps(240);
+
+        // Floor top z=0, the static box's center is at z=0.25, so the falling box's
+        // center lands at z=0.75 instead of passing through the jointed stack.
+        EXPECT_NEAR(GetBody(falling)->GetPosition().GetZ(), 0.75f, 0.15f);
+    }
+
     TEST_F(JoltJointTests, ConeJointPinsBodyAtPivot)
     {
         auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));

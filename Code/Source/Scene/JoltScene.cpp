@@ -822,6 +822,12 @@ namespace JoltPhysics
 
         auto* joint = aznew JoltJoint(this, parentBody, childBody, constraint);
 
+        // PhysX parity: bodies connected by a joint do not collide with each other.
+        // The pair is registered here and dropped in RemoveJoint; the ids ride on the
+        // joint so the removal needs no body lookup (they may be gone by then).
+        joint->SetJointedBodyIds(parentJoltBody->GetID(), childJoltBody->GetID());
+        SetJointCollisionEnabled(parentJoltBody->GetID(), childJoltBody->GetID(), false);
+
         if (const JointGenericProperties* generic = FindJointGenericProperties(*jointConfig))
         {
             joint->ConfigureBreakable(
@@ -872,6 +878,11 @@ namespace JoltPhysics
             if (auto* joint = azrtti_cast<JoltJoint*>(m_joints[index].second))
             {
                 joint->RemoveFromJoltWorld();
+                if (joint->HasJointedBodyIds())
+                {
+                    const auto [parentId, childId] = joint->GetJointedBodyIds();
+                    SetJointCollisionEnabled(parentId, childId, true);
+                }
                 if (joint->IsBreakable() && m_breakableJointCount > 0)
                 {
                     --m_breakableJointCount;
@@ -1413,6 +1424,25 @@ namespace JoltPhysics
         return (static_cast<AZ::u64>(low) << 32) | high;
     }
 
+    void JoltScene::SetJointCollisionEnabled(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB, bool enabled)
+    {
+        AZStd::unique_lock lock(m_jointedBodyPairsMutex);
+        if (enabled)
+        {
+            m_jointedBodyPairs.erase(MakeContactPairKey(bodyIdA, bodyIdB));
+        }
+        else
+        {
+            m_jointedBodyPairs.insert(MakeContactPairKey(bodyIdA, bodyIdB));
+        }
+    }
+
+    bool JoltScene::AreBodiesJointed(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB) const
+    {
+        AZStd::shared_lock lock(m_jointedBodyPairsMutex);
+        return m_jointedBodyPairs.contains(MakeContactPairKey(bodyIdA, bodyIdB));
+    }
+
     void JoltScene::RemoveCollisionSuppressionsForBody(const AzPhysics::SimulatedBodyHandle& bodyHandle)
     {
         if (m_suppressedCollisionPairs.empty())
@@ -1591,11 +1621,16 @@ namespace JoltPhysics
     }
 
     JPH::ValidateResult JoltContactListener::OnContactValidate(
-        [[maybe_unused]] const JPH::Body& inBody1,
-        [[maybe_unused]] const JPH::Body& inBody2,
+        const JPH::Body& inBody1,
+        const JPH::Body& inBody2,
         [[maybe_unused]] JPH::RVec3Arg inBaseOffset,
         [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
     {
+        // PhysX parity: bodies connected by a joint do not collide with each other.
+        if (m_scene->AreBodiesJointed(inBody1.GetID(), inBody2.GetID()))
+        {
+            return JPH::ValidateResult::RejectContact;
+        }
         return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
     }
 

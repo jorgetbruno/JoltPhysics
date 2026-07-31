@@ -18,6 +18,7 @@
 #include <JoltPhysics/Configuration/JoltConfiguration.h>
 
 #include <AzCore/std/parallel/mutex.h>
+#include <AzCore/std/parallel/shared_mutex.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
@@ -134,6 +135,13 @@ namespace JoltPhysics
                                     const AzPhysics::SimulatedBodyHandle& bodyHandleB) override;
         void UnsuppressCollisionEvents(const AzPhysics::SimulatedBodyHandle& bodyHandleA,
                                       const AzPhysics::SimulatedBodyHandle& bodyHandleB) override;
+
+        //! PhysX parity: bodies connected by a joint do not collide with each other.
+        //! AddJoint registers the pair and RemoveJoint unregisters it; the contact
+        //! listener rejects contact generation for registered pairs.
+        void SetJointCollisionEnabled(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB, bool enabled);
+        //! True when the two bodies are connected by a joint (order-independent).
+        bool AreBodiesJointed(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB) const;
 
         void SetGravity(const AZ::Vector3& gravity) override;
         AZ::Vector3 GetGravity() const override;
@@ -326,6 +334,12 @@ namespace JoltPhysics
         //! PhysX backend. Main-thread only: Suppress/Unsuppress are gameplay-side calls and
         //! the filtering happens in ProcessCollisionEvents, not in the contact callbacks.
         AZStd::unordered_set<AZ::u64> m_suppressedCollisionPairs;
+
+        //! Body pairs connected by a joint (normalized BodyID pair keys). Read on
+        //! narrow-phase worker threads by the contact listener and written from the
+        //! game thread by Add/RemoveJoint, so it is guarded by a shared mutex.
+        AZStd::unordered_set<AZ::u64> m_jointedBodyPairs;
+        mutable AZStd::shared_mutex m_jointedBodyPairsMutex;
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

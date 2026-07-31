@@ -190,6 +190,14 @@ feature, trust the topic sections below the milestones.**
   fires with the removed joint's handle, and joint components forward it as
   `JoltJointNotificationBus::OnJointBroken` on their entity (a broken joint's component
   drops its handle and does not recreate the joint).
+- **Connected bodies do not collide with each other** (PhysX's default, so this
+  removes a divergence rather than adding one). Jolt has no such flag on constraints,
+  so `AddJoint` registers the body pair with the scene and `RemoveJoint` drops it;
+  the contact listener's `OnContactValidate` rejects contact generation for
+  registered pairs (`JoltScene::AreBodiesJointed`, shared-mutex guarded for
+  narrow-phase worker access). The ids ride on the joint so removal needs no body
+  lookup. Ragdoll-internal links are a separate construction path and are not
+  filtered yet.
 
 ## M7 (vehicles)
 

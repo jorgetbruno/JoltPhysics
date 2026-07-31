@@ -6,10 +6,8 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
-- **Joints do not disable collision between the connected bodies** (PhysX disables it
-  by default): jointed bodies whose shapes overlap will fight the constraint — use
-  collision layers/groups or keep the shapes apart. `AzPhysics::JointHelpersInterface`
-  (editor joint-limit visualization/auto-configuration) is not implemented.
+- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
+  visualization/auto-configuration).
 - **Character controller gaps**: `AttachShape` is a no-op (a Jolt character's shape is
   fixed at creation) and there is no `CharacterGameplayComponent` equivalent (gameplay
   drives via `CharacterRequestBus`).
@@ -51,6 +49,10 @@ deviations from PhysX behavior.
 - **`AzPhysics::SceneInterface`** is implemented (`JoltSceneInterface`), including
   scene-level trigger/collision events, so engine-wide consumers (e.g. the WhiteBox
   gem) work against it.
+- **Joints disable collision between connected bodies** (PhysX default): `AddJoint`
+  registers the body pair and `RemoveJoint` drops it; the contact listener rejects
+  contact generation for registered pairs (`JoltScene::AreBodiesJointed`, guarded for
+  narrow-phase worker access).
 - **Mesh colliders / convex hulls**: `CookConvexMeshToFile/Memory` and
   `CookTriangleMeshToFile/Memory` pack the geometry blob (Jolt needs no cooking pass),
   `SystemRequestBus::CreateShape` returns a `JoltShape` wrapper, and

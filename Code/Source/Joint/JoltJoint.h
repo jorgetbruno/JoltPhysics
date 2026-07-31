@@ -56,11 +56,36 @@ namespace JoltPhysics
         void SetParentBody(AzPhysics::SimulatedBodyHandle parentBody) override;
         void SetChildBody(AzPhysics::SimulatedBodyHandle childBody) override;
 
+        //! Records the bodies the constraint couples (at creation), so RemoveJoint can
+        //! drop the joint-collision filter entry without resolving the bodies (which
+        //! may already be gone by then).
+        void SetJointedBodyIds(JPH::BodyID parentBodyId, JPH::BodyID childBodyId)
+        {
+            m_parentBodyId = parentBodyId;
+            m_childBodyId = childBodyId;
+            m_jointedBodyIdsRegistered = true;
+        }
+        bool HasJointedBodyIds() const
+        {
+            return m_jointedBodyIdsRegistered;
+        }
+        AZStd::pair<JPH::BodyID, JPH::BodyID> GetJointedBodyIds() const
+        {
+            return { m_parentBodyId, m_childBodyId };
+        }
+
     private:
         JoltScene* m_scene = nullptr;
         AzPhysics::SimulatedBodyHandle m_parentBody = AzPhysics::InvalidSimulatedBodyHandle;
         AzPhysics::SimulatedBodyHandle m_childBody = AzPhysics::InvalidSimulatedBodyHandle;
         JPH::Constraint* m_constraint = nullptr;
+
+        // The bodies' Jolt ids at constraint creation, kept so RemoveJoint can drop
+        // the joint-collision filter entry without resolving the bodies (which may
+        // already be gone by then).
+        JPH::BodyID m_parentBodyId;
+        JPH::BodyID m_childBodyId;
+        bool m_jointedBodyIdsRegistered = false;
 
         bool m_breakable = false;
         float m_breakForceMax = 0.0f;
