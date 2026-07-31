@@ -1,5 +1,7 @@
 #include <Editor/Components/EditorJoltSphereColliderComponent.h>
 
+#include <AzCore/std/smart_ptr/make_shared.h>
+
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
@@ -35,6 +37,8 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltSphereColliderComponent::m_shapeConfiguration,
                         "Shape Configuration", "Sphere shape properties")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify,
+                            &EditorJoltSphereColliderComponent::OnColliderConfigurationChangedInEditor)
                     ;
             }
         }
@@ -66,6 +70,11 @@ namespace JoltPhysics
     {
         m_shapeConfiguration.m_radius = AZ::GetMax(radius, 0.0001f);
         OnShapeChangedByManipulator();
+    }
+
+    AzPhysics::ShapeColliderPairList EditorJoltSphereColliderComponent::GetEditorShapeColliderPairs() const
+    {
+        return { MakeScaledEditorPair(AZStd::make_shared<Physics::SphereShapeConfiguration>(m_shapeConfiguration)) };
     }
 
     AZ::Aabb EditorJoltSphereColliderComponent::GetLocalShapeBounds() const

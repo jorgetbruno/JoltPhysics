@@ -31,6 +31,7 @@ namespace JoltPhysics
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
         AZ::Aabb GetLocalShapeBounds() const override;
+        AzPhysics::ShapeColliderPairList GetEditorShapeColliderPairs() const override;
 
         // AzToolsFramework::BoxManipulatorRequestBus - drives AzToolsFramework's own
         // BoxComponentMode, so the box gets the same handles as an engine box shape.

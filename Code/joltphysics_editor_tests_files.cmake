@@ -2,6 +2,7 @@ set(FILES
     Tests/JoltPhysicsEditorTestEnvironment.cpp
     Tests/JoltPhysicsEditorTestEnvironment.h
     Tests/JoltPhysicsEditorSystemComponentTests.cpp
+    Tests/JoltEditorWorldColliderTests.cpp
     Tests/JoltEditorDebugDrawTests.cpp
     Tests/JoltCharacterControllerComponentModeTests.cpp
     Tests/JoltEditorColliderSerializationTests.cpp

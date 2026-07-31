@@ -151,6 +151,19 @@ namespace JoltPhysics
     {
         AzToolsFramework::ScopedUndoBatch undoBatch("Bake collision mesh");
         AzToolsFramework::ScopedUndoBatch::MarkEntityDirty(GetEntityId());
+
+        // Every bake lands here (auto, button, decomposition), so this is where the
+        // edit-mode body picks up the new geometry.
+        RebuildEditorCollider();
+    }
+
+    AzPhysics::ShapeColliderPairList EditorJoltBakedMeshColliderComponent::GetEditorShapeColliderPairs() const
+    {
+        if (m_shapeConfiguration.GetCookedMeshData().empty())
+        {
+            return {};
+        }
+        return { MakeScaledEditorPair(AZStd::make_shared<Physics::CookedMeshShapeConfiguration>(m_shapeConfiguration)) };
     }
 
     bool EditorJoltBakedMeshColliderComponent::BakeFromRenderMesh(bool warnOnFailure)

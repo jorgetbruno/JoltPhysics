@@ -11,10 +11,11 @@ deviations from PhysX behavior.
 - **Character controller gaps**: `AttachShape` is a no-op (a Jolt character's shape is
   fixed at creation) and there is no `CharacterGameplayComponent` equivalent (gameplay
   drives via `CharacterRequestBus`).
-- **No edit-mode collider bodies.** The editor world exists (see resolved entries), but
-  editor collider components only draw wireframes — they do not create collider bodies
-  in it (PhysX's `CreateStaticEditorCollider` path), so editor-time physics queries
-  cannot hit them directly.
+- **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
+  mesh editor colliders create static bodies in the editor scene (see resolved
+  entries); the compound colliders deliberately do not (their children are separate
+  entities with colliders of their own), and the heightfield's geometry lives with the
+  terrain provider.
 - **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
   gem is not part of this engine), so vehicles are exposed only through this gem's own
   component/bus.
@@ -52,8 +53,15 @@ deviations from PhysX behavior.
   gem) work against it.
 - **Editor world**: `EditorWorldBus::GetEditorSceneHandle` returns a real editor
   scene (named `"EditorScene"`, mirroring PhysX): edit-mode scene queries work, and
-  the scene is disabled during play-in-editor and re-enabled on stop. Like PhysX,
-  nothing ticks it by default.
+  the scene is disabled during play-in-editor and re-enabled on stop. Like PhysX, the
+  system tick does step it while enabled (`Simulate` steps every enabled scene), but
+  it hosts nothing dynamic - it is a query/body host for editor tools. A dynamic body
+  added to it would simulate in edit mode.
+- **Edit-mode collider bodies**: the primitive (box, sphere, capsule, cylinder), baked
+  mesh and mesh asset editor colliders create static bodies in the editor scene -
+  PhysX's `CreateStaticEditorCollider` equivalent - so editor-time physics queries hit
+  what the viewport shows. Bodies follow entity moves, rebuild on scale or property
+  changes and on re-bakes/asset loads, and are removed on deactivate.
 - **Joints disable collision between connected bodies** (PhysX default): `AddJoint`
   registers the body pair and `RemoveJoint` drops it; the contact listener rejects
   contact generation for registered pairs (`JoltScene::AreBodiesJointed`, guarded for

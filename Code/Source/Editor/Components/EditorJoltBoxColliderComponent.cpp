@@ -1,5 +1,7 @@
 #include <Editor/Components/EditorJoltBoxColliderComponent.h>
 
+#include <AzCore/std/smart_ptr/make_shared.h>
+
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
@@ -52,6 +54,8 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltBoxColliderComponent::m_shapeConfiguration,
                         "Shape Configuration", "Box shape properties")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify,
+                            &EditorJoltBoxColliderComponent::OnColliderConfigurationChangedInEditor)
                     ;
             }
         }
@@ -91,6 +95,11 @@ namespace JoltPhysics
     AZ::Transform EditorJoltBoxColliderComponent::GetCurrentLocalTransform() const
     {
         return GetColliderLocalTransform();
+    }
+
+    AzPhysics::ShapeColliderPairList EditorJoltBoxColliderComponent::GetEditorShapeColliderPairs() const
+    {
+        return { MakeScaledEditorPair(AZStd::make_shared<Physics::BoxShapeConfiguration>(m_shapeConfiguration)) };
     }
 
     AZ::Aabb EditorJoltBoxColliderComponent::GetLocalShapeBounds() const

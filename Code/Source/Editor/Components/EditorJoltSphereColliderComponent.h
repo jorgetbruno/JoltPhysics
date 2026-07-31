@@ -31,6 +31,7 @@ namespace JoltPhysics
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
         AZ::Aabb GetLocalShapeBounds() const override;
+        AzPhysics::ShapeColliderPairList GetEditorShapeColliderPairs() const override;
 
         // AzToolsFramework::RadiusManipulatorRequestBus
         float GetRadius() const override;

@@ -59,6 +59,7 @@ namespace JoltPhysics
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
         AZ::Aabb GetLocalShapeBounds() const override;
+        AzPhysics::ShapeColliderPairList GetEditorShapeColliderPairs() const override;
 
         // AzToolsFramework::EditorComponentSelectionRequestsBus - the cached lines are
         // already in entity space (each shape's collider offset is baked in), so the

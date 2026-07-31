@@ -46,6 +46,7 @@ namespace JoltPhysics
         // EditorJoltColliderComponentBase
         void DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const override;
         AZ::Aabb GetLocalShapeBounds() const override;
+        AzPhysics::ShapeColliderPairList GetEditorShapeColliderPairs() const override;
 
     private:
         // AZ::TickBus - connected while there is no baked data yet or a decomposition

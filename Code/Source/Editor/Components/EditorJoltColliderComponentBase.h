@@ -1,6 +1,10 @@
 #pragma once
 
+#include <AzCore/Component/NonUniformScaleBus.h>
+#include <AzCore/Component/TransformBus.h>
+
 #include <AzFramework/Entity/EntityDebugDisplayBus.h>
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
 #include <AzFramework/Physics/Shape.h>
 
 #include <AzToolsFramework/API/ComponentEntitySelectionBus.h>
@@ -24,6 +28,7 @@ namespace JoltPhysics
     class EditorJoltColliderComponentBase
         : public AzToolsFramework::Components::EditorComponentBase
         , private AzFramework::EntityDebugDisplayEventBus::Handler
+        , private AZ::TransformNotificationBus::Handler
         , protected AzToolsFramework::ShapeManipulatorRequestBus::Handler
         , protected AzToolsFramework::EditorComponentSelectionRequestsBus::Handler
     {
@@ -78,6 +83,36 @@ namespace JoltPhysics
         //! tree keeps the manipulators alive while they are being dragged.
         void OnShapeChangedByManipulator();
 
+        // AZ::TransformNotificationBus - keeps the edit-mode body under the entity.
+        void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
+
+        //! Collider/shape pairs for this component's static body in the editor scene
+        //! (EditorWorldBus), with the entity's overall scale already applied - the same
+        //! contract as the runtime GetShapeColliderPairs. The default is empty, which
+        //! means no editor body: the compound colliders stay with it (their children are
+        //! separate entities with colliders of their own), and so does the heightfield
+        //! (its geometry lives with the terrain provider).
+        virtual AzPhysics::ShapeColliderPairList GetEditorShapeColliderPairs() const
+        {
+            return {};
+        }
+
+        //! Wraps a copy of a derived component's shape configuration into a pair with
+        //! this component's collider configuration, applying the entity's overall scale
+        //! (world uniform scale x NonUniformScale) the way the runtime colliders do.
+        AzPhysics::ShapeColliderPair MakeScaledEditorPair(
+            AZStd::shared_ptr<Physics::ShapeConfiguration> shapeConfiguration) const;
+
+        //! Recreates this collider's static body in the editor scene so editor-time
+        //! physics queries hit what the viewport shows (PhysX's CreateStaticEditorCollider
+        //! equivalent). Safe to call at any time; without an editor scene it just removes.
+        void RebuildEditorCollider();
+        void DestroyEditorCollider();
+
+        //! ChangeNotify hook for the inspector: any collider or shape property edit
+        //! rebuilds the editor body.
+        AZ::u32 OnColliderConfigurationChangedInEditor();
+
         //! The collider frame in entity space: where the shape sits relative to the entity.
         AZ::Transform GetColliderLocalTransform() const;
 
@@ -103,5 +138,18 @@ namespace JoltPhysics
         //! Puts the Edit button on the component in the inspector and handles entering
         //! component mode. Derived classes connect it with their own component mode type.
         AzToolsFramework::ComponentModeFramework::ComponentModeDelegate m_componentModeDelegate;
+
+    private:
+        //! This collider's static body in the editor scene, and the scene it was added
+        //! to (kept so removal survives the scene itself having gone first).
+        AzPhysics::SimulatedBodyHandle m_editorBodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
+        AzPhysics::SceneHandle m_editorBodySceneHandle = AzPhysics::InvalidSceneHandle;
+
+        //! The overall scale the editor body was last built with. A transform change
+        //! that keeps it moves the body (cheap); one that changes it rebuilds the shape,
+        //! which is what actually depends on scale.
+        AZ::Vector3 m_editorBodyBuiltScale = AZ::Vector3::CreateOne();
+
+        AZ::NonUniformScaleChangedEvent::Handler m_nonUniformScaleChangedHandler;
     };
 } // namespace JoltPhysics

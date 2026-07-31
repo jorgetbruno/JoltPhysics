@@ -141,6 +141,8 @@ namespace JoltPhysics
 
         m_debugLinesDirty = true;
         UpdateContentLabel();
+
+        RebuildEditorCollider();
     }
 
     void EditorJoltMeshColliderComponent::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
@@ -160,6 +162,8 @@ namespace JoltPhysics
                 &AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay,
                 AzToolsFramework::Refresh_EntireTree);
         }
+    
+        RebuildEditorCollider();
     }
 
     void EditorJoltMeshColliderComponent::OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset)
@@ -384,6 +388,27 @@ namespace JoltPhysics
             component->GetShapeConfiguration() = m_proxyShapeConfiguration.m_configuration;
             component->GetShapeConfiguration().m_asset = m_proxyShapeConfiguration.m_asset;
         }
+    }
+
+    AzPhysics::ShapeColliderPairList EditorJoltMeshColliderComponent::GetEditorShapeColliderPairs() const
+    {
+        const auto* asset = m_proxyShapeConfiguration.m_asset.GetAs<Pipeline::JoltMeshAsset>();
+        if (!m_proxyShapeConfiguration.m_asset.IsReady() || asset == nullptr)
+        {
+            return {};
+        }
+
+        // The full overall scale, uniform world scale included: the editor body's
+        // transform carries no scale, unlike the wireframe draw path whose world
+        // transform does (mirrors the runtime component's GetShapeColliderPairs).
+        float uniformScale = 1.0f;
+        AZ::TransformBus::EventResult(uniformScale, GetEntityId(), &AZ::TransformBus::Events::GetWorldUniformScale);
+        AZ::Vector3 nonUniformScale = AZ::Vector3::CreateOne();
+        AZ::NonUniformScaleRequestBus::EventResult(nonUniformScale, GetEntityId(), &AZ::NonUniformScaleRequests::GetScale);
+        const AZ::Vector3 overallScale =
+            nonUniformScale * uniformScale * m_proxyShapeConfiguration.m_configuration.m_assetScale;
+
+        return ExpandJoltMeshAssetColliderShapes(asset->m_assetData, m_colliderConfiguration, overallScale);
     }
 
     void EditorJoltMeshColliderComponent::RebuildDebugLines() const
