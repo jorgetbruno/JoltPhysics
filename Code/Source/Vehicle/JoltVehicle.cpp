@@ -35,8 +35,88 @@ namespace JoltPhysics
             wheelSettings.mWidth = wheelConfig.m_width;
             wheelSettings.mSuspensionMinLength = wheelConfig.m_suspensionMinLength;
             wheelSettings.mSuspensionMaxLength = wheelConfig.m_suspensionMaxLength;
+            wheelSettings.mSuspensionPreloadLength = wheelConfig.m_suspensionPreloadLength;
+            // In stiffness mode the frequency field carries the stiffness directly (the
+            // two are one SpringSettings value in Jolt, interpreted by the mode).
             wheelSettings.mSuspensionSpring = JPH::SpringSettings(
-                JPH::ESpringMode::FrequencyAndDamping, wheelConfig.m_suspensionFrequency, wheelConfig.m_suspensionDamping);
+                wheelConfig.m_suspensionSpringMode == JoltSuspensionSpringMode::StiffnessAndDamping
+                    ? JPH::ESpringMode::StiffnessAndDamping
+                    : JPH::ESpringMode::FrequencyAndDamping,
+                wheelConfig.m_suspensionFrequency, wheelConfig.m_suspensionDamping);
+            wheelSettings.mSuspensionForcePoint = Conversions::ToJolt(wheelConfig.m_suspensionForcePoint);
+            wheelSettings.mEnableSuspensionForcePoint = wheelConfig.m_enableSuspensionForcePoint;
+        }
+
+        //! Replaces a Jolt curve with authored points; an empty list keeps Jolt's default
+        //! curve, so an unedited vehicle behaves exactly as before.
+        void ApplyCurve(const AZStd::vector<AZ::Vector2>& points, JPH::LinearCurve& curve)
+        {
+            if (points.empty())
+            {
+                return;
+            }
+            curve.Clear();
+            curve.Reserve(static_cast<JPH::uint>(points.size()));
+            for (const AZ::Vector2& point : points)
+            {
+                curve.AddPoint(point.GetX(), point.GetY());
+            }
+            curve.Sort();
+        }
+
+        //! Engine and transmission settings shared by all three controller types.
+        void ApplyEngineAndTransmission(
+            const JoltVehicleConfiguration& configuration,
+            JPH::VehicleEngineSettings& engine,
+            JPH::VehicleTransmissionSettings& transmission)
+        {
+            engine.mMaxTorque = configuration.m_maxEngineTorque;
+            engine.mMaxRPM = configuration.m_maxEngineRpm;
+            engine.mMinRPM = configuration.m_minEngineRpm;
+            engine.mInertia = configuration.m_engineInertia;
+            engine.mAngularDamping = configuration.m_engineAngularDamping;
+            ApplyCurve(configuration.m_engineTorqueCurve, engine.mNormalizedTorque);
+
+            transmission.mMode = configuration.m_transmissionMode == JoltVehicleTransmissionMode::Manual
+                ? JPH::ETransmissionMode::Manual
+                : JPH::ETransmissionMode::Auto;
+            transmission.mGearRatios.assign(configuration.m_gearRatios.begin(), configuration.m_gearRatios.end());
+            transmission.mReverseGearRatios.assign({ configuration.m_reverseGearRatio });
+            transmission.mSwitchTime = configuration.m_gearSwitchTime;
+            transmission.mClutchReleaseTime = configuration.m_clutchReleaseTime;
+            transmission.mSwitchLatency = configuration.m_gearSwitchLatency;
+            transmission.mShiftUpRPM = configuration.m_shiftUpRpm;
+            transmission.mShiftDownRPM = configuration.m_shiftDownRpm;
+            transmission.mClutchStrength = configuration.m_clutchStrength;
+        }
+
+        //! The drivetrain to build: the authored differential list, or one synthesized
+        //! from the legacy drive-wheel fields when the list is empty (which is also what
+        //! data saved before the list existed loads as).
+        AZStd::vector<JoltVehicleDifferential> EffectiveDifferentials(const JoltVehicleConfiguration& configuration)
+        {
+            if (!configuration.m_differentials.empty())
+            {
+                return configuration.m_differentials;
+            }
+
+            JoltVehicleDifferential differential;
+            differential.m_leftWheel = configuration.m_leftDriveWheel;
+            differential.m_rightWheel = configuration.m_rightDriveWheel;
+            differential.m_differentialRatio = configuration.m_differentialRatio;
+
+            // A motorcycle has a single driven (rear) wheel; the legacy defaults still
+            // point at a car's rear axle (wheels 2 and 3), which a two-wheeler does not
+            // have, so drive its rear wheel instead.
+            if (configuration.m_vehicleType == JoltVehicleType::Motorcycle &&
+                configuration.m_leftDriveWheel == JoltVehicleConfiguration().m_leftDriveWheel &&
+                configuration.m_rightDriveWheel == JoltVehicleConfiguration().m_rightDriveWheel)
+            {
+                differential.m_leftWheel = -1;
+                differential.m_rightWheel = static_cast<int>(configuration.m_wheels.size()) - 1;
+            }
+
+            return { differential };
         }
 
         //! The default wheel layout for a vehicle type, used when none is authored.
@@ -222,6 +302,10 @@ namespace JoltPhysics
             wheelSettings->mMaxSteerAngle = AZ::DegToRad(wheelConfig.m_maxSteerAngleDegrees);
             wheelSettings->mMaxBrakeTorque = wheelConfig.m_maxBrakeTorque;
             wheelSettings->mMaxHandBrakeTorque = wheelConfig.m_maxHandBrakeTorque;
+            wheelSettings->mInertia = wheelConfig.m_inertia;
+            wheelSettings->mAngularDamping = wheelConfig.m_angularDamping;
+            ApplyCurve(wheelConfig.m_longitudinalFrictionCurve, wheelSettings->mLongitudinalFriction);
+            ApplyCurve(wheelConfig.m_lateralFrictionCurve, wheelSettings->mLateralFriction);
             settings.mWheels.push_back(wheelSettings);
         }
 
@@ -234,6 +318,9 @@ namespace JoltPhysics
             motorcycleSettings->mMaxLeanAngle = AZ::DegToRad(configuration.m_maxLeanAngleDegrees);
             motorcycleSettings->mLeanSpringConstant = configuration.m_leanSpringConstant;
             motorcycleSettings->mLeanSpringDamping = configuration.m_leanSpringDamping;
+            motorcycleSettings->mLeanSpringIntegrationCoefficient = configuration.m_leanSpringIntegrationCoefficient;
+            motorcycleSettings->mLeanSpringIntegrationCoefficientDecay = configuration.m_leanSpringIntegrationCoefficientDecay;
+            motorcycleSettings->mLeanSmoothingFactor = configuration.m_leanSmoothingFactor;
             controllerSettings = motorcycleSettings;
         }
         else
@@ -241,42 +328,41 @@ namespace JoltPhysics
             controllerSettings = new JPH::WheeledVehicleControllerSettings;
         }
 
-        controllerSettings->mEngine.mMaxTorque = configuration.m_maxEngineTorque;
-        controllerSettings->mEngine.mMaxRPM = configuration.m_maxEngineRpm;
-        controllerSettings->mTransmission.mMode = JPH::ETransmissionMode::Auto;
-        controllerSettings->mTransmission.mGearRatios.assign(
-            configuration.m_gearRatios.begin(), configuration.m_gearRatios.end());
-        controllerSettings->mTransmission.mReverseGearRatios.assign({ configuration.m_reverseGearRatio });
-
-        // A motorcycle has a single driven (rear) wheel, so it uses a differential with
-        // only one side connected; Jolt reads -1 as "no wheel on this side".
-        int leftDriveWheel = configuration.m_leftDriveWheel;
-        int rightDriveWheel = configuration.m_rightDriveWheel;
-        if (configuration.m_vehicleType == JoltVehicleType::Motorcycle &&
-            leftDriveWheel == JoltVehicleConfiguration().m_leftDriveWheel &&
-            rightDriveWheel == JoltVehicleConfiguration().m_rightDriveWheel)
-        {
-            // Defaults still point at a car's rear axle (wheels 2 and 3), which a two
-            // wheeler does not have; drive its rear wheel instead.
-            leftDriveWheel = -1;
-            rightDriveWheel = static_cast<int>(configuration.m_wheels.size()) - 1;
-        }
+        ApplyEngineAndTransmission(configuration, controllerSettings->mEngine, controllerSettings->mTransmission);
+        controllerSettings->mDifferentialLimitedSlipRatio = configuration.m_differentialLimitedSlipRatio;
 
         const int wheelCount = static_cast<int>(configuration.m_wheels.size());
-        if (leftDriveWheel >= wheelCount || rightDriveWheel >= wheelCount)
+        for (const JoltVehicleDifferential& differentialConfig : EffectiveDifferentials(configuration))
+        {
+            if (differentialConfig.m_leftWheel >= wheelCount || differentialConfig.m_rightWheel >= wheelCount)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Vehicle%s has a drive wheel index out of range (left %d, right %d, %d wheels); this "
+                    "differential is left unconnected.",
+                    Internal::NameClause(configuration.m_debugName).c_str(),
+                    differentialConfig.m_leftWheel, differentialConfig.m_rightWheel, wheelCount);
+                continue;
+            }
+            if (differentialConfig.m_leftWheel < 0 && differentialConfig.m_rightWheel < 0)
+            {
+                continue;
+            }
+
+            JPH::VehicleDifferentialSettings differential;
+            differential.mLeftWheel = differentialConfig.m_leftWheel;
+            differential.mRightWheel = differentialConfig.m_rightWheel;
+            differential.mDifferentialRatio = differentialConfig.m_differentialRatio;
+            differential.mLeftRightSplit = differentialConfig.m_leftRightSplit;
+            differential.mLimitedSlipRatio = differentialConfig.m_limitedSlipRatio;
+            differential.mEngineTorqueRatio = differentialConfig.m_engineTorqueRatio;
+            controllerSettings->mDifferentials.push_back(differential);
+        }
+
+        if (controllerSettings->mDifferentials.empty())
         {
             AZ_Warning("JoltPhysics", false,
-                "Vehicle%s has a drive wheel index out of range (left %d, right %d, %d wheels); the differential "
-                "is left unconnected and the vehicle will not drive.",
-                Internal::NameClause(configuration.m_debugName).c_str(), leftDriveWheel, rightDriveWheel, wheelCount);
-        }
-        else if (leftDriveWheel >= 0 || rightDriveWheel >= 0)
-        {
-            JPH::VehicleDifferentialSettings differential;
-            differential.mLeftWheel = leftDriveWheel;
-            differential.mRightWheel = rightDriveWheel;
-            differential.mDifferentialRatio = configuration.m_differentialRatio;
-            controllerSettings->mDifferentials.push_back(differential);
+                "Vehicle%s has no connected differential and will not drive.",
+                Internal::NameClause(configuration.m_debugName).c_str());
         }
 
         settings.mController = controllerSettings;
@@ -348,12 +434,7 @@ namespace JoltPhysics
         const JoltVehicleConfiguration& configuration, JPH::VehicleConstraintSettings& settings)
     {
         auto* controllerSettings = new JPH::TrackedVehicleControllerSettings;
-        controllerSettings->mEngine.mMaxTorque = configuration.m_maxEngineTorque;
-        controllerSettings->mEngine.mMaxRPM = configuration.m_maxEngineRpm;
-        controllerSettings->mTransmission.mMode = JPH::ETransmissionMode::Auto;
-        controllerSettings->mTransmission.mGearRatios.assign(
-            configuration.m_gearRatios.begin(), configuration.m_gearRatios.end());
-        controllerSettings->mTransmission.mReverseGearRatios.assign({ configuration.m_reverseGearRatio });
+        ApplyEngineAndTransmission(configuration, controllerSettings->mEngine, controllerSettings->mTransmission);
 
         // Wheels are split into the two tracks by which side of the chassis they sit on.
         for (size_t wheelIndex = 0; wheelIndex < configuration.m_wheels.size(); ++wheelIndex)
@@ -362,6 +443,8 @@ namespace JoltPhysics
 
             auto* wheelSettings = new JPH::WheelSettingsTV;
             ApplyCommonWheelSettings(wheelConfig, *wheelSettings);
+            wheelSettings->mLongitudinalFriction = wheelConfig.m_trackedLongitudinalFriction;
+            wheelSettings->mLateralFriction = wheelConfig.m_trackedLateralFriction;
             settings.mWheels.push_back(wheelSettings);
 
             const auto trackSide = wheelConfig.m_position.GetY() >= 0.0f ? JPH::ETrackSide::Left : JPH::ETrackSide::Right;
@@ -379,8 +462,29 @@ namespace JoltPhysics
                 continue;
             }
 
-            // The first wheel of a track drives it; the rest are along for the ride.
+            // The authored driven wheel when it belongs to this track; the track's
+            // first wheel otherwise.
+            const bool isLeftTrack = &track == &controllerSettings->mTracks[static_cast<int>(JPH::ETrackSide::Left)];
+            const int authoredDrivenWheel =
+                isLeftTrack ? configuration.m_leftTrackDrivenWheel : configuration.m_rightTrackDrivenWheel;
             track.mDrivenWheel = track.mWheels.front();
+            if (authoredDrivenWheel >= 0)
+            {
+                const bool belongsToTrack = AZStd::find(track.mWheels.begin(), track.mWheels.end(),
+                    static_cast<JPH::uint>(authoredDrivenWheel)) != track.mWheels.end();
+                if (belongsToTrack)
+                {
+                    track.mDrivenWheel = static_cast<JPH::uint>(authoredDrivenWheel);
+                }
+                else
+                {
+                    AZ_Warning("JoltPhysics", false,
+                        "Tracked vehicle%s names wheel %d as the %s track's driven wheel, but that wheel is not "
+                        "on that track; using the track's first wheel instead.",
+                        Internal::NameClause(configuration.m_debugName).c_str(), authoredDrivenWheel,
+                        isLeftTrack ? "left" : "right");
+                }
+            }
             track.mInertia = configuration.m_trackInertia;
             track.mAngularDamping = configuration.m_trackAngularDamping;
             track.mMaxBrakeTorque = configuration.m_trackMaxBrakeTorque;
@@ -401,30 +505,161 @@ namespace JoltPhysics
 
     void JoltVehicle::SetDriverInput(float forward, float right, float brake, float handbrake)
     {
+        m_forwardInput = forward;
+        m_steeringInput = right;
+        m_brakeInput = brake;
+        m_handBrakeInput = handbrake;
+        ApplyDriverInput();
+    }
+
+    void JoltVehicle::SetForwardInput(float forward)
+    {
+        m_forwardInput = forward;
+        ApplyDriverInput();
+    }
+
+    void JoltVehicle::SetSteeringInput(float right)
+    {
+        m_steeringInput = right;
+        ApplyDriverInput();
+    }
+
+    void JoltVehicle::SetBrakeInput(float brake)
+    {
+        m_brakeInput = brake;
+        ApplyDriverInput();
+    }
+
+    void JoltVehicle::SetHandBrakeInput(float handbrake)
+    {
+        m_handBrakeInput = handbrake;
+        ApplyDriverInput();
+    }
+
+    void JoltVehicle::ApplyDriverInput()
+    {
         if (m_trackedController)
         {
             // Tank steering: both tracks run at full rate going straight, and steering
             // slows (then reverses) the track on the inside of the turn, so full lock
             // pivots the vehicle on the spot. There is no separate handbrake.
-            const float steering = AZStd::clamp(right, -1.0f, 1.0f);
+            const float steering = AZStd::clamp(m_steeringInput, -1.0f, 1.0f);
             const float leftRatio = steering < 0.0f ? 1.0f + 2.0f * steering : 1.0f;
             const float rightRatio = steering > 0.0f ? 1.0f - 2.0f * steering : 1.0f;
             m_trackedController->SetDriverInput(
-                forward, SanitizeTrackRatio(leftRatio), SanitizeTrackRatio(rightRatio), AZStd::max(brake, handbrake));
+                m_forwardInput, SanitizeTrackRatio(leftRatio), SanitizeTrackRatio(rightRatio),
+                AZStd::max(m_brakeInput, m_handBrakeInput));
         }
         else if (m_wheeledController)
         {
-            m_wheeledController->SetDriverInput(forward, right, brake, handbrake);
+            m_wheeledController->SetDriverInput(m_forwardInput, m_steeringInput, m_brakeInput, m_handBrakeInput);
         }
 
         // Wake the chassis when input is applied: a sleeping body makes the constraint
         // inactive, which silently stops the tire forces (Jolt's anti-sleep only resets
         // the sleep timer, it cannot wake an already-sleeping body).
-        if (m_chassisBody && (forward != 0.0f || right != 0.0f || brake != 0.0f || handbrake != 0.0f) &&
+        if (m_chassisBody &&
+            (m_forwardInput != 0.0f || m_steeringInput != 0.0f || m_brakeInput != 0.0f || m_handBrakeInput != 0.0f) &&
             !m_chassisBody->IsActive() && m_scene && m_scene->GetBodyInterface())
         {
             m_scene->GetBodyInterface()->ActivateBody(m_chassisBody->GetID());
         }
+    }
+
+    void JoltVehicle::SetGear(int gear)
+    {
+        JPH::VehicleTransmission* transmission = nullptr;
+        if (m_trackedController)
+        {
+            transmission = &m_trackedController->GetTransmission();
+        }
+        else if (m_wheeledController)
+        {
+            transmission = &m_wheeledController->GetTransmission();
+        }
+        if (transmission == nullptr)
+        {
+            return;
+        }
+
+        const int forwardGearCount = static_cast<int>(transmission->mGearRatios.size());
+        transmission->Set(AZStd::clamp(gear, -1, forwardGearCount), 1.0f);
+
+        // A commanded gear should take effect now even if the vehicle was resting.
+        if (m_chassisBody && !m_chassisBody->IsActive() && m_scene && m_scene->GetBodyInterface())
+        {
+            m_scene->GetBodyInterface()->ActivateBody(m_chassisBody->GetID());
+        }
+    }
+
+    void JoltVehicle::SetTransmissionAutomatic(bool automatic)
+    {
+        const JPH::ETransmissionMode mode =
+            automatic ? JPH::ETransmissionMode::Auto : JPH::ETransmissionMode::Manual;
+        if (m_trackedController)
+        {
+            m_trackedController->GetTransmission().mMode = mode;
+        }
+        else if (m_wheeledController)
+        {
+            m_wheeledController->GetTransmission().mMode = mode;
+        }
+    }
+
+    bool JoltVehicle::IsTransmissionAutomatic() const
+    {
+        if (m_trackedController)
+        {
+            return m_trackedController->GetTransmission().mMode == JPH::ETransmissionMode::Auto;
+        }
+        if (m_wheeledController)
+        {
+            return m_wheeledController->GetTransmission().mMode == JPH::ETransmissionMode::Auto;
+        }
+        return true;
+    }
+
+    void JoltVehicle::SetLeanControllerEnabled(bool enabled)
+    {
+        if (m_vehicleType == JoltVehicleType::Motorcycle && m_wheeledController)
+        {
+            static_cast<JPH::MotorcycleController*>(m_wheeledController)->EnableLeanController(enabled);
+        }
+    }
+
+    void JoltVehicle::SetLeanSteeringLimitEnabled(bool enabled)
+    {
+        if (m_vehicleType == JoltVehicleType::Motorcycle && m_wheeledController)
+        {
+            static_cast<JPH::MotorcycleController*>(m_wheeledController)->EnableLeanSteeringLimit(enabled);
+        }
+    }
+
+    void JoltVehicle::SetCombineFriction(CombineFrictionFunction combineFriction)
+    {
+        if (!m_constraint)
+        {
+            return;
+        }
+        if (!combineFriction)
+        {
+            // Restore Jolt's default: multiply by the ground body's friction.
+            m_constraint->SetCombineFriction(
+                [](JPH::uint, float& ioLongitudinalFriction, float& ioLateralFriction,
+                    const JPH::Body& inBody2, const JPH::SubShapeID&)
+                {
+                    ioLongitudinalFriction *= inBody2.GetFriction();
+                    ioLateralFriction *= inBody2.GetFriction();
+                });
+            return;
+        }
+        m_constraint->SetCombineFriction(
+            [callback = AZStd::move(combineFriction)](JPH::uint inWheelIndex, float& ioLongitudinalFriction,
+                float& ioLateralFriction, const JPH::Body& inBody2, const JPH::SubShapeID&)
+            {
+                callback(static_cast<AZ::u32>(inWheelIndex), ioLongitudinalFriction, ioLateralFriction,
+                    AZ::EntityId(inBody2.GetUserData()));
+            });
     }
 
     float JoltVehicle::GetSpeed() const
@@ -493,6 +728,72 @@ namespace JoltPhysics
             return false;
         }
         return m_constraint->GetWheel(wheelIndex)->HasContact();
+    }
+
+    float JoltVehicle::GetWheelAngularVelocity(AZ::u32 wheelIndex) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return 0.0f;
+        }
+        return m_constraint->GetWheel(wheelIndex)->GetAngularVelocity();
+    }
+
+    float JoltVehicle::GetWheelSteerAngle(AZ::u32 wheelIndex) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return 0.0f;
+        }
+        return m_constraint->GetWheel(wheelIndex)->GetSteerAngle();
+    }
+
+    float JoltVehicle::GetWheelLongitudinalSlip(AZ::u32 wheelIndex) const
+    {
+        // Slip is computed by the wheeled tire model (WheelWV); tracked wheels have none.
+        if (!m_wheeledController || !m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return 0.0f;
+        }
+        return static_cast<const JPH::WheelWV*>(m_constraint->GetWheel(wheelIndex))->mLongitudinalSlip;
+    }
+
+    float JoltVehicle::GetWheelLateralSlip(AZ::u32 wheelIndex) const
+    {
+        if (!m_wheeledController || !m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return 0.0f;
+        }
+        return static_cast<const JPH::WheelWV*>(m_constraint->GetWheel(wheelIndex))->mLateralSlip;
+    }
+
+    bool JoltVehicle::GetWheelContactPoint(AZ::u32 wheelIndex, AZ::Vector3& outPoint) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount() || !m_constraint->GetWheel(wheelIndex)->HasContact())
+        {
+            return false;
+        }
+        outPoint = Conversions::FromJolt(m_constraint->GetWheel(wheelIndex)->GetContactPosition());
+        return true;
+    }
+
+    bool JoltVehicle::GetWheelContactNormal(AZ::u32 wheelIndex, AZ::Vector3& outNormal) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount() || !m_constraint->GetWheel(wheelIndex)->HasContact())
+        {
+            return false;
+        }
+        outNormal = Conversions::FromJolt(m_constraint->GetWheel(wheelIndex)->GetContactNormal());
+        return true;
+    }
+
+    bool JoltVehicle::IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const
+    {
+        if (!m_constraint || wheelIndex >= GetWheelCount())
+        {
+            return false;
+        }
+        return m_constraint->GetWheel(wheelIndex)->HasHitHardPoint();
     }
 
     float JoltVehicle::GetLeanAngle() const

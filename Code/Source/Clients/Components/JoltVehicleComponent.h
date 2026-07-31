@@ -55,14 +55,31 @@ namespace JoltPhysics
 
         // JoltVehicleRequestBus
         void SetDriverInput(float forward, float right, float brake, float handbrake) override;
+        void SetForwardInput(float forward) override;
+        void SetSteeringInput(float right) override;
+        void SetBrakeInput(float brake) override;
+        void SetHandBrakeInput(float handbrake) override;
         float GetSpeed() const override;
         float GetEngineRpm() const override;
         int GetCurrentGear() const override;
+        void SetGear(int gear) override;
+        void SetTransmissionAutomatic(bool automatic) override;
+        bool IsTransmissionAutomatic() const override;
         float GetLeanAngle() const override;
+        void SetLeanControllerEnabled(bool enabled) override;
+        void SetLeanSteeringLimitEnabled(bool enabled) override;
         AZ::u32 GetWheelCount() const override;
         AZ::Transform GetWheelTransform(AZ::u32 wheelIndex) const override;
         float GetSuspensionLength(AZ::u32 wheelIndex) const override;
         bool IsWheelOnGround(AZ::u32 wheelIndex) const override;
+        float GetWheelAngularVelocity(AZ::u32 wheelIndex) const override;
+        float GetWheelSteerAngle(AZ::u32 wheelIndex) const override;
+        float GetWheelLongitudinalSlip(AZ::u32 wheelIndex) const override;
+        float GetWheelLateralSlip(AZ::u32 wheelIndex) const override;
+        AZ::Vector3 GetWheelContactPoint(AZ::u32 wheelIndex) const override;
+        AZ::Vector3 GetWheelContactNormal(AZ::u32 wheelIndex) const override;
+        bool IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const override;
+        void RecreateVehicle() override;
 
     private:
         void CreateVehicle();

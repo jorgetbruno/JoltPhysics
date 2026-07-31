@@ -91,3 +91,10 @@ deviations from PhysX behavior.
 - **Vehicle wheel state for rendering**: exposed through `JoltVehicleRequestBus`
   (`GetWheelCount`, `GetWheelTransform` in world space, carrying suspension);
   driving the wheel meshes from it remains the user's side.
+- **Vehicle tuning surface**: per-wheel tire friction curves, engine torque curve and
+  idle, automatic/manual transmission with shift tuning and `SetGear`, a differential
+  list with limited slip (AWD), suspension preload/force point/spring modes, per-axis
+  driver input setters, slip/contact wheel readouts, motorcycle lean tuning and
+  runtime toggles, authorable tracked driven wheels, `RecreateVehicle` for runtime
+  config edits, a C++ combine-friction hook for terrain-dependent grip, and vehicle
+  constraint debug draw under `jolt_Debug` (see DIVERGENCES.md, M7/vehicles).

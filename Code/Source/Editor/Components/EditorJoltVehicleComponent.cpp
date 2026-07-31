@@ -29,7 +29,7 @@ namespace JoltPhysics
                 // The JoltVehicleConfiguration field-level edit context is registered by the
                 // runtime JoltVehicleComponent::Reflect, which also runs in this dll.
                 editContext->Class<EditorJoltVehicleComponent>(
-                    "Jolt Vehicle", "Four-wheeled vehicle simulated by the Jolt physics backend (editor)")
+                    "Jolt Vehicle", "Wheeled, motorcycle or tracked vehicle simulated by the Jolt physics backend (editor)")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")

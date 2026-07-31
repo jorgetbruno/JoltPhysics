@@ -233,7 +233,30 @@ feature, trust the topic sections below the milestones.**
 - **The chassis is force-woken on driver input**: Jolt's vehicle anti-sleep only resets
   the sleep timer, so a body that fell asleep while parked would never wake up again
   (deadlock that leaves the tire constraints inactive).
-- **Wheel state is exposed for rendering** through `JoltVehicleRequestBus`:
+- **The full Jolt tuning surface is exposed** where PhysXVehicle had its own model:
+  per-wheel tire friction curves (`LinearCurve` points; empty keeps Jolt's default),
+  wheel inertia/damping, suspension preload, force point and spring mode; engine
+  torque curve, idle RPM, inertia and damping; automatic/manual transmission with
+  shift RPMs, switch/clutch times and clutch strength (`SetGear` and
+  `SetTransmissionAutomatic` on the bus drive manual mode); and a differential *list*
+  with per-differential ratio, left/right split, limited slip and torque share plus a
+  center limited-slip ratio, which is what makes AWD layouts possible. The legacy
+  single-differential fields (`m_leftDriveWheel`/`m_rightDriveWheel`/
+  `m_differentialRatio`) stay serialized and are read only when the differential list
+  is empty, so data saved before the list existed keeps its meaning without a
+  converter - in either serialization format.
+- **Runtime config edits require `RecreateVehicle`** (on the bus): Jolt bakes the
+  configuration into the constraint at creation, so the component deliberately does
+  not watch the config for changes - a rebuild mid-drive resets drivetrain state and
+  should be explicit.
+- **Terrain-dependent grip is a C++ hook**: `JoltVehicle::SetCombineFriction` wraps
+  Jolt's combine-friction callback and hands the callback the entity under the wheel;
+  it is not on the bus because an `AZStd::function` cannot cross into script.
+- **Wheel state is exposed for rendering and effects** through `JoltVehicleRequestBus`:
+  angular velocity, steer angle, longitudinal/lateral slip (wheeled/motorcycle only -
+  the tracked controller has no tire slip model), contact point and normal, and
+  suspension bottom-out, on top of the transforms below - the signals skid audio and
+  tire VFX need.
   `GetWheelCount`, `GetWheelTransform` (world space, carrying the suspension position,
   the steer angle and the rolling of the tyre), `GetSuspensionLength` and
   `IsWheelOnGround`. The gem still does not move any render entity itself - the
@@ -249,8 +272,11 @@ feature, trust the topic sections below the milestones.**
   and folds the handbrake into the brake, since a tank has neither steered wheels nor
   a separate handbrake. Per-wheel steer angles and brake torques are ignored on this
   type; braking comes from the track's own brake torque. Wheels are assigned to the
-  left or right track by the sign of their Y position, and the first wheel of each
-  track is its driven wheel.
+  left or right track by the sign of their Y position; the driven wheel is authorable
+  per track (`m_leftTrackDrivenWheel`/`m_rightTrackDrivenWheel`, default the first
+  wheel of the side). Track properties (inertia, damping, brake torque, ratio) are
+  deliberately symmetric - one set applies to both tracks - since asymmetric tracks
+  are an authoring hazard with no common use.
 - **Motorcycle lean gains must be sized to the chassis.** Jolt's defaults
   (`mLeanSpringConstant` 5000, `mLeanSpringDamping` 1000) suit a particular bike; on a
   lighter one the balance correction is violent enough to throw the vehicle into the

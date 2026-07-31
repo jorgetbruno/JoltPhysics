@@ -569,6 +569,10 @@ namespace JoltPhysics
                 if (auto* physicsSystem = joltScene->GetJoltPhysicsSystem())
                 {
                     physicsSystem->DrawBodies(drawSettings, &debugRenderer, &bodyDrawFilter);
+                    // Constraints carry their own debug view - for vehicles that is the
+                    // suspension, wheel poses and an RPM meter, matching what the editor's
+                    // wheel preview shows but live in game.
+                    physicsSystem->DrawConstraints(&debugRenderer);
                 }
             }
         }

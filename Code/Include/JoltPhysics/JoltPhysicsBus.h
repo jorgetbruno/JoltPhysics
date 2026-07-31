@@ -98,12 +98,29 @@ namespace JoltPhysics
         //! A tracked vehicle converts the steering into a left/right track speed ratio
         //! (full lock pivots it on the spot) and folds the handbrake into the brake.
         virtual void SetDriverInput(float forward, float right, float brake, float handbrake) = 0;
+        //! Individual input channels; each keeps the other channels at their last value,
+        //! for callers that update one axis at a time (gamepad events arrive per axis).
+        virtual void SetForwardInput(float forward) = 0;
+        virtual void SetSteeringInput(float right) = 0;
+        virtual void SetBrakeInput(float brake) = 0;
+        virtual void SetHandBrakeInput(float handbrake) = 0;
         //! Chassis speed along its forward axis (m/s).
         virtual float GetSpeed() const = 0;
         virtual float GetEngineRpm() const = 0;
         virtual int GetCurrentGear() const = 0;
+        //! Forces the given gear (-1 = reverse, 0 = neutral, 1.. = forward) with the
+        //! clutch engaged. With an automatic transmission the auto-shifter carries on
+        //! from the new gear; pair with SetTransmissionAutomatic(false) to hold gears.
+        virtual void SetGear(int gear) = 0;
+        //! Switches between automatic and manual shifting at runtime.
+        virtual void SetTransmissionAutomatic(bool automatic) = 0;
+        virtual bool IsTransmissionAutomatic() const = 0;
         //! How far a motorcycle is leaned over, in radians (0 for the other vehicle types).
         virtual float GetLeanAngle() const = 0;
+        //! Motorcycle runtime toggles (no-ops on the other types): the lean balance
+        //! controller, and the limit that stops steering past the lean the bike can hold.
+        virtual void SetLeanControllerEnabled(bool enabled) = 0;
+        virtual void SetLeanSteeringLimitEnabled(bool enabled) = 0;
 
         //! Wheels the vehicle ended up with: the authored count, or the vehicle type's
         //! default layout when none were authored.
@@ -117,6 +134,25 @@ namespace JoltPhysics
         //! Whether the wheel found ground on the last step; one in the air neither
         //! drives nor steers.
         virtual bool IsWheelOnGround(AZ::u32 wheelIndex) const = 0;
+        //! Wheel spin (rad/s; positive rolls the vehicle forward).
+        virtual float GetWheelAngularVelocity(AZ::u32 wheelIndex) const = 0;
+        //! Current steering angle of the wheel (radians).
+        virtual float GetWheelSteerAngle(AZ::u32 wheelIndex) const = 0;
+        //! Longitudinal slip ratio (0 = full traction, ~1 = locked or spinning) and
+        //! lateral slip angle (radians) - the tire-smoke and skid-audio signals.
+        //! Wheeled and motorcycle only; a tracked vehicle reports 0.
+        virtual float GetWheelLongitudinalSlip(AZ::u32 wheelIndex) const = 0;
+        virtual float GetWheelLateralSlip(AZ::u32 wheelIndex) const = 0;
+        //! Ground contact point / normal in world space (zero when the wheel is in the
+        //! air; check IsWheelOnGround).
+        virtual AZ::Vector3 GetWheelContactPoint(AZ::u32 wheelIndex) const = 0;
+        virtual AZ::Vector3 GetWheelContactNormal(AZ::u32 wheelIndex) const = 0;
+        //! Whether the suspension is fully compressed and riding its hard stop.
+        virtual bool IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const = 0;
+        //! Destroys and recreates the vehicle from the component's current
+        //! configuration. Config edits made after activation take effect only here:
+        //! Jolt bakes the configuration into the constraint at creation.
+        virtual void RecreateVehicle() = 0;
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;

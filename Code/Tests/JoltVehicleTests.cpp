@@ -29,6 +29,14 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 
+#include <AzCore/Component/Entity.h>
+#include <AzFramework/Components/TransformComponent.h>
+#include <AzFramework/Physics/SystemBus.h>
+
+#include <Clients/Components/JoltBoxColliderComponent.h>
+#include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltVehicleComponent.h>
+
 namespace JoltPhysics
 {
     class JoltVehicleTests : public ::testing::Test
@@ -590,6 +598,411 @@ namespace JoltPhysics
         EXPECT_TRUE(unchanged.GetTranslation().IsClose(AZ::Vector3(7.0f, 7.0f, 7.0f)));
         EXPECT_EQ(m_vehicle->GetSuspensionLength(99), 0.0f);
         EXPECT_FALSE(m_vehicle->IsWheelOnGround(99));
+    }
+
+
+    TEST_F(JoltVehicleTests, AuthoredDifferentialsOverrideTheLegacyDriveWheelFields)
+    {
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        JoltVehicleDifferential front;
+        front.m_leftWheel = 0;
+        front.m_rightWheel = 1;
+        front.m_differentialRatio = 4.1f;
+        front.m_leftRightSplit = 0.3f;
+        front.m_limitedSlipRatio = 2.0f;
+        front.m_engineTorqueRatio = 0.6f;
+        JoltVehicleDifferential rear;
+        rear.m_leftWheel = 2;
+        rear.m_rightWheel = 3;
+        rear.m_engineTorqueRatio = 0.4f;
+        config.m_differentials = { front, rear };
+        config.m_differentialLimitedSlipRatio = 1.8f;
+
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        const auto* controller =
+            static_cast<const JPH::WheeledVehicleController*>(m_vehicle->GetConstraint()->GetController());
+        ASSERT_EQ(controller->GetDifferentials().size(), 2u);
+        EXPECT_EQ(controller->GetDifferentials()[0].mLeftWheel, 0);
+        EXPECT_EQ(controller->GetDifferentials()[0].mRightWheel, 1);
+        EXPECT_FLOAT_EQ(controller->GetDifferentials()[0].mDifferentialRatio, 4.1f);
+        EXPECT_FLOAT_EQ(controller->GetDifferentials()[0].mLeftRightSplit, 0.3f);
+        EXPECT_FLOAT_EQ(controller->GetDifferentials()[0].mLimitedSlipRatio, 2.0f);
+        EXPECT_FLOAT_EQ(controller->GetDifferentials()[0].mEngineTorqueRatio, 0.6f);
+        EXPECT_EQ(controller->GetDifferentials()[1].mLeftWheel, 2);
+        EXPECT_FLOAT_EQ(controller->GetDifferentialLimitedSlipRatio(), 1.8f);
+    }
+
+    TEST_F(JoltVehicleTests, EngineTransmissionAndWheelTuningLandInJolt)
+    {
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_minEngineRpm = 900.0f;
+        config.m_engineInertia = 0.7f;
+        config.m_engineAngularDamping = 0.1f;
+        config.m_engineTorqueCurve = { AZ::Vector2(0.0f, 0.5f), AZ::Vector2(1.0f, 1.0f) };
+        config.m_gearSwitchTime = 0.25f;
+        config.m_clutchReleaseTime = 0.15f;
+        config.m_gearSwitchLatency = 0.4f;
+        config.m_shiftUpRpm = 4500.0f;
+        config.m_shiftDownRpm = 1800.0f;
+        config.m_clutchStrength = 12.0f;
+        for (JoltWheelConfiguration& wheel : config.m_wheels)
+        {
+            wheel.m_inertia = 1.2f;
+            wheel.m_angularDamping = 0.05f;
+            wheel.m_suspensionPreloadLength = 0.1f;
+            wheel.m_longitudinalFrictionCurve = { AZ::Vector2(0.0f, 0.3f), AZ::Vector2(1.0f, 0.3f) };
+            wheel.m_lateralFrictionCurve = { AZ::Vector2(0.0f, 0.4f), AZ::Vector2(20.0f, 0.4f) };
+        }
+
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        const auto* controller =
+            static_cast<const JPH::WheeledVehicleController*>(m_vehicle->GetConstraint()->GetController());
+        EXPECT_FLOAT_EQ(controller->GetEngine().mMinRPM, 900.0f);
+        EXPECT_FLOAT_EQ(controller->GetEngine().mInertia, 0.7f);
+        EXPECT_FLOAT_EQ(controller->GetEngine().mAngularDamping, 0.1f);
+        EXPECT_NEAR(controller->GetEngine().mNormalizedTorque.GetValue(0.0f), 0.5f, 1e-3f);
+        EXPECT_NEAR(controller->GetEngine().mNormalizedTorque.GetValue(1.0f), 1.0f, 1e-3f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mSwitchTime, 0.25f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mClutchReleaseTime, 0.15f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mSwitchLatency, 0.4f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mShiftUpRPM, 4500.0f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mShiftDownRPM, 1800.0f);
+        EXPECT_FLOAT_EQ(controller->GetTransmission().mClutchStrength, 12.0f);
+
+        const auto* wheelSettings =
+            static_cast<const JPH::WheelSettingsWV*>(m_vehicle->GetConstraint()->GetWheel(0)->GetSettings());
+        EXPECT_FLOAT_EQ(wheelSettings->mInertia, 1.2f);
+        EXPECT_FLOAT_EQ(wheelSettings->mAngularDamping, 0.05f);
+        EXPECT_FLOAT_EQ(wheelSettings->mSuspensionPreloadLength, 0.1f);
+        EXPECT_NEAR(wheelSettings->mLongitudinalFriction.GetValue(0.5f), 0.3f, 1e-3f);
+        EXPECT_NEAR(wheelSettings->mLateralFriction.GetValue(10.0f), 0.4f, 1e-3f);
+    }
+
+    TEST_F(JoltVehicleTests, LowGripTireCurvesMakeTheCarAccelerateSlower)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 100.0f, 1.0f));
+
+        float grippyDistance = 0.0f;
+        {
+            CreateVehicle(AZ::Vector3(0.0f, 20.0f, 0.9f), MakeCarConfiguration(), AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            const float startX = GetChassis()->GetPosition().GetX();
+            DriveSteps(1.0f, 0.0f, 0.0f, 180);
+            grippyDistance = GetChassis()->GetPosition().GetX() - startX;
+        }
+
+        float slipperyDistance = 0.0f;
+        {
+            JoltVehicleConfiguration config = MakeCarConfiguration();
+            for (JoltWheelConfiguration& wheel : config.m_wheels)
+            {
+                // Ice: a tenth of the traction at every slip ratio.
+                wheel.m_longitudinalFrictionCurve = { AZ::Vector2(0.0f, 0.1f), AZ::Vector2(1.0f, 0.1f) };
+            }
+            CreateVehicle(AZ::Vector3(0.0f, -20.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            const float startX = GetChassis()->GetPosition().GetX();
+            DriveSteps(1.0f, 0.0f, 0.0f, 180);
+            slipperyDistance = GetChassis()->GetPosition().GetX() - startX;
+        }
+
+        // The authored curve is the handling knob: on ice the same throttle covers
+        // notably less ground because the wheels spin instead of gripping.
+        EXPECT_LT(slipperyDistance, grippyDistance * 0.7f)
+            << "grippy " << grippyDistance << " m, slippery " << slipperyDistance << " m";
+    }
+
+    TEST_F(JoltVehicleTests, AutomaticTransmissionShiftsUpUnderFullThrottle)
+    {
+        CreateStaticBox(AZ::Vector3(150.0f, 0.0f, -0.5f), AZ::Vector3(500.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        EXPECT_LE(m_vehicle->GetCurrentGear(), 1);
+
+        int highestGear = 0;
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 600; ++i)
+        {
+            m_vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+            highestGear = AZStd::max(highestGear, m_vehicle->GetCurrentGear());
+        }
+        EXPECT_GE(highestGear, 2) << "speed " << m_vehicle->GetSpeed() << " rpm " << m_vehicle->GetEngineRpm();
+    }
+
+    TEST_F(JoltVehicleTests, ManualTransmissionHoldsNeutralUntilAGearIsSet)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 50.0f, 1.0f));
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_transmissionMode = JoltVehicleTransmissionMode::Manual;
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        EXPECT_FALSE(m_vehicle->IsTransmissionAutomatic());
+
+        // Full throttle in neutral revs the engine but moves nothing.
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        DriveSteps(1.0f, 0.0f, 0.0f, 120);
+        EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
+        EXPECT_EQ(m_vehicle->GetCurrentGear(), 0);
+
+        // First gear engages and the same throttle drives the car; nothing shifts it out.
+        m_vehicle->SetGear(1);
+        DriveSteps(1.0f, 0.0f, 0.0f, 240);
+        EXPECT_GT(m_vehicle->GetSpeed(), 3.0f);
+        EXPECT_EQ(m_vehicle->GetCurrentGear(), 1);
+    }
+
+    TEST_F(JoltVehicleTests, TheHandbrakeStopsARollingCar)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+        ASSERT_GT(m_vehicle->GetSpeed(), 3.0f);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 360; ++i)
+        {
+            m_vehicle->SetDriverInput(0.0f, 0.0f, 0.0f, 1.0f);
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+        EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
+    }
+
+    TEST_F(JoltVehicleTests, ASphereGroundTestDrivesOnFlatGround)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 50.0f, 1.0f));
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_collisionTester = JoltVehicleCollisionTester::Sphere;
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        EXPECT_TRUE(m_vehicle->IsWheelOnGround(0));
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+        EXPECT_GT(m_vehicle->GetSpeed(), 3.0f);
+    }
+
+    TEST_F(JoltVehicleTests, IndividualInputSettersCompose)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+
+        // Throttle through the single-channel setter alone.
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        m_vehicle->SetForwardInput(1.0f);
+        for (int i = 0; i < 180; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+        EXPECT_GT(m_vehicle->GetSpeed(), 3.0f);
+
+        // The brake channel composes with (and here replaces) the held throttle.
+        m_vehicle->SetForwardInput(0.0f);
+        m_vehicle->SetBrakeInput(1.0f);
+        for (int i = 0; i < 360; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+        EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
+    }
+
+    TEST_F(JoltVehicleTests, WheelStateReadoutsReportSpinSteerSlipAndContact)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+
+        // Steering shows up on a steered wheel and not on a fixed one.
+        DriveSteps(0.0f, 1.0f, 0.0f, 5);
+        EXPECT_GT(AZStd::abs(m_vehicle->GetWheelSteerAngle(0)), 0.1f);
+        EXPECT_NEAR(m_vehicle->GetWheelSteerAngle(2), 0.0f, 1e-3f);
+
+        // Hard launch: the driven wheels spin up, and some longitudinal slip is visible
+        // while the tire hunts for grip.
+        float maxSlip = 0.0f;
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 120; ++i)
+        {
+            m_vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+            maxSlip = AZStd::max(maxSlip, m_vehicle->GetWheelLongitudinalSlip(2));
+        }
+        EXPECT_GT(m_vehicle->GetWheelAngularVelocity(2), 1.0f);
+        EXPECT_GT(maxSlip, 0.001f);
+
+        // Contact point on the ground plane, normal pointing up, suspension not riding
+        // its hard stop on flat ground.
+        AZ::Vector3 contactPoint = AZ::Vector3::CreateZero();
+        AZ::Vector3 contactNormal = AZ::Vector3::CreateZero();
+        ASSERT_TRUE(m_vehicle->GetWheelContactPoint(0, contactPoint));
+        ASSERT_TRUE(m_vehicle->GetWheelContactNormal(0, contactNormal));
+        EXPECT_NEAR(contactPoint.GetZ(), 0.0f, 0.1f);
+        EXPECT_GT(contactNormal.GetZ(), 0.99f);
+        EXPECT_FALSE(m_vehicle->IsWheelSuspensionBottomedOut(0));
+    }
+
+    TEST_F(JoltVehicleTests, ExpandedConfigurationSerializationRoundTrip)
+    {
+        AZ::SerializeContext serializeContext;
+        JoltWheelConfiguration::Reflect(&serializeContext);
+        JoltVehicleConfiguration::Reflect(&serializeContext);
+
+        JoltVehicleConfiguration source = MakeCarConfiguration();
+        JoltVehicleDifferential front;
+        front.m_leftWheel = 0;
+        front.m_rightWheel = 1;
+        front.m_leftRightSplit = 0.4f;
+        front.m_limitedSlipRatio = 1.6f;
+        front.m_engineTorqueRatio = 0.5f;
+        source.m_differentials = { front };
+        source.m_differentialLimitedSlipRatio = 1.7f;
+        source.m_minEngineRpm = 850.0f;
+        source.m_engineInertia = 0.8f;
+        source.m_engineAngularDamping = 0.15f;
+        source.m_engineTorqueCurve = { AZ::Vector2(0.0f, 0.6f), AZ::Vector2(1.0f, 0.9f) };
+        source.m_transmissionMode = JoltVehicleTransmissionMode::Manual;
+        source.m_gearSwitchTime = 0.35f;
+        source.m_clutchReleaseTime = 0.2f;
+        source.m_gearSwitchLatency = 0.6f;
+        source.m_shiftUpRpm = 5200.0f;
+        source.m_shiftDownRpm = 1500.0f;
+        source.m_clutchStrength = 8.0f;
+        source.m_antiRollBars = { JoltVehicleAntiRollBar{} };
+        source.m_antiRollBars[0].m_leftWheel = 0;
+        source.m_antiRollBars[0].m_rightWheel = 1;
+        source.m_antiRollBars[0].m_stiffness = 4200.0f;
+        source.m_leanSpringIntegrationCoefficient = 25.0f;
+        source.m_leanSpringIntegrationCoefficientDecay = 3.0f;
+        source.m_leanSmoothingFactor = 0.6f;
+        source.m_trackInertia = 12.0f;
+        source.m_leftTrackDrivenWheel = 1;
+        source.m_rightTrackDrivenWheel = 5;
+        source.m_wheels[0].m_longitudinalFrictionCurve = { AZ::Vector2(0.0f, 0.2f), AZ::Vector2(0.5f, 1.1f) };
+        source.m_wheels[0].m_lateralFrictionCurve = { AZ::Vector2(3.0f, 1.2f) };
+        source.m_wheels[0].m_inertia = 1.1f;
+        source.m_wheels[0].m_angularDamping = 0.07f;
+        source.m_wheels[0].m_suspensionPreloadLength = 0.05f;
+        source.m_wheels[0].m_suspensionSpringMode = JoltSuspensionSpringMode::StiffnessAndDamping;
+        source.m_wheels[0].m_suspensionForcePoint = AZ::Vector3(0.8f, 0.45f, -0.3f);
+        source.m_wheels[0].m_enableSuspensionForcePoint = true;
+        source.m_wheels[0].m_trackedLongitudinalFriction = 3.5f;
+        source.m_wheels[0].m_trackedLateralFriction = 1.5f;
+
+        JoltVehicleConfiguration roundTripped;
+        AZStd::vector<char> buffer;
+        {
+            AZ::IO::ByteContainerStream<AZStd::vector<char>> stream(&buffer);
+            ASSERT_TRUE(AZ::Utils::SaveObjectToStream(stream, AZ::DataStream::ST_BINARY, &source, azrtti_typeid<JoltVehicleConfiguration>(), &serializeContext));
+        }
+        {
+            AZ::IO::ByteContainerStream<AZStd::vector<char>> stream(&buffer);
+            ASSERT_TRUE(AZ::Utils::LoadObjectFromStreamInPlace(stream, &serializeContext, azrtti_typeid<JoltVehicleConfiguration>(), &roundTripped));
+        }
+
+        ASSERT_EQ(roundTripped.m_differentials.size(), 1u);
+        EXPECT_EQ(roundTripped.m_differentials[0].m_leftWheel, 0);
+        EXPECT_FLOAT_EQ(roundTripped.m_differentials[0].m_leftRightSplit, 0.4f);
+        EXPECT_FLOAT_EQ(roundTripped.m_differentials[0].m_limitedSlipRatio, 1.6f);
+        EXPECT_FLOAT_EQ(roundTripped.m_differentials[0].m_engineTorqueRatio, 0.5f);
+        EXPECT_FLOAT_EQ(roundTripped.m_differentialLimitedSlipRatio, 1.7f);
+        EXPECT_FLOAT_EQ(roundTripped.m_minEngineRpm, 850.0f);
+        EXPECT_FLOAT_EQ(roundTripped.m_engineInertia, 0.8f);
+        ASSERT_EQ(roundTripped.m_engineTorqueCurve.size(), 2u);
+        EXPECT_TRUE(roundTripped.m_engineTorqueCurve[1].IsClose(AZ::Vector2(1.0f, 0.9f)));
+        EXPECT_EQ(roundTripped.m_transmissionMode, JoltVehicleTransmissionMode::Manual);
+        EXPECT_FLOAT_EQ(roundTripped.m_gearSwitchTime, 0.35f);
+        EXPECT_FLOAT_EQ(roundTripped.m_shiftUpRpm, 5200.0f);
+        EXPECT_FLOAT_EQ(roundTripped.m_clutchStrength, 8.0f);
+        ASSERT_EQ(roundTripped.m_antiRollBars.size(), 1u);
+        EXPECT_FLOAT_EQ(roundTripped.m_antiRollBars[0].m_stiffness, 4200.0f);
+        EXPECT_FLOAT_EQ(roundTripped.m_leanSpringIntegrationCoefficient, 25.0f);
+        EXPECT_FLOAT_EQ(roundTripped.m_leanSmoothingFactor, 0.6f);
+        EXPECT_FLOAT_EQ(roundTripped.m_trackInertia, 12.0f);
+        EXPECT_EQ(roundTripped.m_leftTrackDrivenWheel, 1);
+        EXPECT_EQ(roundTripped.m_rightTrackDrivenWheel, 5);
+        ASSERT_EQ(roundTripped.m_wheels[0].m_longitudinalFrictionCurve.size(), 2u);
+        EXPECT_TRUE(roundTripped.m_wheels[0].m_longitudinalFrictionCurve[1].IsClose(AZ::Vector2(0.5f, 1.1f)));
+        ASSERT_EQ(roundTripped.m_wheels[0].m_lateralFrictionCurve.size(), 1u);
+        EXPECT_EQ(roundTripped.m_wheels[0].m_suspensionSpringMode, JoltSuspensionSpringMode::StiffnessAndDamping);
+        EXPECT_TRUE(roundTripped.m_wheels[0].m_suspensionForcePoint.IsClose(AZ::Vector3(0.8f, 0.45f, -0.3f)));
+        EXPECT_TRUE(roundTripped.m_wheels[0].m_enableSuspensionForcePoint);
+        EXPECT_FLOAT_EQ(roundTripped.m_wheels[0].m_inertia, 1.1f);
+        EXPECT_FLOAT_EQ(roundTripped.m_wheels[0].m_trackedLongitudinalFriction, 3.5f);
+    }
+
+    //! Hands the fixture's scene out as the default world, which is where the vehicle
+    //! component looks for its chassis.
+    class VehicleTestDefaultWorld
+        : public Physics::DefaultWorldBus::Handler
+    {
+    public:
+        explicit VehicleTestDefaultWorld(AzPhysics::SceneHandle sceneHandle)
+            : m_sceneHandle(sceneHandle)
+        {
+            Physics::DefaultWorldBus::Handler::BusConnect();
+        }
+        ~VehicleTestDefaultWorld() override
+        {
+            Physics::DefaultWorldBus::Handler::BusDisconnect();
+        }
+        AzPhysics::SceneHandle GetDefaultSceneHandle() const override
+        {
+            return m_sceneHandle;
+        }
+
+    private:
+        AzPhysics::SceneHandle m_sceneHandle;
+    };
+
+    TEST_F(JoltVehicleTests, VehicleComponentActivatesDrivesTheBusAndRecreates)
+    {
+        VehicleTestDefaultWorld defaultWorld(m_sceneHandle);
+
+        // Ground top at z = -0.6 so an entity at the origin has its wheels in suspension
+        // range (the entity transform defaults to identity).
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -1.1f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("VehicleComponentEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        auto* vehicleComponent = entity->CreateComponent<JoltVehicleComponent>();
+        vehicleComponent->GetConfiguration() = MakeCarConfiguration();
+        entity->Init();
+        entity->Activate();
+
+        // The vehicle is created on tick, once the chassis body exists.
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        AZ::u32 wheelCount = 0;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        EXPECT_EQ(wheelCount, 4u);
+
+        // A config edit lands through RecreateVehicle: shrink to a single-differential
+        // three-wheeler... keep it simple and just drop a wheel.
+        vehicleComponent->GetConfiguration().m_wheels.pop_back();
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::RecreateVehicle);
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        wheelCount = 0;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        EXPECT_EQ(wheelCount, 3u);
+
+        entity->Deactivate();
     }
 
 } // namespace JoltPhysics

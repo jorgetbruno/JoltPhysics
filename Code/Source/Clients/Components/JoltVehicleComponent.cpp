@@ -33,16 +33,34 @@ namespace JoltPhysics
                 behaviorContext->EBus<JoltVehicleRequestBus>("JoltVehicleRequestBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
                     ->Event("SetDriverInput", &JoltVehicleRequests::SetDriverInput)
+                    ->Event("SetForwardInput", &JoltVehicleRequests::SetForwardInput)
+                    ->Event("SetSteeringInput", &JoltVehicleRequests::SetSteeringInput)
+                    ->Event("SetBrakeInput", &JoltVehicleRequests::SetBrakeInput)
+                    ->Event("SetHandBrakeInput", &JoltVehicleRequests::SetHandBrakeInput)
                     ->Event("GetSpeed", &JoltVehicleRequests::GetSpeed)
                     ->Event("GetEngineRpm", &JoltVehicleRequests::GetEngineRpm)
                     ->Event("GetCurrentGear", &JoltVehicleRequests::GetCurrentGear)
+                    ->Event("SetGear", &JoltVehicleRequests::SetGear)
+                    ->Event("SetTransmissionAutomatic", &JoltVehicleRequests::SetTransmissionAutomatic)
+                    ->Event("IsTransmissionAutomatic", &JoltVehicleRequests::IsTransmissionAutomatic)
                     ->Event("GetLeanAngle", &JoltVehicleRequests::GetLeanAngle)
+                    ->Event("SetLeanControllerEnabled", &JoltVehicleRequests::SetLeanControllerEnabled)
+                    ->Event("SetLeanSteeringLimitEnabled", &JoltVehicleRequests::SetLeanSteeringLimitEnabled)
                     // The wheel accessors are what drives the visual wheels, which is
                     // exactly the job a script is likely to be doing here.
                     ->Event("GetWheelCount", &JoltVehicleRequests::GetWheelCount)
                     ->Event("GetWheelTransform", &JoltVehicleRequests::GetWheelTransform)
                     ->Event("GetSuspensionLength", &JoltVehicleRequests::GetSuspensionLength)
                     ->Event("IsWheelOnGround", &JoltVehicleRequests::IsWheelOnGround)
+                    // The slip/contact readouts are the tire-smoke and skid-audio signals.
+                    ->Event("GetWheelAngularVelocity", &JoltVehicleRequests::GetWheelAngularVelocity)
+                    ->Event("GetWheelSteerAngle", &JoltVehicleRequests::GetWheelSteerAngle)
+                    ->Event("GetWheelLongitudinalSlip", &JoltVehicleRequests::GetWheelLongitudinalSlip)
+                    ->Event("GetWheelLateralSlip", &JoltVehicleRequests::GetWheelLateralSlip)
+                    ->Event("GetWheelContactPoint", &JoltVehicleRequests::GetWheelContactPoint)
+                    ->Event("GetWheelContactNormal", &JoltVehicleRequests::GetWheelContactNormal)
+                    ->Event("IsWheelSuspensionBottomedOut", &JoltVehicleRequests::IsWheelSuspensionBottomedOut)
+                    ->Event("RecreateVehicle", &JoltVehicleRequests::RecreateVehicle)
                     ;
             });
 
@@ -57,7 +75,7 @@ namespace JoltPhysics
             {
                 editContext->Class<JoltVehicleComponent>(
                     "Jolt Vehicle",
-                    "Wheeled vehicle simulated by the Jolt physics backend")
+                    "Wheeled, motorcycle or tracked vehicle simulated by the Jolt physics backend")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         // No AppearsInAddComponentMenu: EditorJoltVehicleComponent owns the
                         // menu entry (PhysX-style editor/runtime split). The runtime component
@@ -167,6 +185,132 @@ namespace JoltPhysics
         if (m_vehicle)
         {
             m_vehicle->SetDriverInput(forward, right, brake, handbrake);
+        }
+    }
+
+    void JoltVehicleComponent::SetForwardInput(float forward)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetForwardInput(forward);
+        }
+    }
+
+    void JoltVehicleComponent::SetSteeringInput(float right)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetSteeringInput(right);
+        }
+    }
+
+    void JoltVehicleComponent::SetBrakeInput(float brake)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetBrakeInput(brake);
+        }
+    }
+
+    void JoltVehicleComponent::SetHandBrakeInput(float handbrake)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetHandBrakeInput(handbrake);
+        }
+    }
+
+    void JoltVehicleComponent::SetGear(int gear)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetGear(gear);
+        }
+    }
+
+    void JoltVehicleComponent::SetTransmissionAutomatic(bool automatic)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetTransmissionAutomatic(automatic);
+        }
+    }
+
+    bool JoltVehicleComponent::IsTransmissionAutomatic() const
+    {
+        return m_vehicle ? m_vehicle->IsTransmissionAutomatic() : true;
+    }
+
+    void JoltVehicleComponent::SetLeanControllerEnabled(bool enabled)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetLeanControllerEnabled(enabled);
+        }
+    }
+
+    void JoltVehicleComponent::SetLeanSteeringLimitEnabled(bool enabled)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->SetLeanSteeringLimitEnabled(enabled);
+        }
+    }
+
+    float JoltVehicleComponent::GetWheelAngularVelocity(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->GetWheelAngularVelocity(wheelIndex) : 0.0f;
+    }
+
+    float JoltVehicleComponent::GetWheelSteerAngle(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->GetWheelSteerAngle(wheelIndex) : 0.0f;
+    }
+
+    float JoltVehicleComponent::GetWheelLongitudinalSlip(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->GetWheelLongitudinalSlip(wheelIndex) : 0.0f;
+    }
+
+    float JoltVehicleComponent::GetWheelLateralSlip(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->GetWheelLateralSlip(wheelIndex) : 0.0f;
+    }
+
+    AZ::Vector3 JoltVehicleComponent::GetWheelContactPoint(AZ::u32 wheelIndex) const
+    {
+        AZ::Vector3 point = AZ::Vector3::CreateZero();
+        if (m_vehicle)
+        {
+            m_vehicle->GetWheelContactPoint(wheelIndex, point);
+        }
+        return point;
+    }
+
+    AZ::Vector3 JoltVehicleComponent::GetWheelContactNormal(AZ::u32 wheelIndex) const
+    {
+        AZ::Vector3 normal = AZ::Vector3::CreateZero();
+        if (m_vehicle)
+        {
+            m_vehicle->GetWheelContactNormal(wheelIndex, normal);
+        }
+        return normal;
+    }
+
+    bool JoltVehicleComponent::IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const
+    {
+        return m_vehicle ? m_vehicle->IsWheelSuspensionBottomedOut(wheelIndex) : false;
+    }
+
+    void JoltVehicleComponent::RecreateVehicle()
+    {
+        // Jolt bakes the configuration into the constraint at creation, so runtime
+        // config edits only land through a rebuild. Destroy now and let the tick
+        // recreate exactly like first activation (the chassis body must still exist).
+        DestroyVehicle();
+        if (!AZ::TickBus::Handler::BusIsConnected())
+        {
+            AZ::TickBus::Handler::BusConnect();
         }
     }
 
