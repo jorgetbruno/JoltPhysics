@@ -66,5 +66,8 @@ namespace JoltPhysics::Editor
             delete handler;
         }
         GetRegisteredHandlers().clear();
+        // Function-local statics destruct after the test allocator's leak check runs;
+        // release the buffer now so a registration cycle leaves nothing outstanding.
+        GetRegisteredHandlers().shrink_to_fit();
     }
 } // namespace JoltPhysics::Editor

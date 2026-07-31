@@ -11,9 +11,10 @@ deviations from PhysX behavior.
 - **Character controller gaps**: `AttachShape` is a no-op (a Jolt character's shape is
   fixed at creation) and there is no `CharacterGameplayComponent` equivalent (gameplay
   drives via `CharacterRequestBus`).
-- **No editor (edit-mode) world.** Only the game default world exists
-  (`JoltDefaultWorldComponent`); edit-mode simulation and edit-mode scene queries
-  are unavailable. PhysX implements this via `EditorWorldBus` in its editor gem.
+- **No edit-mode collider bodies.** The editor world exists (see resolved entries), but
+  editor collider components only draw wireframes — they do not create collider bodies
+  in it (PhysX's `CreateStaticEditorCollider` path), so editor-time physics queries
+  cannot hit them directly.
 - **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
   gem is not part of this engine), so vehicles are exposed only through this gem's own
   component/bus.
@@ -49,6 +50,10 @@ deviations from PhysX behavior.
 - **`AzPhysics::SceneInterface`** is implemented (`JoltSceneInterface`), including
   scene-level trigger/collision events, so engine-wide consumers (e.g. the WhiteBox
   gem) work against it.
+- **Editor world**: `EditorWorldBus::GetEditorSceneHandle` returns a real editor
+  scene (named `"EditorScene"`, mirroring PhysX): edit-mode scene queries work, and
+  the scene is disabled during play-in-editor and re-enabled on stop. Like PhysX,
+  nothing ticks it by default.
 - **Joints disable collision between connected bodies** (PhysX default): `AddJoint`
   registers the body pair and `RemoveJoint` drops it; the contact listener rejects
   contact generation for registered pairs (`JoltScene::AreBodiesJointed`, guarded for

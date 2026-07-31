@@ -2,6 +2,7 @@
 
 #include <AzCore/Component/Component.h>
 #include <AzFramework/Physics/Common/PhysicsEvents.h>
+#include <AzFramework/Physics/SystemBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
@@ -9,6 +10,7 @@ namespace JoltPhysics
 {
     class JoltPhysicsEditorSystemComponent
         : public AZ::Component
+        , public Physics::EditorWorldBus::Handler
         , private AzToolsFramework::EditorEntityContextNotificationBus::Handler
         , private AzToolsFramework::EditorEvents::Bus::Handler
     {
@@ -23,6 +25,9 @@ namespace JoltPhysics
 
         JoltPhysicsEditorSystemComponent() = default;
         ~JoltPhysicsEditorSystemComponent() override = default;
+
+        // Physics::EditorWorldBus
+        AzPhysics::SceneHandle GetEditorSceneHandle() const override;
 
     protected:
         void Init() override;
@@ -40,6 +45,10 @@ namespace JoltPhysics
         //! collision layer/group dropdowns list names from the live configuration, so
         //! a rename in the configuration window must reach panels already showing them.
         AzPhysics::SystemEvents::OnConfigurationChangedEvent::Handler m_onConfigurationChangedHandler;
+
+        //! The edit-mode physics scene ("EditorScene") handed out through
+        //! EditorWorldBus; disabled while the game world runs during play-in-editor.
+        AzPhysics::SceneHandle m_editorSceneHandle = AzPhysics::InvalidSceneHandle;
     };
 
 } // namespace JoltPhysics

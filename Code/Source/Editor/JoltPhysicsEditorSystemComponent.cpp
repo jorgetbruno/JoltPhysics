@@ -5,12 +5,15 @@
 #include <AzCore/Serialization/EditContextConstants.inl>
 
 #include <AzCore/Interface/Interface.h>
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
 #include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzToolsFramework/API/ViewPaneOptions.h>
 
 #include <Editor/ConfigurationWindow/JoltConfigurationWidget.h>
 #include <Editor/ConfigurationWindow/JoltConfigurationWindowBus.h>
 #include <Editor/PropertyHandlers/PropertyTypes.h>
+
+#include <System/JoltSystem.h>
 
 namespace JoltPhysics
 {
@@ -68,6 +71,22 @@ namespace JoltPhysics
     {
         AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusConnect();
         AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
+        Physics::EditorWorldBus::Handler::BusConnect();
+
+        // The edit-mode physics scene ("EditorScene") handed out through
+        // EditorWorldBus, mirroring PhysX: a query/body host for editor tools, not a
+        // live simulation - nothing ticks it by default.
+        if (auto* joltSystem = GetJoltSystem())
+        {
+            AzPhysics::SceneConfiguration editorWorldConfig = joltSystem->GetDefaultSceneConfiguration();
+            editorWorldConfig.m_sceneName = AzPhysics::EditorPhysicsSceneName;
+            m_editorSceneHandle = joltSystem->AddScene(editorWorldConfig);
+        }
+        else
+        {
+            AZ_WarningOnce("JoltPhysics", false,
+                "JoltPhysicsEditorSystemComponent: no physics system active; the editor scene was not created.");
+        }
 
         Editor::RegisterPropertyTypes();
 
@@ -92,6 +111,13 @@ namespace JoltPhysics
 
     void JoltPhysicsEditorSystemComponent::Deactivate()
     {
+        if (auto* joltSystem = GetJoltSystem(); joltSystem && m_editorSceneHandle != AzPhysics::InvalidSceneHandle)
+        {
+            joltSystem->RemoveScene(m_editorSceneHandle);
+        }
+        m_editorSceneHandle = AzPhysics::InvalidSceneHandle;
+
+        Physics::EditorWorldBus::Handler::BusDisconnect();
         m_onConfigurationChangedHandler.Disconnect();
 
         AzToolsFramework::UnregisterViewPane(Editor::ConfigurationWindowName);
@@ -111,14 +137,35 @@ namespace JoltPhysics
             Editor::ConfigurationWindowName, "Tools", options);
     }
 
+    AzPhysics::SceneHandle JoltPhysicsEditorSystemComponent::GetEditorSceneHandle() const
+    {
+        return m_editorSceneHandle;
+    }
+
     void JoltPhysicsEditorSystemComponent::OnStartPlayInEditorBegin()
     {
-        // Editor play mode starting
+        // PhysX parity: the editor scene sleeps while the game world runs, so
+        // edit-mode bodies never leak into play.
+        if (auto* joltSystem = GetJoltSystem();
+            joltSystem && m_editorSceneHandle != AzPhysics::InvalidSceneHandle)
+        {
+            if (AzPhysics::Scene* editorScene = joltSystem->GetScene(m_editorSceneHandle))
+            {
+                editorScene->SetEnabled(false);
+            }
+        }
     }
 
     void JoltPhysicsEditorSystemComponent::OnStopPlayInEditor()
     {
-        // Editor play mode stopped
+        if (auto* joltSystem = GetJoltSystem();
+            joltSystem && m_editorSceneHandle != AzPhysics::InvalidSceneHandle)
+        {
+            if (AzPhysics::Scene* editorScene = joltSystem->GetScene(m_editorSceneHandle))
+            {
+                editorScene->SetEnabled(true);
+            }
+        }
     }
 
 } // namespace JoltPhysics
