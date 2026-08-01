@@ -12,6 +12,8 @@
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
+#include <JoltPhysics/JoltVehicleConfiguration.h>
+
 namespace JPH
 {
     class PhysicsSystem;
@@ -149,10 +151,18 @@ namespace JoltPhysics
         virtual AZ::Vector3 GetWheelContactNormal(AZ::u32 wheelIndex) const = 0;
         //! Whether the suspension is fully compressed and riding its hard stop.
         virtual bool IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const = 0;
+        //! Replaces the scene gravity for this vehicle alone (driving on walls or
+        //! loops); reset restores normal gravity.
+        virtual void OverrideVehicleGravity(const AZ::Vector3& gravity) = 0;
+        virtual void ResetVehicleGravityOverride() = 0;
         //! Destroys and recreates the vehicle from the component's current
         //! configuration. Config edits made after activation take effect only here:
         //! Jolt bakes the configuration into the constraint at creation.
         virtual void RecreateVehicle() = 0;
+        //! The component's configuration by value, for runtime tuning from script or
+        //! C++: read, edit fields, write back, then RecreateVehicle to apply.
+        virtual JoltVehicleConfiguration GetVehicleConfiguration() const = 0;
+        virtual void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) = 0;
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;

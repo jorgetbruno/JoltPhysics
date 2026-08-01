@@ -60,7 +60,102 @@ namespace JoltPhysics
                     ->Event("GetWheelContactPoint", &JoltVehicleRequests::GetWheelContactPoint)
                     ->Event("GetWheelContactNormal", &JoltVehicleRequests::GetWheelContactNormal)
                     ->Event("IsWheelSuspensionBottomedOut", &JoltVehicleRequests::IsWheelSuspensionBottomedOut)
+                    ->Event("OverrideVehicleGravity", &JoltVehicleRequests::OverrideVehicleGravity)
+                    ->Event("ResetVehicleGravityOverride", &JoltVehicleRequests::ResetVehicleGravityOverride)
                     ->Event("RecreateVehicle", &JoltVehicleRequests::RecreateVehicle)
+                    // The configuration round-trips by value: read, edit fields, write
+                    // back, then RecreateVehicle to apply.
+                    ->Event("GetVehicleConfiguration", &JoltVehicleRequests::GetVehicleConfiguration)
+                    ->Event("SetVehicleConfiguration", &JoltVehicleRequests::SetVehicleConfiguration)
+                    ;
+
+                // The configuration classes, so script can author a drivetrain and not
+                // just drive it. Guarded by the bus registration above: bus and classes
+                // always register together, exactly once.
+                behaviorContext->Class<JoltWheelConfiguration>("JoltWheelConfiguration")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Property("Position", BehaviorValueProperty(&JoltWheelConfiguration::m_position))
+                    ->Property("Radius", BehaviorValueProperty(&JoltWheelConfiguration::m_radius))
+                    ->Property("Width", BehaviorValueProperty(&JoltWheelConfiguration::m_width))
+                    ->Property("SuspensionMinLength", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionMinLength))
+                    ->Property("SuspensionMaxLength", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionMaxLength))
+                    ->Property("SuspensionPreloadLength", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionPreloadLength))
+                    ->Property("SuspensionFrequency", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionFrequency))
+                    ->Property("SuspensionDamping", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionDamping))
+                    ->Property("Inertia", BehaviorValueProperty(&JoltWheelConfiguration::m_inertia))
+                    ->Property("AngularDamping", BehaviorValueProperty(&JoltWheelConfiguration::m_angularDamping))
+                    ->Property("MaxSteerAngleDegrees", BehaviorValueProperty(&JoltWheelConfiguration::m_maxSteerAngleDegrees))
+                    ->Property("MaxBrakeTorque", BehaviorValueProperty(&JoltWheelConfiguration::m_maxBrakeTorque))
+                    ->Property("MaxHandBrakeTorque", BehaviorValueProperty(&JoltWheelConfiguration::m_maxHandBrakeTorque))
+                    ->Property("TrackedLongitudinalFriction", BehaviorValueProperty(&JoltWheelConfiguration::m_trackedLongitudinalFriction))
+                    ->Property("TrackedLateralFriction", BehaviorValueProperty(&JoltWheelConfiguration::m_trackedLateralFriction))
+                    ;
+
+                behaviorContext->Class<JoltVehicleAntiRollBar>("JoltVehicleAntiRollBar")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Property("LeftWheel", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_leftWheel))
+                    ->Property("RightWheel", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_rightWheel))
+                    ->Property("Stiffness", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_stiffness))
+                    ;
+
+                behaviorContext->Class<JoltVehicleDifferential>("JoltVehicleDifferential")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Property("LeftWheel", BehaviorValueProperty(&JoltVehicleDifferential::m_leftWheel))
+                    ->Property("RightWheel", BehaviorValueProperty(&JoltVehicleDifferential::m_rightWheel))
+                    ->Property("DifferentialRatio", BehaviorValueProperty(&JoltVehicleDifferential::m_differentialRatio))
+                    ->Property("LeftRightSplit", BehaviorValueProperty(&JoltVehicleDifferential::m_leftRightSplit))
+                    ->Property("LimitedSlipRatio", BehaviorValueProperty(&JoltVehicleDifferential::m_limitedSlipRatio))
+                    ->Property("EngineTorqueRatio", BehaviorValueProperty(&JoltVehicleDifferential::m_engineTorqueRatio))
+                    ;
+
+                behaviorContext->Class<JoltVehicleConfiguration>("JoltVehicleConfiguration")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // The enums cross into script as plain numbers (0 = Wheeled/Automatic...),
+                    // matching how the serialized data stores them.
+                    ->Property("VehicleType",
+                        [](const JoltVehicleConfiguration* config) { return static_cast<int>(config->m_vehicleType); },
+                        [](JoltVehicleConfiguration* config, int value) { config->m_vehicleType = static_cast<JoltVehicleType>(value); })
+                    ->Property("CollisionTester",
+                        [](const JoltVehicleConfiguration* config) { return static_cast<int>(config->m_collisionTester); },
+                        [](JoltVehicleConfiguration* config, int value) { config->m_collisionTester = static_cast<JoltVehicleCollisionTester>(value); })
+                    ->Property("TransmissionMode",
+                        [](const JoltVehicleConfiguration* config) { return static_cast<int>(config->m_transmissionMode); },
+                        [](JoltVehicleConfiguration* config, int value) { config->m_transmissionMode = static_cast<JoltVehicleTransmissionMode>(value); })
+                    ->Property("Wheels", BehaviorValueProperty(&JoltVehicleConfiguration::m_wheels))
+                    ->Property("AntiRollBars", BehaviorValueProperty(&JoltVehicleConfiguration::m_antiRollBars))
+                    ->Property("Differentials", BehaviorValueProperty(&JoltVehicleConfiguration::m_differentials))
+                    ->Property("DifferentialLimitedSlipRatio", BehaviorValueProperty(&JoltVehicleConfiguration::m_differentialLimitedSlipRatio))
+                    ->Property("MaxPitchRollAngleDegrees", BehaviorValueProperty(&JoltVehicleConfiguration::m_maxPitchRollAngleDegrees))
+                    ->Property("ChassisMass", BehaviorValueProperty(&JoltVehicleConfiguration::m_chassisMass))
+                    ->Property("MaxEngineTorque", BehaviorValueProperty(&JoltVehicleConfiguration::m_maxEngineTorque))
+                    ->Property("MaxEngineRpm", BehaviorValueProperty(&JoltVehicleConfiguration::m_maxEngineRpm))
+                    ->Property("MinEngineRpm", BehaviorValueProperty(&JoltVehicleConfiguration::m_minEngineRpm))
+                    ->Property("EngineInertia", BehaviorValueProperty(&JoltVehicleConfiguration::m_engineInertia))
+                    ->Property("EngineAngularDamping", BehaviorValueProperty(&JoltVehicleConfiguration::m_engineAngularDamping))
+                    ->Property("GearRatios", BehaviorValueProperty(&JoltVehicleConfiguration::m_gearRatios))
+                    ->Property("ReverseGearRatio", BehaviorValueProperty(&JoltVehicleConfiguration::m_reverseGearRatio))
+                    ->Property("GearSwitchTime", BehaviorValueProperty(&JoltVehicleConfiguration::m_gearSwitchTime))
+                    ->Property("ClutchReleaseTime", BehaviorValueProperty(&JoltVehicleConfiguration::m_clutchReleaseTime))
+                    ->Property("GearSwitchLatency", BehaviorValueProperty(&JoltVehicleConfiguration::m_gearSwitchLatency))
+                    ->Property("ShiftUpRpm", BehaviorValueProperty(&JoltVehicleConfiguration::m_shiftUpRpm))
+                    ->Property("ShiftDownRpm", BehaviorValueProperty(&JoltVehicleConfiguration::m_shiftDownRpm))
+                    ->Property("ClutchStrength", BehaviorValueProperty(&JoltVehicleConfiguration::m_clutchStrength))
+                    ->Property("MaxLeanAngleDegrees", BehaviorValueProperty(&JoltVehicleConfiguration::m_maxLeanAngleDegrees))
+                    ->Property("LeanSpringConstant", BehaviorValueProperty(&JoltVehicleConfiguration::m_leanSpringConstant))
+                    ->Property("LeanSpringDamping", BehaviorValueProperty(&JoltVehicleConfiguration::m_leanSpringDamping))
+                    ->Property("LeanSpringIntegrationCoefficient", BehaviorValueProperty(&JoltVehicleConfiguration::m_leanSpringIntegrationCoefficient))
+                    ->Property("LeanSpringIntegrationCoefficientDecay", BehaviorValueProperty(&JoltVehicleConfiguration::m_leanSpringIntegrationCoefficientDecay))
+                    ->Property("LeanSmoothingFactor", BehaviorValueProperty(&JoltVehicleConfiguration::m_leanSmoothingFactor))
+                    ->Property("TrackInertia", BehaviorValueProperty(&JoltVehicleConfiguration::m_trackInertia))
+                    ->Property("TrackAngularDamping", BehaviorValueProperty(&JoltVehicleConfiguration::m_trackAngularDamping))
+                    ->Property("TrackMaxBrakeTorque", BehaviorValueProperty(&JoltVehicleConfiguration::m_trackMaxBrakeTorque))
+                    ->Property("TrackDifferentialRatio", BehaviorValueProperty(&JoltVehicleConfiguration::m_trackDifferentialRatio))
+                    ->Property("LeftTrackDrivenWheel", BehaviorValueProperty(&JoltVehicleConfiguration::m_leftTrackDrivenWheel))
+                    ->Property("RightTrackDrivenWheel", BehaviorValueProperty(&JoltVehicleConfiguration::m_rightTrackDrivenWheel))
+                    ->Property("NumVelocityStepsOverride", BehaviorValueProperty(&JoltVehicleConfiguration::m_numVelocityStepsOverride))
+                    ->Property("NumPositionStepsOverride", BehaviorValueProperty(&JoltVehicleConfiguration::m_numPositionStepsOverride))
+                    ->Property("CollisionTestStepsActive", BehaviorValueProperty(&JoltVehicleConfiguration::m_collisionTestStepsActive))
+                    ->Property("CollisionTestStepsInactive", BehaviorValueProperty(&JoltVehicleConfiguration::m_collisionTestStepsInactive))
                     ;
             });
 
@@ -300,6 +395,35 @@ namespace JoltPhysics
     bool JoltVehicleComponent::IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const
     {
         return m_vehicle ? m_vehicle->IsWheelSuspensionBottomedOut(wheelIndex) : false;
+    }
+
+    JoltVehicleConfiguration JoltVehicleComponent::GetVehicleConfiguration() const
+    {
+        return m_configuration;
+    }
+
+    void JoltVehicleComponent::SetVehicleConfiguration(const JoltVehicleConfiguration& configuration)
+    {
+        // The debug name is derived, not authored; keep it through a script write.
+        const AZStd::string debugName = m_configuration.m_debugName;
+        m_configuration = configuration;
+        m_configuration.m_debugName = debugName;
+    }
+
+    void JoltVehicleComponent::OverrideVehicleGravity(const AZ::Vector3& gravity)
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->OverrideGravity(gravity);
+        }
+    }
+
+    void JoltVehicleComponent::ResetVehicleGravityOverride()
+    {
+        if (m_vehicle)
+        {
+            m_vehicle->ResetGravityOverride();
+        }
     }
 
     void JoltVehicleComponent::RecreateVehicle()

@@ -265,6 +265,10 @@ namespace JoltPhysics
                 ->Field("ShiftUpRpm", &JoltVehicleConfiguration::m_shiftUpRpm)
                 ->Field("ShiftDownRpm", &JoltVehicleConfiguration::m_shiftDownRpm)
                 ->Field("ClutchStrength", &JoltVehicleConfiguration::m_clutchStrength)
+                ->Field("NumVelocityStepsOverride", &JoltVehicleConfiguration::m_numVelocityStepsOverride)
+                ->Field("NumPositionStepsOverride", &JoltVehicleConfiguration::m_numPositionStepsOverride)
+                ->Field("CollisionTestStepsActive", &JoltVehicleConfiguration::m_collisionTestStepsActive)
+                ->Field("CollisionTestStepsInactive", &JoltVehicleConfiguration::m_collisionTestStepsInactive)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -370,6 +374,21 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_clutchStrength,
                         "Clutch strength", "Torque coupling between engine and gearbox when fully engaged.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_numVelocityStepsOverride,
+                        "Velocity solver steps", "Solver velocity iterations for this constraint; 0 uses the "
+                        "scene's default. Heavy vehicles resting on light bodies may need more.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_numPositionStepsOverride,
+                        "Position solver steps", "Solver position iterations for this constraint; 0 uses the "
+                        "scene's default.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_collisionTestStepsActive,
+                        "Wheel test cadence (active)", "Run the wheel ground casts every Nth simulation step while "
+                        "the chassis is awake. 1 = every step; larger trades accuracy for performance.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_collisionTestStepsInactive,
+                        "Wheel test cadence (inactive)", "Run the wheel ground casts every Nth step while the "
+                        "chassis is going to sleep.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 1)
 
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_maxLeanAngleDegrees,
                         "Max lean angle", "How far the motorcycle leans into turns.")

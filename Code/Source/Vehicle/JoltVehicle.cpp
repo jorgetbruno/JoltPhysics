@@ -274,8 +274,15 @@ namespace JoltPhysics
             WarnOnImplausibleLeanGains(effectiveConfiguration, *m_chassisBody);
         }
 
+        settings.mNumVelocityStepsOverride = effectiveConfiguration.m_numVelocityStepsOverride;
+        settings.mNumPositionStepsOverride = effectiveConfiguration.m_numPositionStepsOverride;
+
         m_constraint = new JPH::VehicleConstraint(*m_chassisBody, settings);
         m_constraint->SetVehicleCollisionTester(CreateCollisionTester(effectiveConfiguration));
+        m_constraint->SetNumStepsBetweenCollisionTestActive(
+            AZStd::max<AZ::u32>(effectiveConfiguration.m_collisionTestStepsActive, 1));
+        m_constraint->SetNumStepsBetweenCollisionTestInactive(
+            AZStd::max<AZ::u32>(effectiveConfiguration.m_collisionTestStepsInactive, 1));
 
         m_scene->GetJoltPhysicsSystem()->AddConstraint(m_constraint);
         m_scene->GetJoltPhysicsSystem()->AddStepListener(m_constraint);
@@ -632,6 +639,22 @@ namespace JoltPhysics
         if (m_vehicleType == JoltVehicleType::Motorcycle && m_wheeledController)
         {
             static_cast<JPH::MotorcycleController*>(m_wheeledController)->EnableLeanSteeringLimit(enabled);
+        }
+    }
+
+    void JoltVehicle::OverrideGravity(const AZ::Vector3& gravity)
+    {
+        if (m_constraint)
+        {
+            m_constraint->OverrideGravity(Conversions::ToJolt(gravity));
+        }
+    }
+
+    void JoltVehicle::ResetGravityOverride()
+    {
+        if (m_constraint && m_constraint->IsGravityOverridden())
+        {
+            m_constraint->ResetGravityOverride();
         }
     }
 

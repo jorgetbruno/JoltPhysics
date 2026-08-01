@@ -251,7 +251,29 @@ feature, trust the topic sections below the milestones.**
   should be explicit.
 - **Terrain-dependent grip is a C++ hook**: `JoltVehicle::SetCombineFriction` wraps
   Jolt's combine-friction callback and hands the callback the entity under the wheel;
-  it is not on the bus because an `AZStd::function` cannot cross into script.
+  it is not on the bus because an `AZStd::function` cannot cross into script. The
+  pre/post-step and post-collide callbacks stay reachable through `GetConstraint()`
+  for the same reason.
+- **The configuration is scriptable**: the config structs are reflected to the
+  behavior context (enums cross as plain numbers, matching the serialized values) and
+  the bus carries `GetVehicleConfiguration`/`SetVehicleConfiguration` by value - read,
+  edit, write back, `RecreateVehicle`. The configuration header is public API
+  (`Include/JoltPhysics/JoltVehicleConfiguration.h`) so the bus can carry the type.
+- **Deep constraint knobs**: per-vehicle solver iteration overrides, wheel
+  collision-test cadence (active/inactive), and a per-vehicle gravity override
+  (`OverrideVehicleGravity`/`ResetVehicleGravityOverride` on the bus - walls, loops).
+- **Suspension rest pose previews in the editor** ("Preview suspension settle" on the
+  editor vehicle component): a one-shot simulation in a private throwaway scene, on
+  flat ground at the height found under the entity in the editor world (edit-mode
+  collider bodies), shown as a viewport ghost with airborne wheels highlighted. A
+  deliberate approximation - flat ground, a stand-in chassis slab - because its job
+  is validating wheel placement and rest pose, not replaying the level.
+- **One reverse gear** (`m_reverseGearRatio`), though Jolt supports several; multiple
+  reverse ratios are a truck-transmission nicety with no inspector story worth its
+  complexity. Authorable later as an additive list without breaking data.
+- **Wheel ground contact is polled, not evented** (`IsWheelOnGround` per frame). Jolt
+  itself has no wheel contact events; synthesizing a notification bus from polling
+  would just move the poll inside the gem and dictate its cadence.
 - **Wheel state is exposed for rendering and effects** through `JoltVehicleRequestBus`:
   angular velocity, steer angle, longitudinal/lateral slip (wheeled/motorcycle only -
   the tracked controller has no tire slip model), contact point and normal, and

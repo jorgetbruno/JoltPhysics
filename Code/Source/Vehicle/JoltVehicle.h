@@ -113,6 +113,13 @@ namespace JoltPhysics
             AZ::u32 wheelIndex, float& longitudinalFriction, float& lateralFriction, AZ::EntityId otherEntity)>;
         void SetCombineFriction(CombineFrictionFunction combineFriction);
 
+        //! Replaces the scene gravity for this vehicle alone (driving on walls, loops);
+        //! reset restores normal gravity and the chassis' gravity factor.
+        void OverrideGravity(const AZ::Vector3& gravity);
+        void ResetGravityOverride();
+
+        //! The native constraint, the escape hatch for anything not wrapped - e.g.
+        //! Jolt's pre/post-step and post-collide callbacks (C++ only by nature).
         JPH::VehicleConstraint* GetConstraint() const { return m_constraint; }
 
     private:

@@ -97,4 +97,7 @@ deviations from PhysX behavior.
   driver input setters, slip/contact wheel readouts, motorcycle lean tuning and
   runtime toggles, authorable tracked driven wheels, `RecreateVehicle` for runtime
   config edits, a C++ combine-friction hook for terrain-dependent grip, and vehicle
-  constraint debug draw under `jolt_Debug` (see DIVERGENCES.md, M7/vehicles).
+  constraint debug draw under `jolt_Debug` (see DIVERGENCES.md, M7/vehicles). The
+  configuration is also scriptable (behavior-context reflected, carried by the bus),
+  per-vehicle gravity override and solver/collision-test knobs are exposed, and the
+  editor component previews the suspension rest pose without entering game mode.

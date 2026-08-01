@@ -944,6 +944,30 @@ namespace JoltPhysics
         EXPECT_FLOAT_EQ(roundTripped.m_wheels[0].m_trackedLongitudinalFriction, 3.5f);
     }
 
+
+    TEST_F(JoltVehicleTests, DeepConstraintKnobsAndGravityOverrideLandInJolt)
+    {
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_numVelocityStepsOverride = 20;
+        config.m_numPositionStepsOverride = 4;
+        config.m_collisionTestStepsActive = 2;
+        config.m_collisionTestStepsInactive = 6;
+
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+
+        EXPECT_EQ(m_vehicle->GetConstraint()->GetNumVelocityStepsOverride(), 20u);
+        EXPECT_EQ(m_vehicle->GetConstraint()->GetNumPositionStepsOverride(), 4u);
+
+        // The gravity override flag is readable on the native constraint; behavior-wise
+        // an upside-down gravity keeps the settled car from pressing on its wheels.
+        EXPECT_FALSE(m_vehicle->GetConstraint()->IsGravityOverridden());
+        m_vehicle->OverrideGravity(AZ::Vector3(0.0f, 0.0f, 9.81f));
+        EXPECT_TRUE(m_vehicle->GetConstraint()->IsGravityOverridden());
+        m_vehicle->ResetGravityOverride();
+        EXPECT_FALSE(m_vehicle->GetConstraint()->IsGravityOverridden());
+    }
+
     //! Hands the fixture's scene out as the default world, which is where the vehicle
     //! component looks for its chassis.
     class VehicleTestDefaultWorld
@@ -1001,6 +1025,15 @@ namespace JoltPhysics
         wheelCount = 0;
         JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
         EXPECT_EQ(wheelCount, 3u);
+
+        // The configuration round-trips over the bus (the script tuning path):
+        // read, edit, write back, recreate.
+        JoltVehicleConfiguration busConfig;
+        JoltVehicleRequestBus::EventResult(busConfig, entity->GetId(), &JoltVehicleRequests::GetVehicleConfiguration);
+        EXPECT_EQ(busConfig.m_wheels.size(), 3u);
+        busConfig.m_maxEngineTorque = 987.0f;
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetVehicleConfiguration, busConfig);
+        EXPECT_FLOAT_EQ(vehicleComponent->GetConfiguration().m_maxEngineTorque, 987.0f);
 
         entity->Deactivate();
     }

@@ -79,7 +79,11 @@ namespace JoltPhysics
         AZ::Vector3 GetWheelContactPoint(AZ::u32 wheelIndex) const override;
         AZ::Vector3 GetWheelContactNormal(AZ::u32 wheelIndex) const override;
         bool IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const override;
+        void OverrideVehicleGravity(const AZ::Vector3& gravity) override;
+        void ResetVehicleGravityOverride() override;
         void RecreateVehicle() override;
+        JoltVehicleConfiguration GetVehicleConfiguration() const override;
+        void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) override;
 
     private:
         void CreateVehicle();

@@ -47,6 +47,30 @@ namespace JoltPhysics
             return m_configuration;
         }
 
+        //! A wheel's pose after the suspension settle preview, in the entity's frame.
+        struct SettledWheel
+        {
+            AZ::Transform m_localTransform = AZ::Transform::CreateIdentity();
+            float m_suspensionLength = 0.0f;
+            bool m_onGround = false;
+        };
+
+        //! Runs the one-shot suspension settle (the inspector button): simulates the
+        //! vehicle for a few seconds in a private throwaway scene - on flat ground at
+        //! the height found under the entity in the editor world - and keeps the settled
+        //! chassis and wheel poses as a viewport ghost. Public so tests can press the
+        //! button; returns the property refresh level like any ChangeNotify handler.
+        AZ::u32 OnSettlePreviewPressed();
+
+        bool HasSettlePreview() const
+        {
+            return m_hasSettlePreview;
+        }
+        const AZStd::vector<SettledWheel>& GetSettlePreviewWheels() const
+        {
+            return m_settledWheels;
+        }
+
     private:
         // AzFramework::EntityDebugDisplayEvents
         void DisplayEntityViewport(
@@ -63,9 +87,20 @@ namespace JoltPhysics
         AZ::Aabb GetEditorSelectionBoundsViewport(const AzFramework::ViewportInfo& viewportInfo) override;
         bool SupportsEditorRayIntersect() override;
 
+        //! A config edit makes the settle ghost stale; drop it.
+        AZ::u32 OnConfigurationChanged();
+
+        void RunSettlePreview();
+
         JoltVehicleConfiguration m_configuration;
 
         //! Puts the Edit button on the component and enters component mode on double click.
         AzToolsFramework::ComponentModeFramework::ComponentModeDelegate m_componentModeDelegate;
+
+        //! Settle preview results, entity-local so the ghost follows the entity. Not
+        //! serialized: a preview is a scratch visualization.
+        AZStd::vector<SettledWheel> m_settledWheels;
+        AZ::Transform m_settledChassisLocal = AZ::Transform::CreateIdentity();
+        bool m_hasSettlePreview = false;
     };
 } // namespace JoltPhysics

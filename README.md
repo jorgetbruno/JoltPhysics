@@ -59,8 +59,10 @@ outside it (see [The gem family](#the-gem-family)).
   engine with torque curve and idle, automatic/manual transmission with shift tuning and
   gear control from script, per-wheel tire friction curves, multiple differentials with
   limited slip (AWD), steering, brakes, suspension (preload, force point, spring modes),
-  selectable wheel collision testers, a pitch/roll limit, anti-roll bars, and a bus
-  publishing live wheel state incl. slip and contact readouts for skid audio/VFX
+  selectable wheel collision testers, a pitch/roll limit, anti-roll bars, per-vehicle
+  gravity override and solver/wheel-test knobs, a bus publishing live wheel state
+  incl. slip and contact readouts for skid audio/VFX, script-side configuration
+  authoring, and an editor suspension-settle preview (rest pose without game mode)
 
 **Editor**
 - An `EditorJolt*` component for every feature (PhysX-style editor/runtime split): they
