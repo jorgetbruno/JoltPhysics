@@ -545,6 +545,11 @@ namespace JoltPhysics
         return JoltPhysics::AcquireObjectLayer(collisionLayer, collisionGroupId, isMoving);
     }
 
+    bool JoltPhysicsSystemComponent::ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask)
+    {
+        return JoltPhysics::ObjectLayerMatchesQueryMask(static_cast<JPH::ObjectLayer>(objectLayer), collisionGroupMask);
+    }
+
     void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)
     {
         if (!m_physicsSystem)

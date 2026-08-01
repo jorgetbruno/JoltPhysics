@@ -221,6 +221,14 @@ namespace JoltPhysics
             const AzPhysics::CollisionLayer& collisionLayer,
             const AzPhysics::CollisionGroups::Id& collisionGroupId,
             bool isMoving) = 0;
+
+        //! Whether a body on the given Jolt object layer should be seen by a query using
+        //! this collision group mask.
+        //!
+        //! An extension gem doing its own broadphase queries - the buoyancy gem looks for
+        //! bodies to float - cannot work this out itself, because only this gem knows which
+        //! collision layer and group each object layer stands for.
+        virtual bool ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask) = 0;
     };
 
     using JoltPhysicsSystemRequestBus = AZ::EBus<JoltPhysicsSystemRequests>;

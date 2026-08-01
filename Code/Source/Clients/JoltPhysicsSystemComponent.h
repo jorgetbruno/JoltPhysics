@@ -112,6 +112,7 @@ namespace JoltPhysics
             const AzPhysics::CollisionLayer& collisionLayer,
             const AzPhysics::CollisionGroups::Id& collisionGroupId,
             bool isMoving) override;
+        bool ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask) override;
 
     private:
         void EnablePhysics();
