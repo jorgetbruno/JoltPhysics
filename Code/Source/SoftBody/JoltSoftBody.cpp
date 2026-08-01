@@ -2,15 +2,20 @@
 
 #include <AzCore/Math/MathUtils.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/parallel/lock.h>
 
 #include <cmath>
 
 #include <AzFramework/Physics/PhysicsSystem.h>
+#include <AzFramework/Physics/ShapeConfiguration.h>
 
 #include <Scene/JoltScene.h>
+#include <Shape/JoltMeshUtils.h>
 #include <System/CollisionLayerFilters.h>
 #include <Utils/Conversions.h>
+
+#include <Jolt/Core/TempAllocator.h>
 
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
@@ -112,6 +117,90 @@ namespace JoltPhysics
                 }
             }
             return inverseMass;
+        }
+
+        //! The first triangle mesh in a cooked .joltmesh asset - the surface a Mesh-shaped
+        //! soft body simulates. Convex entries are skipped: a hull has no interior surface
+        //! to drape.
+        const Physics::CookedMeshShapeConfiguration* FindTriangleMeshConfiguration(const Pipeline::JoltMeshAsset* asset)
+        {
+            if (!asset)
+            {
+                return nullptr;
+            }
+            for (const auto& shapePair : asset->m_assetData.m_colliderShapes)
+            {
+                if (const auto* cooked = azrtti_cast<const Physics::CookedMeshShapeConfiguration*>(shapePair.second.get());
+                    cooked && cooked->GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh)
+                {
+                    return cooked;
+                }
+            }
+            return nullptr;
+        }
+
+        //! Merges vertices that share a position (within a tenth of a millimetre) and
+        //! remaps the triangles. Render-derived meshes split vertices along every normal
+        //! and UV seam; simulated unwelded, the sheet would tear apart at each seam
+        //! because the constraint generation only connects vertices that share faces.
+        //! Degenerate triangles produced by the welding are dropped.
+        void WeldVertices(
+            const AZStd::vector<AZ::Vector3>& vertices,
+            const AZStd::vector<AZ::u32>& indices,
+            AZStd::vector<AZ::Vector3>& outVertices,
+            AZStd::vector<AZ::u32>& outIndices)
+        {
+            struct WeldKey
+            {
+                AZ::s64 m_x;
+                AZ::s64 m_y;
+                AZ::s64 m_z;
+                bool operator==(const WeldKey& other) const
+                {
+                    return m_x == other.m_x && m_y == other.m_y && m_z == other.m_z;
+                }
+            };
+            struct WeldKeyHasher
+            {
+                size_t operator()(const WeldKey& key) const
+                {
+                    size_t seed = 0;
+                    AZStd::hash_combine(seed, key.m_x, key.m_y, key.m_z);
+                    return seed;
+                }
+            };
+
+            constexpr float weldGridSize = 1.0e-4f;
+            AZStd::unordered_map<WeldKey, AZ::u32, WeldKeyHasher> weldedIndexByPosition;
+            AZStd::vector<AZ::u32> remap(vertices.size());
+
+            for (size_t i = 0; i < vertices.size(); ++i)
+            {
+                const AZ::Vector3& position = vertices[i];
+                const WeldKey key{
+                    static_cast<AZ::s64>(AZStd::round(position.GetX() / weldGridSize)),
+                    static_cast<AZ::s64>(AZStd::round(position.GetY() / weldGridSize)),
+                    static_cast<AZ::s64>(AZStd::round(position.GetZ() / weldGridSize)),
+                };
+                auto [it, inserted] = weldedIndexByPosition.try_emplace(key, static_cast<AZ::u32>(outVertices.size()));
+                if (inserted)
+                {
+                    outVertices.push_back(position);
+                }
+                remap[i] = it->second;
+            }
+
+            outIndices.reserve(indices.size());
+            for (size_t i = 0; i + 2 < indices.size(); i += 3)
+            {
+                const AZ::u32 a = remap[indices[i]];
+                const AZ::u32 b = remap[indices[i + 1]];
+                const AZ::u32 c = remap[indices[i + 2]];
+                if (a != b && b != c && a != c)
+                {
+                    outIndices.insert(outIndices.end(), { a, b, c });
+                }
+            }
         }
     } // namespace
 
@@ -327,6 +416,7 @@ namespace JoltPhysics
         // Only the baked fields need the particle layout regenerated; changing damping or
         // pressure every frame must not rebuild the body.
         const bool needsRebuild = settings.m_shape != m_settings.m_shape || settings.m_pinning != m_settings.m_pinning ||
+            settings.m_meshAsset.GetId() != m_settings.m_meshAsset.GetId() ||
             !settings.m_size.IsClose(m_settings.m_size) || settings.m_resolution != m_settings.m_resolution ||
             !AZ::IsClose(settings.m_mass, m_settings.m_mass) || !AZ::IsClose(settings.m_compliance, m_settings.m_compliance) ||
             settings.m_lraType != m_settings.m_lraType ||
@@ -628,6 +718,162 @@ namespace JoltPhysics
         return FromJolt(body.GetCenterOfMassTransform().Multiply3x3(vertices[index].mVelocity));
     }
 
+    void JoltSoftBody::SetSkinningData(
+        const AZStd::vector<AZ::Transform>& jointInvBinds,
+        const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_jointInvBinds = jointInvBinds;
+        m_skinnedVertices = skinnedVertices;
+
+        // The constraints live in the shared settings, so new data means a new body.
+        if (m_physicsSystem && !m_bodyId.IsInvalid())
+        {
+            DestroyBody();
+            CreateBody();
+        }
+    }
+
+    bool JoltSoftBody::HasSkinningData() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return !m_skinnedVertices.empty() && !m_jointInvBinds.empty();
+    }
+
+    void JoltSoftBody::ApplySkinningData(JPH::SoftBodySharedSettings& settings) const
+    {
+        if (m_skinnedVertices.empty() || m_jointInvBinds.empty())
+        {
+            return;
+        }
+
+        settings.mInvBindMatrices.clear();
+        settings.mInvBindMatrices.reserve(m_jointInvBinds.size());
+        for (AZ::u32 jointIndex = 0; jointIndex < m_jointInvBinds.size(); ++jointIndex)
+        {
+            const AZ::Transform& invBind = m_jointInvBinds[jointIndex];
+            settings.mInvBindMatrices.push_back(JPH::SoftBodySharedSettings::InvBind(
+                jointIndex,
+                JPH::Mat44::sRotationTranslation(
+                    Conversions::ToJolt(invBind.GetRotation()), Conversions::ToJolt(invBind.GetTranslation()))));
+        }
+
+        const size_t vertexCount = settings.mVertices.size();
+        const size_t jointCount = m_jointInvBinds.size();
+        for (const JoltSoftBodySkinnedVertex& skinnedVertex : m_skinnedVertices)
+        {
+            if (skinnedVertex.m_vertexIndex >= vertexCount)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Skinned vertex index %u is out of range for %zu particles and is skipped.",
+                    skinnedVertex.m_vertexIndex, vertexCount);
+                continue;
+            }
+
+            JPH::SoftBodySharedSettings::Skinned skinned;
+            skinned.mVertex = skinnedVertex.m_vertexIndex;
+            skinned.mMaxDistance = AZ::GetMax(skinnedVertex.m_maxDistance, 0.0f);
+
+            AZ::u32 weightCount = 0;
+            for (const JoltSoftBodySkinInfluence& influence : skinnedVertex.m_influences)
+            {
+                if (weightCount >= JPH::SoftBodySharedSettings::Skinned::cMaxSkinWeights)
+                {
+                    break;
+                }
+                if (influence.m_jointIndex >= jointCount || influence.m_weight <= 0.0f)
+                {
+                    continue;
+                }
+                skinned.mWeights[weightCount++] =
+                    JPH::SoftBodySharedSettings::SkinWeight(influence.m_jointIndex, influence.m_weight);
+            }
+            if (weightCount == 0)
+            {
+                continue;
+            }
+
+            skinned.NormalizeWeights();
+            settings.mSkinnedConstraints.push_back(skinned);
+        }
+
+        settings.CalculateSkinnedConstraintNormals();
+    }
+
+    bool JoltSoftBody::UpdateSkinnedJoints(const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid() || m_skinnedVertices.empty())
+        {
+            return false;
+        }
+        if (jointTransforms.size() < m_jointInvBinds.size())
+        {
+            AZ_Warning("JoltPhysics", false,
+                "UpdateSkinnedJoints received %zu joint transforms for %zu joints; skinning is skipped.",
+                jointTransforms.size(), m_jointInvBinds.size());
+            return false;
+        }
+
+        AZStd::vector<JPH::Mat44> jointMatrices;
+        jointMatrices.reserve(jointTransforms.size());
+        for (const AZ::Transform& jointTransform : jointTransforms)
+        {
+            jointMatrices.push_back(JPH::Mat44::sRotationTranslation(
+                Conversions::ToJolt(jointTransform.GetRotation()), Conversions::ToJolt(jointTransform.GetTranslation())));
+        }
+
+        {
+            JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+            {
+                return false;
+            }
+
+            JPH::Body& body = bodyLock.GetBody();
+            auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+
+            // Malloc-backed and stateless, so it works with or without a scene;
+            // SkinVertices only needs scratch space for the duration of the call.
+            static JPH::TempAllocatorMalloc tempAllocator;
+            motionProperties->SkinVertices(
+                body.GetCenterOfMassTransform(), jointMatrices.data(),
+                static_cast<JPH::uint>(jointMatrices.size()), hardSkinAll, tempAllocator);
+        }
+
+        m_physicsSystem->GetBodyInterface().ActivateBody(m_bodyId);
+        return true;
+    }
+
+    void JoltSoftBody::SetSkinConstraintsEnabled(bool enabled)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_skinConstraintsEnabled = enabled;
+        ApplyLiveSettings();
+    }
+
+    void JoltSoftBody::SetCollisionGroup(const JPH::CollisionGroup& group)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_collisionGroup = group;
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (bodyLock.Succeeded())
+        {
+            bodyLock.GetBody().SetCollisionGroup(group);
+        }
+    }
+
+    JPH::CollisionGroup JoltSoftBody::GetCollisionGroup() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_collisionGroup;
+    }
+
     bool JoltSoftBody::CopyVertexPositions(AZStd::vector<AZ::Vector3>& outPositions) const
     {
         outPositions.clear();
@@ -688,6 +934,11 @@ namespace JoltPhysics
 
         if (m_settings.m_shape == JoltSoftBodyShape::Cube)
         {
+            // sCreateCube returns pre-optimised settings, and skinned constraints must be
+            // added before Optimize - so the Cube shape cannot be skinned.
+            AZ_Warning("JoltPhysics", m_skinnedVertices.empty(),
+                "Soft body skinning is not supported for the Cube shape and is ignored.");
+
             // Jolt's own helper: a solid grid with edge constraints, volume constraints and
             // faces, already finalised and optimised. Its single spacing argument is why a
             // Cube uses only the X extent.
@@ -709,7 +960,50 @@ namespace JoltPhysics
 
         JPH::Ref<JPH::SoftBodySharedSettings> settings = new JPH::SoftBodySharedSettings();
 
-        if (m_settings.m_shape == JoltSoftBodyShape::Cloth)
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh)
+        {
+            const Physics::CookedMeshShapeConfiguration* meshConfiguration =
+                FindTriangleMeshConfiguration(m_settings.m_meshAsset.Get());
+            if (!meshConfiguration)
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Soft body mesh asset is missing, not loaded, or carries no triangle mesh; no body is built.");
+                return nullptr;
+            }
+
+            AZStd::vector<AZ::Vector3> rawVertices;
+            AZStd::vector<AZ::u32> rawIndices;
+            if (!JoltMeshUtils::UnpackTriangleMesh(meshConfiguration->GetCookedMeshData(), rawVertices, rawIndices))
+            {
+                AZ_Warning("JoltPhysics", false, "Soft body mesh asset holds a malformed cooked blob; no body is built.");
+                return nullptr;
+            }
+
+            // Weld before building: the seams a render mesh splits on must simulate as
+            // single particles or the sheet tears along every one of them. The vertices
+            // are entity-local as cooked; m_size and the pinning presets do not apply
+            // (pin mesh particles at runtime instead).
+            AZStd::vector<AZ::Vector3> weldedVertices;
+            AZStd::vector<AZ::u32> weldedIndices;
+            WeldVertices(rawVertices, rawIndices, weldedVertices, weldedIndices);
+            if (weldedVertices.empty() || weldedIndices.empty())
+            {
+                return nullptr;
+            }
+
+            for (const AZ::Vector3& position : weldedVertices)
+            {
+                JPH::SoftBodySharedSettings::Vertex vertex;
+                vertex.mPosition = JPH::Float3(position.GetX(), position.GetY(), position.GetZ());
+                vertex.mInvMass = 1.0f;
+                settings->mVertices.push_back(vertex);
+            }
+            for (size_t i = 0; i + 2 < weldedIndices.size(); i += 3)
+            {
+                AddTriangle(*settings, outTriangleIndices, weldedIndices[i], weldedIndices[i + 1], weldedIndices[i + 2]);
+            }
+        }
+        else if (m_settings.m_shape == JoltSoftBodyShape::Cloth)
         {
             const float sizeX = AZ::GetMax(m_settings.m_size.GetX(), 0.01f);
             const float sizeY = AZ::GetMax(m_settings.m_size.GetY(), 0.01f);
@@ -846,6 +1140,10 @@ namespace JoltPhysics
         }
         settings->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
 
+        // After the faces and constraints exist (the skinned-normal calculation reads
+        // the faces) and before Optimize, which remaps the constraint order.
+        ApplySkinningData(*settings);
+
         outPerVertexInvMass = DistributeMass(*settings, m_settings.m_mass);
         settings->Optimize();
         return settings;
@@ -879,6 +1177,10 @@ namespace JoltPhysics
         creationSettings.mUpdatePosition = m_settings.m_updatePosition;
         creationSettings.mFacesDoubleSided = m_settings.m_doubleSidedFaces;
         creationSettings.mAllowSleeping = m_settings.m_allowSleeping;
+        creationSettings.mCollisionGroup = m_collisionGroup;
+        // The entity id, the same convention as the rigid bodies: it is how contact
+        // listeners and per-particle notifications resolve a body back to its entity.
+        creationSettings.mUserData = static_cast<AZ::u64>(m_entityId);
 
         // Creating and adding a body is only legal outside the physics step. This is called
         // from component activation and from settings changes, both on the main thread.
@@ -891,6 +1193,10 @@ namespace JoltPhysics
         m_triangleIndices = AZStd::move(triangleIndices);
         m_perVertexInvMass = perVertexInvMass;
         ++m_buildGeneration;
+
+        // Re-applies the live values a rebuild cannot carry through the creation
+        // settings - today that is only the skin-constraints toggle.
+        ApplyLiveSettings();
         return true;
     }
 
@@ -942,6 +1248,7 @@ namespace JoltPhysics
             motionProperties->SetMaxLinearVelocity(AZ::GetMax(m_settings.m_maxLinearVelocity, 0.0f));
             motionProperties->SetUpdatePosition(m_settings.m_updatePosition);
             motionProperties->SetFacesDoubleSided(m_settings.m_doubleSidedFaces);
+            motionProperties->SetEnableSkinConstraints(m_skinConstraintsEnabled);
 
             // Friction and restitution live on the body, where a rigid body's material
             // would put them.

@@ -16,6 +16,7 @@
 #include <AzFramework/Physics/Configuration/SceneConfiguration.h>
 
 #include <JoltPhysics/Configuration/JoltConfiguration.h>
+#include <JoltPhysics/JoltSoftBodyBus.h>
 
 #include <AzCore/std/parallel/mutex.h>
 #include <AzCore/std/parallel/shared_mutex.h>
@@ -192,6 +193,13 @@ namespace JoltPhysics
         //! not refreshed this step has ended.
         void FlushEndedSoftBodyContacts();
 
+        //! Queues the per-particle detail of a soft body touching another body, dispatched
+        //! on JoltSoftBodyNotificationBus after the step. The generic collision events
+        //! above carry positions only; listeners on the notification bus get the particle
+        //! indices as well.
+        void QueueSoftBodyParticleContacts(
+            JPH::BodyID softBodyId, JPH::BodyID otherBodyId, AZStd::vector<JoltSoftBodyParticleContact>&& contacts);
+
         //! Records the first/last touching sub-shape of a body pair so collision Begin/End
         //! fire once per pair. TrackContactAdded returns true on the first contact of the
         //! pair; TrackContactRemoved returns true when the last contact is removed (false
@@ -245,6 +253,9 @@ namespace JoltPhysics
         void FlushAsyncSceneQueries();
 
         void FlushQueuedEvents();
+        //! Dispatches the queued per-particle soft body contacts on
+        //! JoltSoftBodyNotificationBus, resolving each body's entity from its user data.
+        void FlushSoftBodyParticleContacts();
         void ClearDeferredDeletions();
         void ProcessJointBreaking();
         void ProcessTriggerEvents();
@@ -302,6 +313,17 @@ namespace JoltPhysics
         };
         AZStd::unordered_map<AZ::u64, SoftBodyContactPair> m_softBodyContacts;
         AZStd::mutex m_softBodyContactsMutex;
+
+        //! Per-particle contact payloads collected during the step, one entry per
+        //! (soft body, other body) pair, dispatched after the step.
+        struct QueuedSoftBodyParticleContacts
+        {
+            JPH::BodyID m_softBodyId;
+            JPH::BodyID m_otherBodyId;
+            AZStd::vector<JoltSoftBodyParticleContact> m_contacts;
+        };
+        AZStd::vector<QueuedSoftBodyParticleContacts> m_queuedSoftBodyParticleContacts;
+        AZStd::mutex m_softBodyParticleContactsMutex;
         AZ::u64 m_simulationStep = 0;
         AzPhysics::CollisionEventList m_queuedCollisionEvents;
 

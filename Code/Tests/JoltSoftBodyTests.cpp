@@ -14,8 +14,13 @@
 
 #include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Collision/GroupFilterTable.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+
+#include <Pipeline/JoltMeshAsset.h>
+#include <Pipeline/JoltMeshAssetHandler.h>
+#include <Shape/JoltMeshUtils.h>
 
 namespace JoltPhysics
 {
@@ -47,13 +52,23 @@ namespace JoltPhysics
             sceneConfig.m_sceneName = "SoftBodyTestScene";
             m_sceneHandle = m_system->AddScene(sceneConfig);
             m_scene = m_system->GetScene(m_sceneHandle);
+
+            // The system component normally registers this; without it, releasing the
+            // in-memory mesh assets the Mesh-shape tests build would have no handler.
+            m_meshAssetHandler = AZStd::make_unique<Pipeline::JoltMeshAssetHandler>();
+            m_meshAssetHandler->Register();
         }
 
         void TearDown() override
         {
+            // Every asset reference must drop before the handler goes away.
+            m_pendingSettings = JoltSoftBodySettings{};
             m_system->RemoveScene(m_sceneHandle);
             m_system->Shutdown();
             m_system.reset();
+
+            m_meshAssetHandler->Unregister();
+            m_meshAssetHandler.reset();
         }
 
         void SimulateSeconds(float seconds)
@@ -75,6 +90,7 @@ namespace JoltPhysics
             configuration.m_settings = m_pendingSettings;
             configuration.m_position = m_pendingTransform.GetTranslation();
             configuration.m_orientation = m_pendingTransform.GetRotation();
+            configuration.m_entityId = m_pendingEntityId;
             configuration.m_debugName = "TestSoftBody";
 
             m_softBodyHandle = m_scene->AddSimulatedBody(&configuration);
@@ -94,17 +110,68 @@ namespace JoltPhysics
 
         //! A static floor whose top surface sits at the given height. The collision group
         //! decides which layers the floor collides with; the default collides with all.
-        void CreateFloor(float height, const AzPhysics::CollisionGroups::Id& groupId = AzPhysics::CollisionGroups::Id())
+        AzPhysics::SimulatedBodyHandle CreateFloor(
+            float height,
+            const AzPhysics::CollisionGroups::Id& groupId = AzPhysics::CollisionGroups::Id(),
+            AZ::EntityId entityId = AZ::EntityId())
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
             colliderConfig->m_collisionGroupId = groupId;
 
             AzPhysics::StaticRigidBodyConfiguration config;
             config.m_position = AZ::Vector3(0.0f, 0.0f, height - 0.5f);
+            config.m_entityId = entityId;
             config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
                 colliderConfig,
                 AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(100.0f, 100.0f, 1.0f)));
-            m_scene->AddSimulatedBody(&config);
+            return m_scene->AddSimulatedBody(&config);
+        }
+
+        //! An in-memory .joltmesh asset holding a flat grid packed as a triangle soup -
+        //! every triangle gets three fresh vertices, exactly what a render mesh with
+        //! per-face normals looks like, so it also exercises the welding.
+        static AZ::Data::Asset<Pipeline::JoltMeshAsset> MakeGridSoupMeshAsset(AZ::u32 quadsPerSide, float quadSize)
+        {
+            AZStd::vector<AZ::Vector3> vertices;
+            AZStd::vector<AZ::u32> indices;
+            const auto corner = [quadSize, quadsPerSide](AZ::u32 x, AZ::u32 y)
+            {
+                const float half = 0.5f * quadSize * static_cast<float>(quadsPerSide);
+                return AZ::Vector3(
+                    static_cast<float>(x) * quadSize - half, static_cast<float>(y) * quadSize - half, 0.0f);
+            };
+            const auto addTriangle = [&vertices, &indices](const AZ::Vector3& a, const AZ::Vector3& b, const AZ::Vector3& c)
+            {
+                for (const AZ::Vector3& position : { a, b, c })
+                {
+                    indices.push_back(static_cast<AZ::u32>(vertices.size()));
+                    vertices.push_back(position);
+                }
+            };
+            for (AZ::u32 y = 0; y < quadsPerSide; ++y)
+            {
+                for (AZ::u32 x = 0; x < quadsPerSide; ++x)
+                {
+                    addTriangle(corner(x, y), corner(x + 1, y), corner(x + 1, y + 1));
+                    addTriangle(corner(x, y), corner(x + 1, y + 1), corner(x, y + 1));
+                }
+            }
+
+            const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+                vertices.data(), static_cast<AZ::u32>(vertices.size()),
+                indices.data(), static_cast<AZ::u32>(indices.size()));
+
+            Physics::CookedMeshShapeConfiguration cooked;
+            cooked.SetCookedMeshData(
+                blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+
+            Pipeline::JoltMeshAssetData assetData;
+            assetData.m_colliderShapes.emplace_back(
+                nullptr, AZStd::make_shared<Physics::CookedMeshShapeConfiguration>(cooked));
+
+            auto* asset = aznew Pipeline::JoltMeshAsset();
+            asset->SetData(assetData);
+            return AZ::Data::Asset<Pipeline::JoltMeshAsset>(asset, AZ::Data::AssetLoadBehavior::NoLoad);
         }
 
         JoltSoftBodySettings ClothSettings(JoltSoftBodyPinning pinning) const
@@ -133,6 +200,8 @@ namespace JoltPhysics
         //! are part of its creation configuration rather than set on a live body.
         JoltSoftBodySettings m_pendingSettings;
         AZ::Transform m_pendingTransform = AZ::Transform::CreateIdentity();
+        AZ::EntityId m_pendingEntityId;
+        AZStd::unique_ptr<Pipeline::JoltMeshAssetHandler> m_meshAssetHandler;
     };
 
     TEST_F(JoltSoftBodyTests, AttachingBuildsParticlesAndTriangles)
@@ -726,5 +795,188 @@ namespace JoltPhysics
         ASSERT_TRUE(bounds.IsValid());
         EXPECT_NEAR(bounds.GetCenter().GetX(), 10.0f, 0.1f);
         EXPECT_NEAR(bounds.GetCenter().GetZ(), 5.0f, 0.1f);
+    }
+
+    TEST_F(JoltSoftBodyTests, MeshSoftBodyWeldsTheSoupAndSimulates)
+    {
+        // A 3x3-quad grid packed as a triangle soup: 18 triangles x 3 = 54 soup vertices
+        // that weld down to the 16 unique corners. Unwelded, the sheet would tear apart
+        // along every seam because constraints only connect vertices that share faces.
+        JoltSoftBodySettings settings;
+        settings.m_shape = JoltSoftBodyShape::Mesh;
+        settings.m_meshAsset = MakeGridSoupMeshAsset(3, 0.5f);
+        settings.m_mass = 2.0f;
+        settings.m_allowSleeping = false;
+        m_pendingSettings = settings;
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        ASSERT_TRUE(Attach());
+
+        EXPECT_EQ(SoftBody()->GetVertexCount(), 16u);
+        EXPECT_EQ(SoftBody()->GetTriangleIndices().size(), 18u * 3u);
+
+        // It is a real soft body, not a display: with nothing pinned it falls.
+        SimulateSeconds(1.0f);
+        const AZ::Aabb bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_LT(bounds.GetMax().GetZ(), 3.0f);
+    }
+
+    TEST_F(JoltSoftBodyTests, MeshSoftBodyWithoutAUsableAssetBuildsNothing)
+    {
+        JoltSoftBodySettings settings;
+        settings.m_shape = JoltSoftBodyShape::Mesh; // no asset assigned
+        m_pendingSettings = settings;
+
+        JoltSoftBodyConfiguration configuration;
+        configuration.m_settings = m_pendingSettings;
+        AZ_TEST_START_TRACE_SUPPRESSION;
+        m_softBodyHandle = m_scene->AddSimulatedBody(&configuration);
+        AZ_TEST_STOP_TRACE_SUPPRESSION_NO_COUNT;
+
+        // The add fails gracefully rather than crashing or leaving a particle-less body.
+        EXPECT_TRUE(SoftBody() == nullptr || SoftBody()->GetVertexCount() == 0);
+    }
+
+    //! Records what arrives on the soft body notification bus.
+    struct SoftBodyContactRecorder : public JoltSoftBodyNotificationBus::Handler
+    {
+        void Connect(AZ::EntityId softBodyEntity)
+        {
+            JoltSoftBodyNotificationBus::Handler::BusConnect(softBodyEntity);
+        }
+        ~SoftBodyContactRecorder() override
+        {
+            JoltSoftBodyNotificationBus::Handler::BusDisconnect();
+        }
+
+        void OnSoftBodyContact(
+            AZ::EntityId otherEntity, const AZStd::vector<JoltSoftBodyParticleContact>& contacts) override
+        {
+            m_lastOtherEntity = otherEntity;
+            m_totalContacts += contacts.size();
+            for (const JoltSoftBodyParticleContact& contact : contacts)
+            {
+                m_maxVertexIndex = AZ::GetMax(m_maxVertexIndex, contact.m_vertexIndex);
+                m_lastContactZ = contact.m_position.GetZ();
+            }
+        }
+
+        AZ::EntityId m_lastOtherEntity;
+        size_t m_totalContacts = 0;
+        AZ::u32 m_maxVertexIndex = 0;
+        float m_lastContactZ = 1.0e9f;
+    };
+
+    TEST_F(JoltSoftBodyTests, ContactNotificationsCarryTheTouchingParticles)
+    {
+        const AZ::EntityId clothEntity(1001);
+        const AZ::EntityId floorEntity(1002);
+        CreateFloor(0.0f, AzPhysics::CollisionGroups::Id(), floorEntity);
+
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 1.0f));
+        m_pendingEntityId = clothEntity;
+        ASSERT_TRUE(Attach());
+
+        SoftBodyContactRecorder recorder;
+        recorder.Connect(clothEntity);
+
+        SimulateSeconds(2.0f);
+
+        // The cloth landed, so its entity was told which particles touched what.
+        EXPECT_GT(recorder.m_totalContacts, 0u);
+        EXPECT_EQ(recorder.m_lastOtherEntity, floorEntity);
+        EXPECT_LT(recorder.m_maxVertexIndex, SoftBody()->GetVertexCount());
+        // Contact points sit on the floor, not somewhere in the falling sheet.
+        EXPECT_NEAR(recorder.m_lastContactZ, 0.0f, 0.2f);
+    }
+
+    TEST_F(JoltSoftBodyTests, CollisionGroupFilterExcludesChosenPairs)
+    {
+        // Same group, different sub-groups, and a table that disables exactly that pair -
+        // Jolt's fine-grained filter, the mechanism ragdolls use between touching limbs.
+        const AzPhysics::SimulatedBodyHandle floorHandle = CreateFloor(0.0f);
+
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 2.0f));
+        ASSERT_TRUE(Attach());
+
+        JPH::Ref<JPH::GroupFilterTable> filter = new JPH::GroupFilterTable(2);
+        filter->DisableCollision(0, 1);
+
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        ASSERT_NE(joltScene, nullptr);
+        JPH::Body* floorBody = joltScene->GetJoltBody(floorHandle);
+        ASSERT_NE(floorBody, nullptr);
+        floorBody->SetCollisionGroup(JPH::CollisionGroup(filter, 1, 0));
+        SoftBody()->SetCollisionGroup(JPH::CollisionGroup(filter, 1, 1));
+
+        SimulateSeconds(3.0f);
+
+        // The layer/group pair says they collide; the fine-grained filter vetoes it, so
+        // the cloth falls straight through - contrast with ClothLandsOnAFloorAndStaysAboveIt.
+        const AZ::Aabb bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_LT(bounds.GetMax().GetZ(), -2.0f);
+    }
+
+    TEST_F(JoltSoftBodyTests, SkinnedConstraintsHoldAndFollowTheJoints)
+    {
+        // A free sheet skinned to one joint: every particle may drift at most 5 cm from
+        // its skinned position. The body must not update its own position, or the joint
+        // transforms (given in body-local space) would chase a moving frame.
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::None);
+        settings.m_updatePosition = false;
+        m_pendingSettings = settings;
+        ASSERT_TRUE(Attach());
+
+        const AZ::u32 vertexCount = SoftBody()->GetVertexCount();
+        AZStd::vector<JoltSoftBodySkinnedVertex> skinnedVertices;
+        skinnedVertices.reserve(vertexCount);
+        for (AZ::u32 i = 0; i < vertexCount; ++i)
+        {
+            JoltSoftBodySkinnedVertex skinnedVertex;
+            skinnedVertex.m_vertexIndex = i;
+            skinnedVertex.m_influences.push_back({ 0, 1.0f });
+            skinnedVertex.m_maxDistance = 0.05f;
+            skinnedVertices.push_back(skinnedVertex);
+        }
+        SoftBody()->SetSkinningData({ AZ::Transform::CreateIdentity() }, skinnedVertices);
+        ASSERT_TRUE(SoftBody()->HasSkinningData());
+        ASSERT_EQ(SoftBody()->GetVertexCount(), vertexCount);
+
+        // Phase one: the joint sits at the bind pose, so despite gravity and nothing
+        // pinned, the sheet hangs within its allowed drift.
+        ASSERT_TRUE(SoftBody()->UpdateSkinnedJoints({ AZ::Transform::CreateIdentity() }, /*hardSkinAll*/ true));
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 60; ++i)
+        {
+            SoftBody()->UpdateSkinnedJoints({ AZ::Transform::CreateIdentity() });
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+        AZ::Aabb bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_GT(bounds.GetMin().GetZ(), -0.1f);
+
+        // Phase two: move the joint and the cloth follows it - simulated cloth attached
+        // to an animated skeleton, which is what the skinning path exists for.
+        const AZ::Transform movedJoint = AZ::Transform::CreateTranslation(AZ::Vector3(2.0f, 0.0f, 0.0f));
+        for (int i = 0; i < 60; ++i)
+        {
+            SoftBody()->UpdateSkinnedJoints({ movedJoint });
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+        }
+        bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_NEAR(bounds.GetCenter().GetX(), 2.0f, 0.2f);
+
+        // Disabling the constraints hands the sheet back to gravity.
+        SoftBody()->SetSkinConstraintsEnabled(false);
+        SimulateSeconds(1.0f);
+        bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_LT(bounds.GetMax().GetZ(), -1.0f);
     }
 } // namespace JoltPhysics

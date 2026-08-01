@@ -17,10 +17,12 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Collision/CollisionGroup.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 #include <JoltPhysics/JoltSoftBodyBus.h>
+#include <Pipeline/JoltMeshAsset.h>
 
 namespace JPH
 {
@@ -42,7 +44,12 @@ namespace JoltPhysics
 
         //! Baked: which geometry is generated.
         JoltSoftBodyShape m_shape = JoltSoftBodyShape::Cloth;
-        //! Baked: how a cloth is held up. Ignored by the other shapes.
+        //! Baked: the surface for the Mesh shape - the first triangle mesh of a cooked
+        //! .joltmesh asset, welded so split render vertices simulate as one particle.
+        //! Ignored by the procedural shapes; must be loaded before the body is built.
+        AZ::Data::Asset<Pipeline::JoltMeshAsset> m_meshAsset{ AZ::Data::AssetLoadBehavior::QueueLoad };
+        //! Baked: how a cloth is held up. Ignored by the other shapes (a mesh has no
+        //! canonical corners or top edge; pin its particles at runtime instead).
         JoltSoftBodyPinning m_pinning = JoltSoftBodyPinning::Corners;
         //! Baked: extents in metres. A Cube and a Balloon use the X component only, since
         //! Jolt's cube helper takes a single spacing and the balloon is a sphere.
@@ -93,6 +100,29 @@ namespace JoltPhysics
         //! body would throw away whatever deformation it had settled into.
         AzPhysics::CollisionLayer m_collisionLayer;
         AzPhysics::CollisionGroups::Id m_collisionGroupId;
+    };
+
+    //! One joint's pull on a skinned soft body particle.
+    struct JoltSoftBodySkinInfluence
+    {
+        //! Index into the inverse-bind / joint-transform arrays.
+        AZ::u32 m_jointIndex = 0;
+        //! Blend weight; the weights of a vertex are normalized when the body is built.
+        float m_weight = 1.0f;
+    };
+
+    //! Ties one particle to the skinned position its joints compute. Jolt clamps the
+    //! simulated particle to within m_maxDistance of that position, which is what keeps
+    //! simulated cloth attached to an animated character.
+    struct JoltSoftBodySkinnedVertex
+    {
+        //! Index into the soft body's particle array.
+        AZ::u32 m_vertexIndex = 0;
+        //! Up to four joint influences; more are ignored.
+        AZStd::vector<JoltSoftBodySkinInfluence> m_influences;
+        //! How far simulation may drift from the skinned position. 0 hard-skins the
+        //! particle; FLT_MAX turns the constraint off for it.
+        float m_maxDistance = 0.1f;
     };
 
     //! What JoltScene::AddSimulatedBody needs to build a soft body: the settings plus the
@@ -209,6 +239,34 @@ namespace JoltPhysics
         bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity);
         AZ::Vector3 GetVertexVelocity(AZ::u32 index) const;
 
+        //! Baked: ties particles to an animated skeleton through Jolt's skinned
+        //! constraints. jointInvBinds holds each joint's inverse bind transform in the
+        //! soft body's local frame (it takes a particle's rest position to joint-local
+        //! space); skinnedVertices lists which particles are skinned and how. Rebuilds
+        //! the body. Not supported for the Cube shape, whose layout Jolt pre-optimises.
+        //! Passing empty data clears the skinning. C++ only - this is the seam an
+        //! actor/Atom integration drives, not a per-frame scripting surface.
+        void SetSkinningData(
+            const AZStd::vector<AZ::Transform>& jointInvBinds,
+            const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices);
+        bool HasSkinningData() const;
+
+        //! Per-frame: recomputes the skinned target positions from the current joint
+        //! transforms, expressed in the soft body's local frame in the same order as the
+        //! inverse binds. hardSkinAll snaps every skinned particle exactly onto its
+        //! target, which is how a soft body is reset onto a newly-posed skeleton.
+        bool UpdateSkinnedJoints(const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll = false);
+
+        //! Live: turns the skinned constraints on or off without losing the data.
+        void SetSkinConstraintsEnabled(bool enabled);
+
+        //! Jolt's fine-grained collision group - group/sub-group ids plus an optional
+        //! GroupFilter - the same mechanism ragdolls use to stop touching limbs
+        //! colliding. Applied live; survives rebuilds. C++ only: the coarse layer/group
+        //! pair on the settings covers script and editor filtering.
+        void SetCollisionGroup(const JPH::CollisionGroup& group);
+        JPH::CollisionGroup GetCollisionGroup() const;
+
         //! Copies every particle position, in world space, into outPositions. Returns false
         //! when the body is not in a scene, leaving outPositions empty. One locked pass
         //! rather than GetVertexPosition per particle, which is what rendering needs.
@@ -257,6 +315,10 @@ namespace JoltPhysics
         JPH::ObjectLayer m_objectLayer = 0;
         JPH::BodyID m_bodyId;
 
+        //! Copies the skinning data onto the shared settings. Assumes the settings'
+        //! vertices and faces are final and Optimize has not run yet.
+        void ApplySkinningData(JPH::SoftBodySharedSettings& settings) const;
+
         JoltSoftBodySettings m_settings;
         AZ::Transform m_worldTransform = AZ::Transform::CreateIdentity();
         AZStd::vector<AZ::u32> m_triangleIndices;
@@ -264,5 +326,13 @@ namespace JoltPhysics
         //! The inverse mass a free particle carries in the current build, so unpinning a
         //! particle at runtime restores the same share instead of a guess.
         float m_perVertexInvMass = 1.0f;
+
+        //! Skinning data, baked into the shared settings on every rebuild.
+        AZStd::vector<AZ::Transform> m_jointInvBinds;
+        AZStd::vector<JoltSoftBodySkinnedVertex> m_skinnedVertices;
+        bool m_skinConstraintsEnabled = true;
+
+        //! Jolt collision group, applied at creation and re-applied on rebuilds.
+        JPH::CollisionGroup m_collisionGroup;
     };
 } // namespace JoltPhysics

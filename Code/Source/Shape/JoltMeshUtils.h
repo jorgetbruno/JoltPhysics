@@ -44,6 +44,15 @@ namespace JoltPhysics
         //! PackTriangleMesh). Returns nullptr if the blob is malformed or empty.
         static JPH::RefConst<JPH::Shape> CreateMeshShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData);
 
+        //! Decodes a triangle-mesh blob (as produced by PackTriangleMesh) back into raw
+        //! vertices and indices, ignoring any per-face material table - what a soft body
+        //! needs, where the collider path needs a Jolt shape. Returns false and leaves
+        //! the outputs empty if the blob is malformed.
+        static bool UnpackTriangleMesh(
+            const AZStd::vector<AZ::u8>& cookedData,
+            AZStd::vector<AZ::Vector3>& outVertices,
+            AZStd::vector<AZ::u32>& outIndices);
+
         //! Packs raw convex-hull point data (vertices only, no indices) into a blob.
         //! Jolt builds the hull from the point cloud on Create(), so no offline pass is
         //! needed - this is just the packed points.

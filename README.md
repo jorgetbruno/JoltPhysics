@@ -48,11 +48,14 @@ outside it (see [The gem family](#the-gem-family)).
   ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
   trigger/sensor interaction
 - Ragdolls through O3DE's `Physics::Ragdoll` interface
-- Soft bodies (`JoltSoftBodyComponent`): procedural cloth, cube and balloon, simulated
-  as real bodies the rest of the scene collides with, with runtime per-particle
-  pinning/velocity, opt-in LRA tethers for inextensible cloth, bulk vertex reads for
-  script-driven rendering, and an edit-mode live preview that drapes over the editor
-  colliders' geometry. No PhysX counterpart exists — this is gem-specific surface
+- Soft bodies (`JoltSoftBodyComponent`): procedural cloth, cube and balloon plus
+  mesh-sourced bodies from `.joltmesh` assets, simulated as real bodies the rest of
+  the scene collides with, with runtime per-particle pinning/velocity, opt-in LRA
+  tethers for inextensible cloth, bulk vertex reads for script-driven rendering,
+  per-particle contact notifications (`JoltSoftBodyNotificationBus`), Jolt collision
+  group/filter exposure, wrapped skinned constraints for skeleton-attached cloth,
+  and an edit-mode live preview that drapes over the editor colliders' geometry. No
+  PhysX counterpart exists — this is gem-specific surface
 - Joints: fixed, hinge, ball, prismatic, distance, cone and 6-DOF components, with
   limits, motors, **soft (spring) limits** and **breakable** thresholds that consume
   the constraint's own reaction impulses. Gear and rack-and-pinion are wrapped at the

@@ -119,6 +119,14 @@ namespace JoltPhysics
             return;
         }
 
+        // A mesh-shaped preview needs the asset's triangles before the body can build.
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh &&
+            m_settings.m_meshAsset.GetId().IsValid() && !m_settings.m_meshAsset.IsReady())
+        {
+            m_settings.m_meshAsset.QueueLoad();
+            m_settings.m_meshAsset.BlockUntilLoadComplete();
+        }
+
         AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
         AZ::TransformBus::EventResult(worldTransform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
 
@@ -171,6 +179,13 @@ namespace JoltPhysics
         if (m_previewBody && m_previewBody->CopyVertexPositions(m_previewPositions))
         {
             DrawSoftBody(debugDisplay, m_previewPositions, m_previewBody->GetTriangleIndices());
+            return;
+        }
+
+        // The rest-shape preview is generated from the procedural settings; a mesh's
+        // rest shape is its render mesh, which the viewport already shows.
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh)
+        {
             return;
         }
 

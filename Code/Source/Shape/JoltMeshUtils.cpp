@@ -226,6 +226,60 @@ namespace JoltPhysics
         return result;
     }
 
+    bool JoltMeshUtils::UnpackTriangleMesh(
+        const AZStd::vector<AZ::u8>& cookedData,
+        AZStd::vector<AZ::Vector3>& outVertices,
+        AZStd::vector<AZ::u32>& outIndices)
+    {
+        outVertices.clear();
+        outIndices.clear();
+
+        if (cookedData.size() < sizeof(MeshBlobHeader))
+        {
+            return false;
+        }
+
+        MeshBlobHeader header;
+        memcpy(&header, cookedData.data(), sizeof(MeshBlobHeader));
+
+        if (header.m_magic != MeshBlobHeader().m_magic ||
+            (header.m_version != cMeshBlobVersionNoMaterials && header.m_version != cMeshBlobVersionPerFaceMaterials) ||
+            header.m_vertexCount == 0 || header.m_indexCount == 0 || header.m_indexCount % 3 != 0)
+        {
+            return false;
+        }
+
+        const size_t vertexBytes = static_cast<size_t>(header.m_vertexCount) * 3 * sizeof(float);
+        const size_t indexBytes = static_cast<size_t>(header.m_indexCount) * sizeof(AZ::u32);
+        if (cookedData.size() < sizeof(MeshBlobHeader) + vertexBytes + indexBytes)
+        {
+            return false;
+        }
+
+        const AZ::u8* vertexCursor = cookedData.data() + sizeof(MeshBlobHeader);
+        outVertices.reserve(header.m_vertexCount);
+        for (AZ::u32 i = 0; i < header.m_vertexCount; ++i)
+        {
+            float xyz[3];
+            memcpy(xyz, vertexCursor + static_cast<size_t>(i) * sizeof(xyz), sizeof(xyz));
+            outVertices.emplace_back(xyz[0], xyz[1], xyz[2]);
+        }
+
+        outIndices.resize(header.m_indexCount);
+        memcpy(outIndices.data(), vertexCursor + vertexBytes, indexBytes);
+
+        for (AZ::u32 index : outIndices)
+        {
+            if (index >= header.m_vertexCount)
+            {
+                outVertices.clear();
+                outIndices.clear();
+                return false;
+            }
+        }
+        return true;
+    }
+
     JPH::RefConst<JPH::Shape> JoltMeshUtils::CreateMeshShapeFromCookedData(const AZStd::vector<AZ::u8>& cookedData)
     {
         if (cookedData.size() < sizeof(MeshBlobHeader))

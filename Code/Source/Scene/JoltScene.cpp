@@ -221,6 +221,7 @@ namespace JoltPhysics
         ProcessJointBreaking();
 
         FlushEndedSoftBodyContacts();
+        FlushSoftBodyParticleContacts();
 
         FlushTransformSync();
         FlushQueuedEvents();
@@ -1666,6 +1667,48 @@ namespace JoltPhysics
         m_queuedCollisionEvents.push_back(AZStd::move(collisionEvent));
     }
 
+    void JoltScene::QueueSoftBodyParticleContacts(
+        JPH::BodyID softBodyId, JPH::BodyID otherBodyId, AZStd::vector<JoltSoftBodyParticleContact>&& contacts)
+    {
+        AZStd::lock_guard lock(m_softBodyParticleContactsMutex);
+        m_queuedSoftBodyParticleContacts.push_back({ softBodyId, otherBodyId, AZStd::move(contacts) });
+    }
+
+    void JoltScene::FlushSoftBodyParticleContacts()
+    {
+        AZStd::vector<QueuedSoftBodyParticleContacts> queued;
+        {
+            AZStd::lock_guard lock(m_softBodyParticleContactsMutex);
+            queued.swap(m_queuedSoftBodyParticleContacts);
+        }
+        if (queued.empty() || !m_physicsSystem)
+        {
+            return;
+        }
+
+        // Entities come from the bodies' user data. Jolt defaults user data to 0, which
+        // is not this engine's invalid entity id, so 0 also reads as "no entity".
+        const auto entityFromBody = [this](JPH::BodyID bodyId)
+        {
+            const AZ::u64 userData = m_physicsSystem->GetBodyInterface().GetUserData(bodyId);
+            return userData == 0 ? AZ::EntityId() : AZ::EntityId(userData);
+        };
+
+        for (QueuedSoftBodyParticleContacts& entry : queued)
+        {
+            const AZ::EntityId softBodyEntity = entityFromBody(entry.m_softBodyId);
+            if (!softBodyEntity.IsValid())
+            {
+                // A soft body without an entity has no bus address to notify.
+                continue;
+            }
+
+            JoltSoftBodyNotificationBus::Event(
+                softBodyEntity, &JoltSoftBodyNotifications::OnSoftBodyContact,
+                entityFromBody(entry.m_otherBodyId), entry.m_contacts);
+        }
+    }
+
     void JoltScene::FlushEndedSoftBodyContacts()
     {
         AZStd::vector<AZStd::pair<JPH::BodyID, JPH::BodyID>> ended;
@@ -1701,13 +1744,18 @@ namespace JoltPhysics
 
         // Jolt reports one callback per soft body per step covering every particle, so the
         // per-particle contacts are grouped by the body they touch to produce one event per
-        // body pair - matching how rigid body collisions are reported.
+        // body pair - matching how rigid body collisions are reported. The same pass also
+        // collects the particle indices for the soft body notification bus, which is the
+        // detail the generic collision events cannot carry.
         AZStd::unordered_map<AZ::u32, AZStd::vector<AzPhysics::Contact>> contactsByBody;
+        AZStd::unordered_map<AZ::u32, AZStd::vector<JoltSoftBodyParticleContact>> particlesByBody;
         AZStd::unordered_map<AZ::u32, JPH::BodyID> bodyIdByKey;
 
         const JPH::RMat44 softBodyTransform = inSoftBody.GetCenterOfMassTransform();
-        for (const JPH::SoftBodyVertex& vertex : inManifold.GetVertices())
+        const auto& vertices = inManifold.GetVertices();
+        for (AZ::u32 vertexIndex = 0; vertexIndex < vertices.size(); ++vertexIndex)
         {
+            const JPH::SoftBodyVertex& vertex = vertices[vertexIndex];
             if (!inManifold.HasContact(vertex))
             {
                 continue;
@@ -1722,11 +1770,21 @@ namespace JoltPhysics
             contact.m_position = Conversions::FromJolt(softBodyTransform * vertex.mPosition);
             contact.m_normal = Conversions::FromJolt(inManifold.GetContactNormal(vertex));
             contactsByBody[key].push_back(contact);
+
+            JoltSoftBodyParticleContact particleContact;
+            particleContact.m_vertexIndex = vertexIndex;
+            particleContact.m_position = contact.m_position;
+            particleContact.m_normal = contact.m_normal;
+            particlesByBody[key].push_back(particleContact);
         }
 
         for (auto& [key, contacts] : contactsByBody)
         {
             m_scene->QueueSoftBodyCollisionEvent(inSoftBody.GetID(), bodyIdByKey[key], AZStd::move(contacts));
+        }
+        for (auto& [key, particles] : particlesByBody)
+        {
+            m_scene->QueueSoftBodyParticleContacts(inSoftBody.GetID(), bodyIdByKey[key], AZStd::move(particles));
         }
     }
 

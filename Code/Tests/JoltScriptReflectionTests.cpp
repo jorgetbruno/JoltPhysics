@@ -63,6 +63,19 @@ namespace JoltPhysics
               "SetVertexPinned", "IsVertexPinned", "SetVertexVelocity", "GetVertexVelocity" });
     }
 
+    TEST_F(JoltScriptReflectionTests, SoftBodyNotificationBusIsReflectedWithAHandler)
+    {
+        // Without a handler, script can drive a soft body but cannot be told its cloth
+        // touched something.
+        const AZ::BehaviorEBus* notificationBus = FindBus("JoltSoftBodyNotificationBus");
+        ASSERT_NE(notificationBus, nullptr);
+        EXPECT_NE(notificationBus->m_createHandler, nullptr);
+
+        // The per-particle contact payload has to be readable from script too.
+        AZ::BehaviorContext* behaviorContext = m_behaviorContext;
+        EXPECT_NE(behaviorContext->m_classes.find("JoltSoftBodyParticleContact"), behaviorContext->m_classes.end());
+    }
+
     TEST_F(JoltScriptReflectionTests, JointBusIsReflectedWithSingleValueLimitAccessors)
     {
         ExpectBusHasEvents("JoltJointRequestBus",

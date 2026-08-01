@@ -595,12 +595,17 @@ feature, trust the topic sections below the milestones.**
   whole feature is exposed through this gem's own `JoltSoftBodyComponent` and
   `JoltSoftBodyRequestBus` (rule 5 of the project brief). Nothing here is meant to
   be API-compatible with anything.
-- **Geometry is procedural, not authored.** A body is one of three generated
+- **Geometry is procedural or mesh-sourced.** A body is one of three generated
   shapes — `Cloth` (a flat grid that drapes), `Cube` (a solid grid that keeps its
   bulk) or `Balloon` (a closed grid driven by internal pressure) — sized by
-  `m_size` and `m_resolution`. There is no path from a mesh asset to a soft body,
-  and cloth pinning is limited to three presets (`None`, `Corners`, `TopEdge`)
-  rather than an arbitrary vertex selection.
+  `m_size` and `m_resolution`, or `Mesh`: the first triangle mesh of a cooked
+  `.joltmesh` asset, simulated as cloth. Mesh vertices are welded by position (a
+  tenth of a millimetre) before building, because render meshes split vertices on
+  every normal/UV seam and an unwelded sheet tears apart along each one; the
+  pinning presets, `m_size` and `m_resolution` do not apply to a mesh (pin its
+  particles at runtime instead), and degenerate triangles are dropped. Cloth
+  pinning stays limited to three presets (`None`, `Corners`, `TopEdge`) at
+  authoring time; arbitrary selections are a runtime `SetVertexPinned` concern.
 - **Settings split into baked and live, and the split is enforced.** Shape,
   pinning, size, resolution, mass, compliance, LRA type and allow-sleeping go into
   the particle layout at creation and cannot change on a live body; iterations,
@@ -654,6 +659,25 @@ feature, trust the topic sections below the milestones.**
   not refreshed. Begin/Persist/End therefore behave as they do for rigid bodies,
   but End arrives on the step after contact is lost rather than the moment it
   breaks.
+- **Per-particle contact detail rides a dedicated notification bus.** The generic
+  collision events flatten the per-particle manifold into positions; listeners on
+  `JoltSoftBodyNotificationBus` (addressed by the soft body's entity, reflected to
+  script with a handler) additionally get the particle indices, once per touched
+  body per step. There is no End notification on that bus — Jolt has no removal
+  callback to derive it from per particle — so silence means contact was lost.
+- **Jolt's fine-grained `CollisionGroup`/`GroupFilter` is exposed C++-only**
+  (`SetCollisionGroup` on `JoltSoftBody`), the same mechanism the ragdolls use:
+  same group id, different sub-groups, and a `GroupFilterTable` that vetoes chosen
+  pairs — how a cape is stopped from colliding with the character wearing it. The
+  coarse layer/group pair on the settings remains the script/editor surface.
+- **Skinning wraps Jolt's skinned constraints, not a render pipeline.**
+  `SetSkinningData` (inverse bind transforms + per-particle joint weights and max
+  drift) bakes `Skinned` constraints into the shared settings, and
+  `UpdateSkinnedJoints` feeds the animated pose (joint transforms in the soft
+  body's local frame) to `SkinVertices` each frame; `SetSkinConstraintsEnabled`
+  toggles the constraints live. This is the seam an actor/Atom integration drives
+  — there is still no render-mesh output, and the Cube shape cannot be skinned
+  because Jolt pre-optimises its constraint layout.
 - **Collision layer and group are live settings, not baked ones.** Jolt can move a
   body between object layers with `BodyInterface::SetObjectLayer`, so changing
   either re-resolves the object layer and moves the existing body rather than

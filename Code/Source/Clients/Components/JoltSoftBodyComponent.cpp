@@ -1,5 +1,6 @@
 #include <Clients/Components/JoltSoftBodyComponent.h>
 
+#include <AzCore/Asset/AssetSerializer.h>
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
@@ -9,16 +10,48 @@
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/SystemBus.h>
 
+#include <AzCore/RTTI/BehaviorContext.h>
+
 #include <SoftBody/JoltSoftBodyRender.h>
 #include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
 {
+    //! Lets script react to cloth touching something, per particle (ScriptCanvas node /
+    //! Lua handler).
+    class JoltSoftBodyNotificationBusHandler
+        : public JoltSoftBodyNotificationBus::Handler
+        , public AZ::BehaviorEBusHandler
+    {
+    public:
+        AZ_EBUS_BEHAVIOR_BINDER(
+            JoltSoftBodyNotificationBusHandler, "{7D3F5A1C-9B6E-4C2D-8A4F-5E1B7C9D3A6F}", AZ::SystemAllocator,
+            OnSoftBodyContact);
+
+        void OnSoftBodyContact(
+            AZ::EntityId otherEntity, const AZStd::vector<JoltSoftBodyParticleContact>& contacts) override
+        {
+            Call(FN_OnSoftBodyContact, otherEntity, contacts);
+        }
+    };
+
     void JoltSoftBodyComponent::Reflect(AZ::ReflectContext* context)
     {
         Internal::ReflectEBusOnce(context, "JoltSoftBodyRequestBus",
             [](AZ::BehaviorContext* behaviorContext)
             {
+                behaviorContext->Class<JoltSoftBodyParticleContact>("JoltSoftBodyParticleContact")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Property("vertexIndex", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_vertexIndex))
+                    ->Property("position", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_position))
+                    ->Property("normal", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_normal))
+                    ;
+
+                behaviorContext->EBus<JoltSoftBodyNotificationBus>("JoltSoftBodyNotificationBus")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Handler<JoltSoftBodyNotificationBusHandler>()
+                    ;
+
                 behaviorContext->EBus<JoltSoftBodyRequestBus>("JoltSoftBodyRequestBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
                     ->Event("SetPressure", &JoltSoftBodyRequests::SetPressure)
@@ -56,11 +89,21 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
-            // Version 3 only adds fields; older data loads with the new fields at their
-            // defaults, so no converter is needed.
+            serializeContext->RegisterGenericType<AZ::Data::Asset<Pipeline::JoltMeshAsset>>();
+
+            serializeContext->Class<JoltSoftBodyParticleContact>()
+                ->Version(1)
+                ->Field("VertexIndex", &JoltSoftBodyParticleContact::m_vertexIndex)
+                ->Field("Position", &JoltSoftBodyParticleContact::m_position)
+                ->Field("Normal", &JoltSoftBodyParticleContact::m_normal)
+                ;
+
+            // Versions 3 and 4 only add fields; older data loads with the new fields at
+            // their defaults, so no converter is needed.
             serializeContext->Class<JoltSoftBodySettings>()
-                ->Version(3)
+                ->Version(4)
                 ->Field("Shape", &JoltSoftBodySettings::m_shape)
+                ->Field("MeshAsset", &JoltSoftBodySettings::m_meshAsset)
                 ->Field("Pinning", &JoltSoftBodySettings::m_pinning)
                 ->Field("Size", &JoltSoftBodySettings::m_size)
                 ->Field("Resolution", &JoltSoftBodySettings::m_resolution)
@@ -101,11 +144,16 @@ namespace JoltPhysics
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_shape,
-                        "Shape", "Cloth is a flat sheet, Cube keeps its bulk, Balloon is inflated by pressure. "
-                        "Changing this rebuilds the body.")
+                        "Shape", "Cloth is a flat sheet, Cube keeps its bulk, Balloon is inflated by pressure, "
+                        "Mesh simulates the surface of a .joltmesh asset. Changing this rebuilds the body.")
                         ->EnumAttribute(JoltSoftBodyShape::Cloth, "Cloth")
                         ->EnumAttribute(JoltSoftBodyShape::Cube, "Cube")
                         ->EnumAttribute(JoltSoftBodyShape::Balloon, "Balloon")
+                        ->EnumAttribute(JoltSoftBodyShape::Mesh, "Mesh")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_meshAsset,
+                        "Mesh asset", "The .joltmesh asset whose first triangle mesh becomes the simulated surface "
+                        "(Mesh shape only). Split render vertices are welded so the sheet does not tear at UV "
+                        "seams. Size, resolution and pinning presets do not apply to a mesh.")
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_pinning,
                         "Pinning", "Which cloth particles are fixed in place. A cloth with nothing pinned falls. "
                         "Only applies to the Cloth shape.")
@@ -219,6 +267,16 @@ namespace JoltPhysics
         Physics::DefaultWorldBus::BroadcastResult(
             m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
 
+        // A Mesh-shaped body is built from the asset's triangles, so the load has to be
+        // finished before the body is created - the same reasoning (and the same blocking
+        // call) as the mesh collider.
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh && m_settings.m_meshAsset.GetId().IsValid())
+        {
+            AZ::Data::AssetBus::MultiHandler::BusConnect(m_settings.m_meshAsset.GetId());
+            m_settings.m_meshAsset.QueueLoad();
+            m_settings.m_meshAsset.BlockUntilLoadComplete();
+        }
+
         if (m_enabled)
         {
             CreateSoftBody();
@@ -234,9 +292,27 @@ namespace JoltPhysics
         AZ::TickBus::Handler::BusDisconnect();
         JoltSoftBodyRequestBus::Handler::BusDisconnect();
         AZ::TransformNotificationBus::Handler::BusDisconnect();
+        AZ::Data::AssetBus::MultiHandler::BusDisconnect();
 
         DestroySoftBody();
         m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
+    }
+
+    void JoltSoftBodyComponent::OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset)
+    {
+        if (asset.GetId() != m_settings.m_meshAsset.GetId())
+        {
+            return;
+        }
+
+        // The reloaded asset may carry different triangles, so the body is rebuilt from
+        // scratch - deformation loss is inherent to an asset edit.
+        m_settings.m_meshAsset = asset;
+        if (m_enabled)
+        {
+            DestroySoftBody();
+            CreateSoftBody();
+        }
     }
 
     void JoltSoftBodyComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)

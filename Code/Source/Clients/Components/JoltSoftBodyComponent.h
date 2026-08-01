@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzCore/Asset/AssetCommon.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/Component/TransformBus.h>
@@ -18,6 +19,7 @@ namespace JoltPhysics
         : public AZ::Component
         , private AZ::TransformNotificationBus::Handler
         , private AZ::TickBus::Handler
+        , private AZ::Data::AssetBus::MultiHandler
         , private JoltSoftBodyRequestBus::Handler
     {
     public:
@@ -48,6 +50,9 @@ namespace JoltPhysics
 
         // AZ::TickBus
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
+
+        // AZ::Data::AssetBus - the mesh asset a Mesh-shaped body is built from.
+        void OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
 
         // JoltSoftBodyRequestBus
         void SetPressure(float pressure) override;

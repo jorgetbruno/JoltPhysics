@@ -10,13 +10,14 @@
 
 namespace JoltPhysics
 {
-    //! Which shape the soft body is built from. Jolt simulates particles and constraints,
-    //! not a mesh asset, so the geometry is generated rather than loaded.
+    //! Which shape the soft body is built from. Cloth, Cube and Balloon are generated
+    //! procedurally; Mesh takes its surface from a cooked .joltmesh asset.
     enum class JoltSoftBodyShape : AZ::u8
     {
         Cloth = 0, //!< A flat grid in the entity's local XY plane. Drapes and folds.
         Cube = 1, //!< A solid grid with volume constraints. Wobbles and keeps its bulk.
         Balloon = 2, //!< A closed grid driven by internal pressure. Inflates and bounces.
+        Mesh = 3, //!< The triangle surface of a .joltmesh asset, welded and simulated as cloth.
     };
 
     //! How a cloth is held up. A cloth with nothing pinned simply falls.
@@ -127,5 +128,39 @@ namespace JoltPhysics
     };
 
     using JoltSoftBodyRequestBus = AZ::EBus<JoltSoftBodyRequests>;
+
+    //! One particle of a soft body touching another body. The index is into the same
+    //! particle array GetVertexPositions reads, so a listener can react on the exact
+    //! piece of cloth that touched.
+    struct JoltSoftBodyParticleContact
+    {
+        AZ_TYPE_INFO(JoltSoftBodyParticleContact, "{93B1E4C7-5A2D-4F8B-9C6E-1D7A3B5F9E2C}");
+
+        //! Index into the soft body's particle array.
+        AZ::u32 m_vertexIndex = 0;
+        //! Contact position in world space.
+        AZ::Vector3 m_position = AZ::Vector3::CreateZero();
+        //! Contact normal in world space, as Jolt reports it (pointing from the other
+        //! body towards the soft body).
+        AZ::Vector3 m_normal = AZ::Vector3::CreateZero();
+    };
+
+    //! Raised on the soft body's entity while its particles touch another body - once per
+    //! touched body per simulation step, carrying every contacting particle. Jolt has no
+    //! removal callback for soft body contacts, so there is no End notification here; a
+    //! listener that stops receiving the event knows contact was lost (the generic
+    //! collision events still report Begin/End per body pair).
+    class JoltSoftBodyNotifications
+        : public AZ::ComponentBus
+    {
+    public:
+        virtual ~JoltSoftBodyNotifications() = default;
+
+        //! otherEntity is the entity of the touched body, invalid for bodies without one.
+        virtual void OnSoftBodyContact(
+            AZ::EntityId otherEntity, const AZStd::vector<JoltSoftBodyParticleContact>& contacts) = 0;
+    };
+
+    using JoltSoftBodyNotificationBus = AZ::EBus<JoltSoftBodyNotifications>;
 
 } // namespace JoltPhysics
