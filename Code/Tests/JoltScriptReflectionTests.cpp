@@ -55,7 +55,12 @@ namespace JoltPhysics
         ExpectBusHasEvents("JoltSoftBodyRequestBus",
             { "SetPressure", "GetPressure", "SetLinearDamping", "GetLinearDamping",
               "SetGravityFactor", "GetGravityFactor", "SetNumIterations", "GetNumIterations",
-              "SetEnabled", "IsEnabled", "GetVertexCount", "GetVertexPosition", "GetWorldBounds" });
+              "SetFriction", "GetFriction", "SetRestitution", "GetRestitution",
+              "SetEnabled", "IsEnabled", "GetVertexCount", "GetVertexPosition", "GetWorldBounds",
+              // The bulk reads and runtime particle control, without which script-driven
+              // rendering and cloth grabbing are C++-only.
+              "GetVertexPositions", "GetTriangleIndices",
+              "SetVertexPinned", "IsVertexPinned", "SetVertexVelocity", "GetVertexVelocity" });
     }
 
     TEST_F(JoltScriptReflectionTests, JointBusIsReflectedWithSingleValueLimitAccessors)

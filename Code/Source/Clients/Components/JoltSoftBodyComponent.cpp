@@ -29,13 +29,26 @@ namespace JoltPhysics
                     ->Event("GetGravityFactor", &JoltSoftBodyRequests::GetGravityFactor)
                     ->Event("SetNumIterations", &JoltSoftBodyRequests::SetNumIterations)
                     ->Event("GetNumIterations", &JoltSoftBodyRequests::GetNumIterations)
+                    ->Event("SetFriction", &JoltSoftBodyRequests::SetFriction)
+                    ->Event("GetFriction", &JoltSoftBodyRequests::GetFriction)
+                    ->Event("SetRestitution", &JoltSoftBodyRequests::SetRestitution)
+                    ->Event("GetRestitution", &JoltSoftBodyRequests::GetRestitution)
                     ->Event("SetEnabled", &JoltSoftBodyRequests::SetEnabled)
                     ->Event("IsEnabled", &JoltSoftBodyRequests::IsEnabled)
                     // What a script polls to follow the deformation, which the entity
-                    // transform alone does not describe.
+                    // transform alone does not describe. The bulk reads are what make
+                    // script-driven rendering feasible: one body lock per frame, not one
+                    // per particle.
                     ->Event("GetVertexCount", &JoltSoftBodyRequests::GetVertexCount)
                     ->Event("GetVertexPosition", &JoltSoftBodyRequests::GetVertexPosition)
+                    ->Event("GetVertexPositions", &JoltSoftBodyRequests::GetVertexPositions)
+                    ->Event("GetTriangleIndices", &JoltSoftBodyRequests::GetTriangleIndices)
                     ->Event("GetWorldBounds", &JoltSoftBodyRequests::GetWorldBounds)
+                    // Runtime particle control: grab and release cloth, kick a balloon.
+                    ->Event("SetVertexPinned", &JoltSoftBodyRequests::SetVertexPinned)
+                    ->Event("IsVertexPinned", &JoltSoftBodyRequests::IsVertexPinned)
+                    ->Event("SetVertexVelocity", &JoltSoftBodyRequests::SetVertexVelocity)
+                    ->Event("GetVertexVelocity", &JoltSoftBodyRequests::GetVertexVelocity)
                     // SetCollisionLayer / SetCollisionGroupId take AzPhysics types that
                     // script cannot construct, so they stay C++-only.
                     ;
@@ -43,22 +56,33 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
+            // Version 3 only adds fields; older data loads with the new fields at their
+            // defaults, so no converter is needed.
             serializeContext->Class<JoltSoftBodySettings>()
-                ->Version(2)
+                ->Version(3)
                 ->Field("Shape", &JoltSoftBodySettings::m_shape)
                 ->Field("Pinning", &JoltSoftBodySettings::m_pinning)
                 ->Field("Size", &JoltSoftBodySettings::m_size)
                 ->Field("Resolution", &JoltSoftBodySettings::m_resolution)
                 ->Field("Mass", &JoltSoftBodySettings::m_mass)
                 ->Field("Compliance", &JoltSoftBodySettings::m_compliance)
+                ->Field("LraType", &JoltSoftBodySettings::m_lraType)
                 ->Field("NumIterations", &JoltSoftBodySettings::m_numIterations)
                 ->Field("LinearDamping", &JoltSoftBodySettings::m_linearDamping)
                 ->Field("Pressure", &JoltSoftBodySettings::m_pressure)
                 ->Field("GravityFactor", &JoltSoftBodySettings::m_gravityFactor)
+                ->Field("Friction", &JoltSoftBodySettings::m_friction)
+                ->Field("Restitution", &JoltSoftBodySettings::m_restitution)
+                ->Field("VertexRadius", &JoltSoftBodySettings::m_vertexRadius)
+                ->Field("MaxLinearVelocity", &JoltSoftBodySettings::m_maxLinearVelocity)
+                ->Field("UpdatePosition", &JoltSoftBodySettings::m_updatePosition)
+                ->Field("DoubleSidedFaces", &JoltSoftBodySettings::m_doubleSidedFaces)
                 ->Field("AllowSleeping", &JoltSoftBodySettings::m_allowSleeping)
                 ->Field("CollisionLayer", &JoltSoftBodySettings::m_collisionLayer)
                 ->Field("CollisionGroupId", &JoltSoftBodySettings::m_collisionGroupId)
                 ;
+
+            JoltSoftBodyConfiguration::Reflect(context);
 
             serializeContext->Class<JoltSoftBodyComponent, AZ::Component>()
                 ->Version(1)
@@ -104,6 +128,14 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_compliance,
                         "Compliance", "Edge stiffness. 0 is inextensible; larger values stretch like rubber.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_lraType,
+                        "Long range attachment", "Tethers every free particle to its closest pinned one at the "
+                        "rest-pose distance, which keeps cloth from stretching no matter how few solver iterations "
+                        "run. Needs pinned particles; Geodesic measures the tether along the surface, so a draped "
+                        "sheet keeps its slack.")
+                        ->EnumAttribute(JoltSoftBodyLraType::None, "None")
+                        ->EnumAttribute(JoltSoftBodyLraType::EuclideanDistance, "Euclidean distance")
+                        ->EnumAttribute(JoltSoftBodyLraType::GeodesicDistance, "Geodesic distance")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_numIterations,
                         "Solver iterations", "More iterations is stiffer and more expensive.")
                         ->Attribute(AZ::Edit::Attributes::Min, 1)
@@ -117,6 +149,30 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_gravityFactor,
                         "Gravity factor", "Multiplier on gravity for this body alone. 0 makes it hang in the air.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_friction,
+                        "Friction", "Surface friction when sliding over other bodies. A soft body has no physics "
+                        "material, so this plays that role.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_restitution,
+                        "Restitution", "Bounciness when colliding. 0 lands dead, 1 keeps all its energy.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Max, 1.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_vertexRadius,
+                        "Vertex radius", "Particle radius. A little padding keeps the surface from z-fighting with "
+                        "whatever it rests on.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_maxLinearVelocity,
+                        "Max particle velocity", "Cap on any particle's speed, the guard against the simulation "
+                        "exploding on a hard impact.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Suffix, " m/s")
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSoftBodySettings::m_updatePosition,
+                        "Update position", "Whether the body's position follows its particles. Turn off for "
+                        "something anchored to the static world.")
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSoftBodySettings::m_doubleSidedFaces,
+                        "Double sided faces", "Collide and raycast the surface from both sides. Almost always what "
+                        "a thin cloth wants; a closed shape can turn it off.")
                     ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSoftBodySettings::m_allowSleeping,
                         "Allow sleeping", "Lets the body stop simulating once it settles.")
                     // Same selectors the colliders and character controller use, so a soft
@@ -314,6 +370,34 @@ namespace JoltPhysics
         return m_settings.m_numIterations;
     }
 
+    void JoltSoftBodyComponent::SetFriction(float friction)
+    {
+        m_settings.m_friction = friction;
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetFriction(friction);
+        }
+    }
+
+    float JoltSoftBodyComponent::GetFriction() const
+    {
+        return m_settings.m_friction;
+    }
+
+    void JoltSoftBodyComponent::SetRestitution(float restitution)
+    {
+        m_settings.m_restitution = restitution;
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetRestitution(restitution);
+        }
+    }
+
+    float JoltSoftBodyComponent::GetRestitution() const
+    {
+        return m_settings.m_restitution;
+    }
+
     void JoltSoftBodyComponent::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
     {
         m_settings.m_collisionLayer = layer;
@@ -381,5 +465,45 @@ namespace JoltPhysics
     {
         auto* softBody = GetSoftBody();
         return softBody ? softBody->GetVertexPosition(index) : AZ::Vector3::CreateZero();
+    }
+
+    AZStd::vector<AZ::Vector3> JoltSoftBodyComponent::GetVertexPositions() const
+    {
+        AZStd::vector<AZ::Vector3> positions;
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->CopyVertexPositions(positions);
+        }
+        return positions;
+    }
+
+    AZStd::vector<AZ::u32> JoltSoftBodyComponent::GetTriangleIndices() const
+    {
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetTriangleIndices() : AZStd::vector<AZ::u32>();
+    }
+
+    bool JoltSoftBodyComponent::SetVertexPinned(AZ::u32 index, bool pinned)
+    {
+        auto* softBody = GetSoftBody();
+        return softBody && softBody->SetVertexPinned(index, pinned);
+    }
+
+    bool JoltSoftBodyComponent::IsVertexPinned(AZ::u32 index) const
+    {
+        auto* softBody = GetSoftBody();
+        return softBody && softBody->IsVertexPinned(index);
+    }
+
+    bool JoltSoftBodyComponent::SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity)
+    {
+        auto* softBody = GetSoftBody();
+        return softBody && softBody->SetVertexVelocity(index, velocity);
+    }
+
+    AZ::Vector3 JoltSoftBodyComponent::GetVertexVelocity(AZ::u32 index) const
+    {
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetVertexVelocity(index) : AZ::Vector3::CreateZero();
     }
 } // namespace JoltPhysics

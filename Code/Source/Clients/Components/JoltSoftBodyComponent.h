@@ -58,6 +58,10 @@ namespace JoltPhysics
         float GetGravityFactor() const override;
         void SetNumIterations(AZ::u32 iterations) override;
         AZ::u32 GetNumIterations() const override;
+        void SetFriction(float friction) override;
+        float GetFriction() const override;
+        void SetRestitution(float restitution) override;
+        float GetRestitution() const override;
         void SetCollisionLayer(const AzPhysics::CollisionLayer& layer) override;
         AzPhysics::CollisionLayer GetCollisionLayer() const override;
         void SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId) override;
@@ -67,6 +71,12 @@ namespace JoltPhysics
         AZ::u32 GetVertexCount() const override;
         AZ::Aabb GetWorldBounds() const override;
         AZ::Vector3 GetVertexPosition(AZ::u32 index) const override;
+        AZStd::vector<AZ::Vector3> GetVertexPositions() const override;
+        AZStd::vector<AZ::u32> GetTriangleIndices() const override;
+        bool SetVertexPinned(AZ::u32 index, bool pinned) override;
+        bool IsVertexPinned(AZ::u32 index) const override;
+        bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity) override;
+        AZ::Vector3 GetVertexVelocity(AZ::u32 index) const override;
 
     private:
         JoltSoftBodySettings m_settings;

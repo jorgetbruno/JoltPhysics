@@ -50,10 +50,14 @@ namespace JoltPhysics
         //! Baked: particles along each axis. Cost grows sharply - a cloth is the square of
         //! this and a cube the cube of it.
         AZ::u32 m_resolution = 8;
-        //! Baked: total mass in kg, divided evenly over the particles.
+        //! Baked: total mass in kg, divided evenly over the unpinned particles - pinned
+        //! ones have infinite mass by definition, so they take no share.
         float m_mass = 5.0f;
         //! Baked: edge stiffness. 0 is inextensible, larger values stretch.
         float m_compliance = 0.0f;
+        //! Baked: tethers every free particle to its closest pinned one, which keeps cloth
+        //! from stretching regardless of iteration count. Needs pinned particles.
+        JoltSoftBodyLraType m_lraType = JoltSoftBodyLraType::None;
 
         //! Live: solver iterations per step.
         AZ::u32 m_numIterations = 5;
@@ -63,6 +67,23 @@ namespace JoltPhysics
         float m_pressure = 0.0f;
         //! Live: per-body gravity multiplier.
         float m_gravityFactor = 1.0f;
+        //! Live: surface friction when sliding over other bodies. A soft body has no
+        //! per-shape physics material, so this stands in for the material's friction.
+        float m_friction = 0.2f;
+        //! Live: bounciness when colliding. 0 lands dead.
+        float m_restitution = 0.0f;
+        //! Live: particle radius in metres. A little padding keeps the surface from
+        //! z-fighting with whatever it rests on.
+        float m_vertexRadius = 0.0f;
+        //! Live: cap on any particle's speed (m/s), Jolt's guard against explosion.
+        float m_maxLinearVelocity = 500.0f;
+        //! Live: whether the body's position follows its particles. Off for something
+        //! anchored to the static world, so the broadphase entry stays put.
+        bool m_updatePosition = true;
+        //! Live: whether faces collide and raycast from both sides. Jolt defaults this
+        //! off, but a thin cloth that can only be hit from the front reads as broken, so
+        //! this gem defaults it on.
+        bool m_doubleSidedFaces = true;
         //! Baked: whether the body may go to sleep once it settles.
         bool m_allowSleeping = true;
 
@@ -163,6 +184,8 @@ namespace JoltPhysics
         void SetLinearDamping(float damping);
         void SetGravityFactor(float factor);
         void SetNumIterations(AZ::u32 iterations);
+        void SetFriction(float friction);
+        void SetRestitution(float restitution);
         void SetCollisionLayer(const AzPhysics::CollisionLayer& layer);
         void SetCollisionGroupId(const AzPhysics::CollisionGroups::Id& groupId);
 
@@ -173,6 +196,18 @@ namespace JoltPhysics
         AZ::u32 GetVertexCount() const;
         AZ::Vector3 GetVertexPosition(AZ::u32 index) const;
         AZ::Aabb GetWorldBounds() const;
+
+        //! Pins one particle where it currently is, or releases it with the same share of
+        //! the body's mass every other free particle carries. Runtime pins live on the
+        //! particles themselves, so any rebuild reverts to the authored pinning. Returns
+        //! false for an out-of-range index or a detached body.
+        bool SetVertexPinned(AZ::u32 index, bool pinned);
+        bool IsVertexPinned(AZ::u32 index) const;
+
+        //! One particle's velocity, in world space. Setting the velocity of a pinned
+        //! particle is refused (returns false), as it would have no effect.
+        bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity);
+        AZ::Vector3 GetVertexVelocity(AZ::u32 index) const;
 
         //! Copies every particle position, in world space, into outPositions. Returns false
         //! when the body is not in a scene, leaving outPositions empty. One locked pass
@@ -193,7 +228,10 @@ namespace JoltPhysics
     private:
         //! Generates the particle layout for the current settings. Separated from Attach so
         //! that a settings change can rebuild without re-resolving the scene.
-        JPH::Ref<JPH::SoftBodySharedSettings> BuildSharedSettings(AZStd::vector<AZ::u32>& outTriangleIndices) const;
+        //! outPerVertexInvMass is the inverse mass every free particle was given, kept so a
+        //! runtime unpin can restore exactly that share.
+        JPH::Ref<JPH::SoftBodySharedSettings> BuildSharedSettings(
+            AZStd::vector<AZ::u32>& outTriangleIndices, float& outPerVertexInvMass) const;
 
         //! Creates and adds the body. Assumes the caller holds m_mutex and that any
         //! previous body has been removed.
@@ -223,5 +261,8 @@ namespace JoltPhysics
         AZ::Transform m_worldTransform = AZ::Transform::CreateIdentity();
         AZStd::vector<AZ::u32> m_triangleIndices;
         AZ::u32 m_buildGeneration = 0;
+        //! The inverse mass a free particle carries in the current build, so unpinning a
+        //! particle at runtime restores the same share instead of a guess.
+        float m_perVertexInvMass = 1.0f;
     };
 } // namespace JoltPhysics

@@ -602,11 +602,35 @@ feature, trust the topic sections below the milestones.**
   and cloth pinning is limited to three presets (`None`, `Corners`, `TopEdge`)
   rather than an arbitrary vertex selection.
 - **Settings split into baked and live, and the split is enforced.** Shape,
-  pinning, size, resolution, mass, compliance and allow-sleeping go into the
-  particle layout at creation and cannot change on a live body; iterations,
-  linear damping, pressure and gravity factor forward straight to Jolt's motion
-  properties and can change every frame. The runtime bus only exposes the live
-  ones.
+  pinning, size, resolution, mass, compliance, LRA type and allow-sleeping go into
+  the particle layout at creation and cannot change on a live body; iterations,
+  linear damping, pressure, gravity factor, friction, restitution, vertex radius,
+  max particle velocity, update-position and double-sided faces forward straight
+  to Jolt and can change every frame. The runtime bus only exposes the live ones.
+- **The configured mass is spread over the *free* particles only.** A pinned
+  particle has infinite mass by definition, so it takes no share — a corner-pinned
+  cloth weighs exactly what its Mass field says, rather than silently losing the
+  pinned particles' share.
+- **Faces default to double sided**, diverging from Jolt's own default (off): a
+  thin cloth that can only be collided with or raycast from its front face reads
+  as broken. Closed shapes can turn it off in the settings.
+- **Friction and restitution are plain settings, not physics materials.** Rigid
+  bodies get friction/restitution from per-shape physics material slots; a soft
+  body has no shapes and no material slot, so the same two numbers sit directly in
+  its settings and land on the Jolt body. Per-face materials are not supported.
+- **Runtime particle control is transient.** `SetVertexPinned` /
+  `SetVertexVelocity` write straight onto the live particles (a pin zeroes the
+  inverse mass, an unpin restores the exact share every free particle carries), so
+  anything that rebuilds the body — a baked-setting change, disable/enable, moving
+  the entity — reverts to the authored pinning presets.
+- **Long range attachments are opt-in** (`None` / `Euclidean` / `Geodesic` in the
+  settings), applied through `CreateConstraints`' vertex attributes. They need
+  pinned particles to tether to and do nothing without them, so the default stays
+  off rather than silently adding constraints to unpinned bodies.
+- **Re-enabling a disabled body restarts from the rest pose.** `SetEnabled(false)`
+  removes the body and its particles; enable rebuilds from the settings. Whatever
+  deformation the body had is inherently gone — this is documented behaviour, not
+  a bug.
 - **Soft bodies are `AzPhysics::SimulatedBody`s**, created through
   `SceneInterface::AddSimulatedBody` from a `JoltSoftBodyConfiguration` and owned by
   the scene like any other body. They appear in scene queries, answer body-level
@@ -638,9 +662,12 @@ feature, trust the topic sections below the milestones.**
   variety.
 - **Drawing is debug-draw only.** A soft body has no mesh asset and its shape
   changes every step, so `JoltSoftBodyRender` draws it from particle positions —
-  in game mode from the live body, and in the Edit viewport from the rest shape
-  the settings would generate, so resolution and size changes are visible before
-  pressing play. There is no Atom material or renderable mesh.
+  in game mode from the live body, and in the Edit viewport either from the rest
+  shape the settings would generate or, with *Live preview* on, from a real soft
+  body simulating in the edit-mode scene (`EditorWorldBus`) over the editor
+  colliders' static geometry. There is no Atom material or renderable mesh; the
+  bus's `GetVertexPositions` / `GetTriangleIndices` bulk reads exist so a script
+  or C++ system can feed the deformed surface to its own rendering.
 - **Locking is the inverse of the JoltBuoyancy gem's water volume**, and both are
   load-bearing. That volume runs inside a step listener where every body mutex is
   already held, so it uses the no-lock interface and never adds or removes bodies.

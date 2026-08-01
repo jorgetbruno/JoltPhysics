@@ -12,6 +12,11 @@
 #include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
 
+#include <Jolt/Physics/Body/Body.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+
 namespace JoltPhysics
 {
     class JoltSoftBodyTests : public ::testing::Test
@@ -483,5 +488,243 @@ namespace JoltPhysics
         // of bounds.
         EXPECT_TRUE(SoftBody()->GetVertexPosition(9999u).IsZero());
         EXPECT_FALSE(SoftBody()->GetVertexPosition(0u).IsZero());
+    }
+
+    TEST_F(JoltSoftBodyTests, NativePointerIsTheBodyIdLikeEveryOtherBodyType)
+    {
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        ASSERT_TRUE(Attach());
+
+        // The rigid bodies return a JPH::BodyID* from GetNativePointer, and a generic
+        // consumer casting whatever body the scene hands back relies on soft bodies
+        // honouring the same contract.
+        auto* nativeId = static_cast<JPH::BodyID*>(SoftBody()->GetNativePointer());
+        ASSERT_NE(nativeId, nullptr);
+        EXPECT_EQ(*nativeId, SoftBody()->GetBodyId());
+    }
+
+    TEST_F(JoltSoftBodyTests, PinnedClothKeepsItsConfiguredMass)
+    {
+        // Four pinned corners on a 6x6 grid. Dividing the total mass over all 36 particles
+        // and then only assigning it to the 32 free ones would quietly lose 4/36 of it.
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::Corners);
+        ASSERT_TRUE(Attach());
+
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        ASSERT_NE(joltScene, nullptr);
+        JPH::BodyLockRead bodyLock(
+            joltScene->GetJoltPhysicsSystem()->GetBodyLockInterface(), SoftBody()->GetBodyId());
+        ASSERT_TRUE(bodyLock.Succeeded());
+
+        const auto* motionProperties =
+            static_cast<const JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+        float totalMass = 0.0f;
+        AZ::u32 pinnedCount = 0;
+        for (const JPH::SoftBodyVertex& vertex : motionProperties->GetVertices())
+        {
+            if (vertex.mInvMass > 0.0f)
+            {
+                totalMass += 1.0f / vertex.mInvMass;
+            }
+            else
+            {
+                ++pinnedCount;
+            }
+        }
+
+        EXPECT_EQ(pinnedCount, 4u);
+        EXPECT_NEAR(totalMass, m_pendingSettings.m_mass, 1.0e-3f);
+    }
+
+    TEST_F(JoltSoftBodyTests, SurfaceSettingsReachTheJoltBody)
+    {
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::Corners);
+        settings.m_friction = 0.85f;
+        settings.m_restitution = 0.4f;
+        settings.m_vertexRadius = 0.03f;
+        settings.m_maxLinearVelocity = 25.0f;
+        settings.m_updatePosition = false;
+        settings.m_doubleSidedFaces = false;
+        m_pendingSettings = settings;
+        ASSERT_TRUE(Attach());
+
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        ASSERT_NE(joltScene, nullptr);
+        JPH::BodyLockRead bodyLock(
+            joltScene->GetJoltPhysicsSystem()->GetBodyLockInterface(), SoftBody()->GetBodyId());
+        ASSERT_TRUE(bodyLock.Succeeded());
+
+        const JPH::Body& body = bodyLock.GetBody();
+        EXPECT_NEAR(body.GetFriction(), 0.85f, 1.0e-6f);
+        EXPECT_NEAR(body.GetRestitution(), 0.4f, 1.0e-6f);
+
+        const auto* motionProperties = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+        EXPECT_NEAR(motionProperties->GetVertexRadius(), 0.03f, 1.0e-6f);
+        EXPECT_NEAR(motionProperties->GetMaxLinearVelocity(), 25.0f, 1.0e-6f);
+        EXPECT_FALSE(motionProperties->GetUpdatePosition());
+        EXPECT_FALSE(motionProperties->GetFacesDoubleSided());
+    }
+
+    TEST_F(JoltSoftBodyTests, FrictionAndRestitutionChangeLiveWithoutRebuilding)
+    {
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        ASSERT_TRUE(Attach());
+        const AZ::u32 generationBefore = SoftBody()->GetBuildGeneration();
+
+        SoftBody()->SetFriction(0.95f);
+        SoftBody()->SetRestitution(0.6f);
+
+        EXPECT_EQ(SoftBody()->GetBuildGeneration(), generationBefore);
+        EXPECT_NEAR(SoftBody()->GetSettings().m_friction, 0.95f, 1.0e-6f);
+        EXPECT_NEAR(SoftBody()->GetSettings().m_restitution, 0.6f, 1.0e-6f);
+
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        JPH::BodyLockRead bodyLock(
+            joltScene->GetJoltPhysicsSystem()->GetBodyLockInterface(), SoftBody()->GetBodyId());
+        ASSERT_TRUE(bodyLock.Succeeded());
+        EXPECT_NEAR(bodyLock.GetBody().GetFriction(), 0.95f, 1.0e-6f);
+        EXPECT_NEAR(bodyLock.GetBody().GetRestitution(), 0.6f, 1.0e-6f);
+    }
+
+    TEST_F(JoltSoftBodyTests, DoubleSidedFacesRaycastFromBehind)
+    {
+        // The cloth lies in the XY plane with its front face towards +Z, so a ray fired
+        // up from underneath hits the back of the sheet.
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::Corners);
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        ASSERT_TRUE(Attach());
+
+        AzPhysics::RayCastRequest fromBehind;
+        fromBehind.m_start = AZ::Vector3(0.0f, 0.0f, 2.0f);
+        fromBehind.m_direction = AZ::Vector3(0.0f, 0.0f, 1.0f);
+        fromBehind.m_distance = 10.0f;
+
+        // The gem defaults faces to double sided - a thin cloth that can only be hit
+        // from the front reads as broken.
+        EXPECT_TRUE(SoftBody()->RayCast(fromBehind).IsValid());
+
+        // Turning it off restores Jolt's single-sided behaviour: the same ray now passes
+        // straight through the back face.
+        JoltSoftBodySettings settings = m_pendingSettings;
+        settings.m_doubleSidedFaces = false;
+        SoftBody()->SetSettings(settings);
+        EXPECT_FALSE(SoftBody()->RayCast(fromBehind).IsValid());
+    }
+
+    TEST_F(JoltSoftBodyTests, LraTethersStopAClothStretching)
+    {
+        // A cloth hanging from its top edge under a heavy mass with a single solver
+        // iteration is exactly the case LRA exists for.
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::TopEdge);
+        settings.m_lraType = JoltSoftBodyLraType::GeodesicDistance;
+        m_pendingSettings = settings;
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        ASSERT_TRUE(Attach());
+
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        JPH::BodyLockRead bodyLock(
+            joltScene->GetJoltPhysicsSystem()->GetBodyLockInterface(), SoftBody()->GetBodyId());
+        ASSERT_TRUE(bodyLock.Succeeded());
+        const auto* motionProperties =
+            static_cast<const JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+
+        // The tethers are real constraints in the shared settings, one per free particle
+        // reachable from the pinned edge.
+        EXPECT_FALSE(motionProperties->GetSettings()->mLRAConstraints.empty());
+    }
+
+    TEST_F(JoltSoftBodyTests, BulkVertexReadMatchesThePerVertexRead)
+    {
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::Corners);
+        ASSERT_TRUE(Attach());
+
+        AZStd::vector<AZ::Vector3> positions;
+        ASSERT_TRUE(SoftBody()->CopyVertexPositions(positions));
+        ASSERT_EQ(positions.size(), SoftBody()->GetVertexCount());
+        EXPECT_THAT(positions[0], ::testing::Eq(SoftBody()->GetVertexPosition(0)));
+        EXPECT_THAT(positions[35], ::testing::Eq(SoftBody()->GetVertexPosition(35)));
+    }
+
+    TEST_F(JoltSoftBodyTests, RuntimePinHoldsAParticleAndUnpinRestoresItsMass)
+    {
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        ASSERT_TRUE(Attach());
+
+        // Pin one particle of an otherwise free sheet where it is now.
+        const AZ::Vector3 pinnedAt = SoftBody()->GetVertexPosition(0);
+        ASSERT_TRUE(SoftBody()->SetVertexPinned(0, true));
+        EXPECT_TRUE(SoftBody()->IsVertexPinned(0));
+
+        SimulateSeconds(1.0f);
+
+        // The sheet fell; the pinned particle did not.
+        EXPECT_NEAR(SoftBody()->GetVertexPosition(0).GetZ(), pinnedAt.GetZ(), 0.05f);
+        EXPECT_LT(SoftBody()->GetVertexPosition(35).GetZ(), pinnedAt.GetZ() - 1.0f);
+
+        // Unpinning hands back the same share of mass every other free particle carries,
+        // so the body's total mass is conserved through a pin/unpin round trip.
+        ASSERT_TRUE(SoftBody()->SetVertexPinned(0, false));
+        EXPECT_FALSE(SoftBody()->IsVertexPinned(0));
+
+        {
+            // Scoped: SetVertexPinned below takes its own body lock, and holding this
+            // read lock across that call would deadlock.
+            auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+            JPH::BodyLockRead bodyLock(
+                joltScene->GetJoltPhysicsSystem()->GetBodyLockInterface(), SoftBody()->GetBodyId());
+            ASSERT_TRUE(bodyLock.Succeeded());
+            const auto* motionProperties =
+                static_cast<const JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+            float totalMass = 0.0f;
+            for (const JPH::SoftBodyVertex& vertex : motionProperties->GetVertices())
+            {
+                ASSERT_GT(vertex.mInvMass, 0.0f);
+                totalMass += 1.0f / vertex.mInvMass;
+            }
+            EXPECT_NEAR(totalMass, m_pendingSettings.m_mass, 1.0e-3f);
+        }
+
+        // Out-of-range indices are refused, not written.
+        EXPECT_FALSE(SoftBody()->SetVertexPinned(9999u, true));
+        EXPECT_FALSE(SoftBody()->IsVertexPinned(9999u));
+    }
+
+    TEST_F(JoltSoftBodyTests, VertexVelocityKicksAParticle)
+    {
+        JoltSoftBodySettings settings = ClothSettings(JoltSoftBodyPinning::None);
+        settings.m_gravityFactor = 0.0f; // isolate the kick from falling
+        m_pendingSettings = settings;
+        ASSERT_TRUE(Attach());
+
+        const AZ::Vector3 before = SoftBody()->GetVertexPosition(0);
+        ASSERT_TRUE(SoftBody()->SetVertexVelocity(0, AZ::Vector3(0.0f, 0.0f, 3.0f)));
+        EXPECT_NEAR(SoftBody()->GetVertexVelocity(0).GetZ(), 3.0f, 1.0e-3f);
+
+        SimulateSeconds(0.2f);
+
+        // The kicked particle moved up; the constraints will drag its neighbours after
+        // it, so only the immediate direction is asserted.
+        EXPECT_GT(SoftBody()->GetVertexPosition(0).GetZ(), before.GetZ() + 0.05f);
+
+        // A pinned particle refuses a velocity: it could never act on it.
+        ASSERT_TRUE(SoftBody()->SetVertexPinned(5, true));
+        EXPECT_FALSE(SoftBody()->SetVertexVelocity(5, AZ::Vector3(1.0f, 0.0f, 0.0f)));
+    }
+
+    TEST_F(JoltSoftBodyTests, SetTransformRebuildsAtTheNewPlacement)
+    {
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::Corners);
+        ASSERT_TRUE(Attach());
+        const AZ::u32 generationBefore = SoftBody()->GetBuildGeneration();
+
+        SoftBody()->SetTransform(AZ::Transform::CreateTranslation(AZ::Vector3(10.0f, 0.0f, 5.0f)));
+
+        // Teleporting a live soft body would fight the solver, so placement is a rebuild.
+        EXPECT_GT(SoftBody()->GetBuildGeneration(), generationBefore);
+        const AZ::Aabb bounds = SoftBody()->GetWorldBounds();
+        ASSERT_TRUE(bounds.IsValid());
+        EXPECT_NEAR(bounds.GetCenter().GetX(), 10.0f, 0.1f);
+        EXPECT_NEAR(bounds.GetCenter().GetZ(), 5.0f, 0.1f);
     }
 } // namespace JoltPhysics

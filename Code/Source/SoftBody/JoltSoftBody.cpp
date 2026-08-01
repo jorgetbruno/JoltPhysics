@@ -1,6 +1,7 @@
 #include <SoftBody/JoltSoftBody.h>
 
 #include <AzCore/Math/MathUtils.h>
+#include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/parallel/lock.h>
 
 #include <cmath>
@@ -15,6 +16,9 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
@@ -72,17 +76,33 @@ namespace JoltPhysics
             }
         }
 
-        //! Spreads the requested total mass over the particles. Jolt works in inverse mass,
-        //! and a zero inverse mass is what pins a particle, so pinned ones are left alone.
-        void DistributeMass(JPH::SoftBodySharedSettings& settings, float totalMass)
+        //! Spreads the requested total mass over the free particles. Jolt works in inverse
+        //! mass, and a zero inverse mass is what pins a particle: a pinned particle has
+        //! infinite mass by definition, so it takes no share of the total. Dividing by the
+        //! full vertex count instead would silently shave the pinned particles' share off
+        //! the body - a corner-pinned 6x6 cloth would weigh 32/36 of what was configured.
+        //! Returns the inverse mass each free particle was given, so a runtime unpin can
+        //! restore exactly that share.
+        float DistributeMass(JPH::SoftBodySharedSettings& settings, float totalMass)
         {
-            const size_t vertexCount = settings.mVertices.size();
-            if (vertexCount == 0)
+            size_t freeCount = 0;
+            for (const JPH::SoftBodySharedSettings::Vertex& vertex : settings.mVertices)
             {
-                return;
+                if (vertex.mInvMass > 0.0f)
+                {
+                    ++freeCount;
+                }
             }
 
-            const float perVertexMass = AZ::GetMax(totalMass, 0.001f) / static_cast<float>(vertexCount);
+            // A fully pinned body has nothing to distribute over; the share a runtime
+            // unpin would then restore is what an even split over everything would give.
+            const size_t shareCount = freeCount > 0 ? freeCount : settings.mVertices.size();
+            if (shareCount == 0)
+            {
+                return 1.0f;
+            }
+
+            const float perVertexMass = AZ::GetMax(totalMass, 0.001f) / static_cast<float>(shareCount);
             const float inverseMass = 1.0f / perVertexMass;
             for (JPH::SoftBodySharedSettings::Vertex& vertex : settings.mVertices)
             {
@@ -91,8 +111,20 @@ namespace JoltPhysics
                     vertex.mInvMass = inverseMass;
                 }
             }
+            return inverseMass;
         }
     } // namespace
+
+    void JoltSoftBodyConfiguration::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<JoltSoftBodyConfiguration, AzPhysics::SimulatedBodyConfiguration>()
+                ->Version(1)
+                ->Field("Settings", &JoltSoftBodyConfiguration::m_settings)
+                ;
+        }
+    }
 
     JoltSoftBody::~JoltSoftBody()
     {
@@ -139,14 +171,10 @@ namespace JoltPhysics
 
     void* JoltSoftBody::GetNativePointer() const
     {
-        AZStd::lock_guard lock(m_mutex);
-        if (!m_physicsSystem || m_bodyId.IsInvalid())
-        {
-            return nullptr;
-        }
-        // The body itself, matching what the other body types return. Reading it needs a
-        // lock, which is the caller's business once they have the pointer.
-        return const_cast<JPH::BodyInterface*>(&m_physicsSystem->GetBodyInterface());
+        // The JPH::BodyID, the same contract as every other body type in this gem, so a
+        // generic consumer can cast any body's native pointer to JPH::BodyID*. The id is
+        // invalid while the body is detached.
+        return const_cast<JPH::BodyID*>(&m_bodyId);
     }
 
     AZ::EntityId JoltSoftBody::GetEntityId() const
@@ -202,10 +230,14 @@ namespace JoltPhysics
         const JPH::Vec3 localDirection =
             worldToLocal.Multiply3x3(Conversions::ToJolt(request.m_direction * request.m_distance));
 
+        // The collector overload rather than the simple one: only it consults the
+        // body's double-sided flag, the simple overload hits back faces regardless.
         JPH::RayCast ray(localStart, localDirection);
-        JPH::RayCastResult hit;
-        if (body.GetShape()->CastRay(ray, JPH::SubShapeIDCreator(), hit))
+        JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+        body.GetShape()->CastRay(ray, JPH::RayCastSettings(), JPH::SubShapeIDCreator(), collector);
+        if (collector.HadHit())
         {
+            const JPH::RayCastResult& hit = collector.mHit;
             queryHit.m_distance = hit.mFraction * request.m_distance;
             queryHit.m_position = request.m_start + request.m_direction * (hit.mFraction * request.m_distance);
             queryHit.m_normal = Conversions::FromJolt(
@@ -297,6 +329,7 @@ namespace JoltPhysics
         const bool needsRebuild = settings.m_shape != m_settings.m_shape || settings.m_pinning != m_settings.m_pinning ||
             !settings.m_size.IsClose(m_settings.m_size) || settings.m_resolution != m_settings.m_resolution ||
             !AZ::IsClose(settings.m_mass, m_settings.m_mass) || !AZ::IsClose(settings.m_compliance, m_settings.m_compliance) ||
+            settings.m_lraType != m_settings.m_lraType ||
             settings.m_allowSleeping != m_settings.m_allowSleeping;
 
         const bool layerChanged = settings.m_collisionLayer != m_settings.m_collisionLayer ||
@@ -361,6 +394,20 @@ namespace JoltPhysics
     {
         AZStd::lock_guard lock(m_mutex);
         m_settings.m_numIterations = AZ::GetMax(iterations, 1u);
+        ApplyLiveSettings();
+    }
+
+    void JoltSoftBody::SetFriction(float friction)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_settings.m_friction = AZ::GetMax(friction, 0.0f);
+        ApplyLiveSettings();
+    }
+
+    void JoltSoftBody::SetRestitution(float restitution)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_settings.m_restitution = AZ::GetMax(restitution, 0.0f);
         ApplyLiveSettings();
     }
 
@@ -460,6 +507,127 @@ namespace JoltPhysics
         return FromJolt(JPH::Vec3(centerOfMassTransform * vertices[index].mPosition));
     }
 
+    bool JoltSoftBody::SetVertexPinned(AZ::u32 index, bool pinned)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return false;
+        }
+
+        {
+            JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+            {
+                return false;
+            }
+
+            auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+            auto& vertices = motionProperties->GetVertices();
+            if (index >= vertices.size())
+            {
+                return false;
+            }
+
+            if (pinned)
+            {
+                // Zero inverse mass is the pin; the velocity goes too, or the solver would
+                // report a moving particle that never moves.
+                vertices[index].mInvMass = 0.0f;
+                vertices[index].mVelocity = JPH::Vec3::sZero();
+            }
+            else
+            {
+                // The same share of the body's mass every other free particle carries.
+                vertices[index].mInvMass = m_perVertexInvMass;
+            }
+        }
+
+        // Outside the body lock (ActivateBody takes its own write lock on this body): a
+        // change to a sleeping body would otherwise sit invisible until something woke it.
+        m_physicsSystem->GetBodyInterface().ActivateBody(m_bodyId);
+        return true;
+    }
+
+    bool JoltSoftBody::IsVertexPinned(AZ::u32 index) const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return false;
+        }
+
+        JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+        {
+            return false;
+        }
+
+        const auto* motionProperties =
+            static_cast<const JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+        const auto& vertices = motionProperties->GetVertices();
+        return index < vertices.size() && vertices[index].mInvMass == 0.0f;
+    }
+
+    bool JoltSoftBody::SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return false;
+        }
+
+        {
+            JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+            {
+                return false;
+            }
+
+            JPH::Body& body = bodyLock.GetBody();
+            auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            auto& vertices = motionProperties->GetVertices();
+            if (index >= vertices.size() || vertices[index].mInvMass == 0.0f)
+            {
+                return false;
+            }
+
+            // Particle velocities are stored in the body's centre-of-mass frame; only the
+            // rotation matters for a velocity, but a soft body's rotation is usually
+            // baked to identity anyway.
+            const JPH::Mat44 worldToLocal = body.GetInverseCenterOfMassTransform();
+            vertices[index].mVelocity = worldToLocal.Multiply3x3(Conversions::ToJolt(velocity));
+        }
+
+        m_physicsSystem->GetBodyInterface().ActivateBody(m_bodyId);
+        return true;
+    }
+
+    AZ::Vector3 JoltSoftBody::GetVertexVelocity(AZ::u32 index) const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return AZ::Vector3::CreateZero();
+        }
+
+        JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+        {
+            return AZ::Vector3::CreateZero();
+        }
+
+        const JPH::Body& body = bodyLock.GetBody();
+        const auto* motionProperties = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+        const auto& vertices = motionProperties->GetVertices();
+        if (index >= vertices.size())
+        {
+            return AZ::Vector3::CreateZero();
+        }
+
+        return FromJolt(body.GetCenterOfMassTransform().Multiply3x3(vertices[index].mVelocity));
+    }
+
     bool JoltSoftBody::CopyVertexPositions(AZStd::vector<AZ::Vector3>& outPositions) const
     {
         outPositions.clear();
@@ -510,9 +678,11 @@ namespace JoltPhysics
         return bounds;
     }
 
-    JPH::Ref<JPH::SoftBodySharedSettings> JoltSoftBody::BuildSharedSettings(AZStd::vector<AZ::u32>& outTriangleIndices) const
+    JPH::Ref<JPH::SoftBodySharedSettings> JoltSoftBody::BuildSharedSettings(
+        AZStd::vector<AZ::u32>& outTriangleIndices, float& outPerVertexInvMass) const
     {
         outTriangleIndices.clear();
+        outPerVertexInvMass = 1.0f;
 
         const AZ::u32 resolution = AZ::GetMax(m_settings.m_resolution, 2u);
 
@@ -532,7 +702,7 @@ namespace JoltPhysics
                     vertex.mPosition.x - halfSize, vertex.mPosition.y - halfSize, vertex.mPosition.z - halfSize);
             }
 
-            DistributeMass(*settings, m_settings.m_mass);
+            outPerVertexInvMass = DistributeMass(*settings, m_settings.m_mass);
             CollectFaces(*settings, outTriangleIndices);
             return settings;
         }
@@ -663,9 +833,20 @@ namespace JoltPhysics
         attributes.mCompliance = m_settings.m_compliance;
         attributes.mShearCompliance = m_settings.m_compliance;
         attributes.mBendCompliance = m_settings.m_compliance;
+        switch (m_settings.m_lraType)
+        {
+        case JoltSoftBodyLraType::EuclideanDistance:
+            attributes.mLRAType = JPH::SoftBodySharedSettings::ELRAType::EuclideanDistance;
+            break;
+        case JoltSoftBodyLraType::GeodesicDistance:
+            attributes.mLRAType = JPH::SoftBodySharedSettings::ELRAType::GeodesicDistance;
+            break;
+        case JoltSoftBodyLraType::None:
+            break;
+        }
         settings->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
 
-        DistributeMass(*settings, m_settings.m_mass);
+        outPerVertexInvMass = DistributeMass(*settings, m_settings.m_mass);
         settings->Optimize();
         return settings;
     }
@@ -678,7 +859,8 @@ namespace JoltPhysics
         }
 
         AZStd::vector<AZ::u32> triangleIndices;
-        JPH::Ref<JPH::SoftBodySharedSettings> sharedSettings = BuildSharedSettings(triangleIndices);
+        float perVertexInvMass = 1.0f;
+        JPH::Ref<JPH::SoftBodySharedSettings> sharedSettings = BuildSharedSettings(triangleIndices, perVertexInvMass);
         if (!sharedSettings || sharedSettings->mVertices.empty())
         {
             return false;
@@ -690,6 +872,12 @@ namespace JoltPhysics
         creationSettings.mLinearDamping = AZ::GetMax(m_settings.m_linearDamping, 0.0f);
         creationSettings.mPressure = m_settings.m_pressure;
         creationSettings.mGravityFactor = m_settings.m_gravityFactor;
+        creationSettings.mFriction = AZ::GetMax(m_settings.m_friction, 0.0f);
+        creationSettings.mRestitution = AZ::GetMax(m_settings.m_restitution, 0.0f);
+        creationSettings.mVertexRadius = AZ::GetMax(m_settings.m_vertexRadius, 0.0f);
+        creationSettings.mMaxLinearVelocity = AZ::GetMax(m_settings.m_maxLinearVelocity, 0.0f);
+        creationSettings.mUpdatePosition = m_settings.m_updatePosition;
+        creationSettings.mFacesDoubleSided = m_settings.m_doubleSidedFaces;
         creationSettings.mAllowSleeping = m_settings.m_allowSleeping;
 
         // Creating and adding a body is only legal outside the physics step. This is called
@@ -701,6 +889,7 @@ namespace JoltPhysics
         }
 
         m_triangleIndices = AZStd::move(triangleIndices);
+        m_perVertexInvMass = perVertexInvMass;
         ++m_buildGeneration;
         return true;
     }
@@ -749,6 +938,15 @@ namespace JoltPhysics
             motionProperties->SetPressure(m_settings.m_pressure);
             motionProperties->SetLinearDamping(AZ::GetMax(m_settings.m_linearDamping, 0.0f));
             motionProperties->SetGravityFactor(m_settings.m_gravityFactor);
+            motionProperties->SetVertexRadius(AZ::GetMax(m_settings.m_vertexRadius, 0.0f));
+            motionProperties->SetMaxLinearVelocity(AZ::GetMax(m_settings.m_maxLinearVelocity, 0.0f));
+            motionProperties->SetUpdatePosition(m_settings.m_updatePosition);
+            motionProperties->SetFacesDoubleSided(m_settings.m_doubleSidedFaces);
+
+            // Friction and restitution live on the body, where a rigid body's material
+            // would put them.
+            body.SetFriction(AZ::GetMax(m_settings.m_friction, 0.0f));
+            body.SetRestitution(AZ::GetMax(m_settings.m_restitution, 0.0f));
 
             needsWaking = !body.IsActive();
         }

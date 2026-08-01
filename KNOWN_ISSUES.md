@@ -19,6 +19,14 @@ deviations from PhysX behavior.
 - **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
   gem is not part of this engine), so vehicles are exposed only through this gem's own
   component/bus.
+- **Soft body gaps**: no skinning path (Jolt's skinned constraints/inv-bind matrices
+  are unwrapped, and there is no render-mesh or Atom output — drawing is debug-draw
+  plus the bus's bulk vertex/triangle reads for script- or C++-driven rendering); no
+  soft-body-from-mesh-asset path (geometry is procedural); collision events carry no
+  per-particle contact detail and there is no dedicated soft-body notification bus;
+  Jolt's `CollisionGroup`/`GroupFilter` on the creation settings is unexposed (the
+  layer/group pair covers filtering; the native `BodyID` escape hatch covers the
+  rest).
 
 ## Build / Tooling
 
@@ -79,7 +87,11 @@ deviations from PhysX behavior.
   components group child colliders into one body.
 - **Soft bodies** (M8): `JoltSoftBodyComponent` + `JoltSoftBodyRequestBus` with
   procedural geometry and `AzPhysics::SimulatedBody` integration. Water/buoyancy
-  lives in the separate JoltBuoyancy gem.
+  lives in the separate JoltBuoyancy gem. Later extended with the full creation
+  surface (friction, restitution, vertex radius, max particle velocity,
+  update-position, double-sided faces, opt-in LRA tethers), bulk vertex/triangle
+  reads on the bus, runtime per-particle pinning and velocity, and an edit-mode
+  live preview simulating in the editor scene (see DIVERGENCES.md "Soft bodies").
 - **Editor collider visualization and component modes**: viewport wireframes with
   selection bounds for all collider types (box, sphere, capsule, cylinder,
   mesh/convex, heightfield); Box/Capsule component modes plus joint, vehicle, and
