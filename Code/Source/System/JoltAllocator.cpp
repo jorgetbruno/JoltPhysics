@@ -1,5 +1,7 @@
 #include <System/JoltAllocator.h>
 
+#include <JoltPhysics/JoltModuleGlobals.h>
+
 #include <AzCore/Memory/SystemAllocator.h>
 
 namespace JoltPhysics
@@ -41,11 +43,11 @@ namespace JoltPhysics
 
     void JoltAllocator::Install()
     {
-        JPH::Allocate = &JoltAllocator::Allocate;
-        JPH::Reallocate = &JoltAllocator::Reallocate;
-        JPH::Free = &JoltAllocator::Free;
-        JPH::AlignedAllocate = &JoltAllocator::AlignedAllocate;
-        JPH::AlignedFree = &JoltAllocator::AlignedFree;
+        // Through the shared installer the gem exports for extension modules, so this
+        // module and every other one that links Jolt end up with byte-for-byte the same
+        // hooks. That matters: allocations cross the module boundary, and two modules
+        // disagreeing about the allocator means one frees a block the other never issued.
+        InstallJoltAllocationHooks();
     }
 
     void JoltAllocator::Uninstall()

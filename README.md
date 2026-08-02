@@ -130,6 +130,34 @@ provides and this gem does not wrap, live in sibling gems that reach the backend
 back a `JPH::PhysicsSystem*` for a scene, or null when the scene belongs to another
 backend, so an extension gem does no harm in a project not running Jolt.
 
+### Writing an extension gem: install the Jolt globals
+
+**Jolt is statically linked into every module that uses it, so each one owns a private
+copy of Jolt's globals — and the ones that matter start null.** This gem installing its
+copy does nothing for yours. Missing the allocation hooks is a jump through a null
+pointer on a physics job thread; missing `JPH::Factory::sInstance` is an access violation
+inside `Factory::Find`. Both cost real debugging to find the first time.
+
+Link `Gem::JoltPhysics.API` and call the installer from **both** module entry points:
+
+```cpp
+#include <JoltPhysics/JoltModuleGlobals.h>
+
+MyGemModule::MyGemModule()          { JoltPhysics::InstallJoltModuleGlobals(); /* ... */ }
+MyGemModule::~MyGemModule()         { JoltPhysics::UninstallJoltModuleGlobals(); }
+```
+
+Two things it is doing for you. The hooks forward to `AZ::SystemAllocator`, byte for byte
+what this gem installs, because allocations cross the module boundary — your
+`AddStepListener` grows an array that this gem's `~PhysicsSystem` frees, so
+`JPH::RegisterDefaultAllocator` would hand it a malloc block `AZ::SystemAllocator` never
+issued. And tearing down from the module destructor rather than static destruction keeps
+Jolt's globals dying while the AZ allocators are still alive; the other way round the
+process aborts silently on exit.
+
+A module that forgets the call still crashes, and no unit test in another module can
+catch that — so keep it in the entry point, not somewhere clever.
+
 ## Requirements
 
 - **O3DE 26.05** (engine version `2.6.0`) — the gem is pinned to this engine release; see [BUILDING.md](BUILDING.md) for the exact setup.

@@ -1,4 +1,5 @@
 set(FILES
+    Include/JoltPhysics/JoltModuleGlobals.h
     Include/JoltPhysics/JoltPhysicsBus.h
     Include/JoltPhysics/JoltVehicleConfiguration.h
     Include/JoltPhysics/JoltCharacterGameplayBus.h

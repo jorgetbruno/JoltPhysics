@@ -5,6 +5,8 @@
 #include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
+#include <JoltPhysics/JoltModuleGlobals.h>
+
 #include <AzCore/std/smart_ptr/make_shared.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
@@ -128,6 +130,46 @@ namespace JoltPhysics
 
         system->RemoveScene(sceneHandle);
         system->Shutdown();
+    }
+
+    TEST_F(JoltSystemTests, TheExportedModuleGlobalsInstallerLeavesJoltUsable)
+    {
+        // Extension gems (JoltBuoyancy, JoltHair) each own a private copy of Jolt's
+        // globals and each used to hand-copy this setup, learning the hard way that the
+        // allocation hooks and the factory both start null. The header they now share is
+        // exported through JoltPhysics.API, so it is worth pinning that calling it is
+        // enough on its own and that a second call changes nothing.
+        JPH::Factory* const factoryAtStart = JPH::Factory::sInstance;
+
+        InstallJoltModuleGlobals();
+        EXPECT_NE(JPH::Allocate, nullptr);
+        EXPECT_NE(JPH::Reallocate, nullptr);
+        EXPECT_NE(JPH::Free, nullptr);
+        EXPECT_NE(JPH::AlignedAllocate, nullptr);
+        EXPECT_NE(JPH::AlignedFree, nullptr);
+        ASSERT_NE(JPH::Factory::sInstance, nullptr);
+
+        // Idempotent: it keeps the factory that already exists rather than stranding the
+        // types registered in it, and it does not re-register those types either - Jolt's
+        // RegisterTypes has no re-entry guard and would just grow the factory's tables.
+        JPH::Factory* const factoryAfterInstall = JPH::Factory::sInstance;
+        EXPECT_FALSE(InstallJoltFactory()) << "a second call claimed it created the factory";
+        InstallJoltModuleGlobals();
+        EXPECT_EQ(JPH::Factory::sInstance, factoryAfterInstall);
+
+        // A round trip through the hooks, which is what a null one would fault on.
+        void* block = JPH::Allocate(64);
+        ASSERT_NE(block, nullptr);
+        JPH::Free(block);
+
+        // Leave the process as it was found. When this test created the factory, that
+        // also exercises the teardown half - which every module owes from its destructor,
+        // while the AZ allocators are still alive.
+        if (factoryAtStart == nullptr)
+        {
+            UninstallJoltModuleGlobals();
+            EXPECT_EQ(JPH::Factory::sInstance, nullptr);
+        }
     }
 
     TEST_F(JoltSystemTests, SystemCanBeCreated)
