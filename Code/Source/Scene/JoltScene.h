@@ -183,6 +183,10 @@ namespace JoltPhysics
         //! Queues a trigger enter/exit event from the Jolt contact listener (job threads).
         void QueueTriggerEvent(AzPhysics::TriggerEvent::Type type, JPH::BodyID triggerBodyId, JPH::BodyID otherBodyId);
 
+        //! True the first time a body pair persists in a given step, so Persist is raised
+        //! once per pair rather than once per touching sub-shape. Cleared each flush.
+        bool TrackPairPersistedThisStep(JPH::BodyID bodyId1, JPH::BodyID bodyId2);
+
         //! Queues a collision begin/persist event from the Jolt contact listener (job threads).
         //! The contact list is built from the manifold here, while Jolt still has both
         //! bodies locked; the body pointers are resolved later on the main thread.
@@ -338,12 +342,23 @@ namespace JoltPhysics
         AZStd::mutex m_softBodyParticleContactsMutex;
         AZ::u64 m_simulationStep = 0;
         AzPhysics::CollisionEventList m_queuedCollisionEvents;
+        //! Swapped with m_queuedCollisionEvents each flush instead of moving into a fresh
+        //! local, so the buffer the contact callbacks fill keeps the capacity it grew to
+        //! rather than reallocating from nothing every step.
+        AzPhysics::CollisionEventList m_collisionEventScratch;
 
         //! Live sub-shape contact count per body pair (normalized key -> count). Lets
         //! collision Begin/End fire once per pair and lets a removed body synthesize End
         //! events for its partners. Touched from Jolt's contact callbacks (job threads).
         AZStd::mutex m_activeContactsMutex;
         AZStd::unordered_map<AZ::u64, int> m_activeContacts;
+
+        //! Body pairs that have already queued a Persist event this step. A pair touching
+        //! through several sub-shapes persists through each of them, and raising one event
+        //! per manifold means a compound body pays for its own complexity every step while
+        //! reporting the same collision several times - PhysX raises one per pair.
+        AZStd::mutex m_persistedPairsMutex;
+        AZStd::unordered_set<AZ::u64> m_persistedPairsThisStep;
 
         //! Live overlapping sub-shape count per directed (sensor, other) pair. Lets trigger
         //! Enter/Exit fire once per pair and lets a body removed while inside a sensor

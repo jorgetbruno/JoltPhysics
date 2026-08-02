@@ -1335,41 +1335,55 @@ namespace JoltPhysics
 
     void JoltScene::ProcessCollisionEvents()
     {
-        AzPhysics::CollisionEventList collisionEvents;
+        // Swap with the scratch buffer rather than a fresh local: the queue the contact
+        // callbacks fill keeps the capacity it grew to, instead of reallocating from
+        // nothing every step in a scene whose contact count is roughly steady.
+        m_collisionEventScratch.clear();
         {
             AZStd::lock_guard lock(m_collisionEventMutex);
-            collisionEvents.swap(m_queuedCollisionEvents);
+            m_collisionEventScratch.swap(m_queuedCollisionEvents);
+        }
+        AzPhysics::CollisionEventList& collisionEvents = m_collisionEventScratch;
+
+        // The per-pair Persist filter is per step, so it resets once the step's events
+        // have been taken.
+        {
+            AZStd::lock_guard lock(m_persistedPairsMutex);
+            m_persistedPairsThisStep.clear();
         }
 
         // Resolve and filter first, so the scene-level listeners can be given the batch
         // before the per-body dispatch below starts swapping each event's perspective.
-        AzPhysics::CollisionEventList dispatchableEvents;
-        dispatchableEvents.reserve(collisionEvents.size());
+        // Filtered in place rather than copied into a second list: every event carries a
+        // contacts vector, so building a parallel list duplicated a heap allocation per
+        // event for nothing.
+        auto isSuppressed = [this](const AzPhysics::CollisionEvent& collisionEvent)
+        {
+            return !m_suppressedCollisionPairs.empty() &&
+                m_suppressedCollisionPairs.contains(
+                    MakeBodyHandlePairKey(collisionEvent.m_bodyHandle1, collisionEvent.m_bodyHandle2));
+        };
+        // Pairs registered with SuppressCollisionEvents still collide; only their events
+        // are dropped. Filtering here (rather than in the contact callbacks) keeps the
+        // suppression set main-thread only.
+        collisionEvents.erase(
+            AZStd::remove_if(collisionEvents.begin(), collisionEvents.end(), isSuppressed), collisionEvents.end());
+
         for (AzPhysics::CollisionEvent& collisionEvent : collisionEvents)
         {
-            // Pairs registered with SuppressCollisionEvents still collide; only their
-            // events are dropped. Filtering here (rather than in the contact callbacks)
-            // keeps the suppression set main-thread only.
-            if (!m_suppressedCollisionPairs.empty() &&
-                m_suppressedCollisionPairs.contains(
-                    MakeBodyHandlePairKey(collisionEvent.m_bodyHandle1, collisionEvent.m_bodyHandle2)))
-            {
-                continue;
-            }
-
             // Body pointers are resolved here on the main thread; a body queued during
             // the step may have been removed by the time we dispatch, so re-resolve and
             // skip anything that has gone away.
             collisionEvent.m_body1 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle1);
             collisionEvent.m_body2 = GetSimulatedBodyFromHandle(collisionEvent.m_bodyHandle2);
-            dispatchableEvents.push_back(collisionEvent);
         }
+        AzPhysics::CollisionEventList& dispatchableEvents = collisionEvents;
 
         // Scene-level listeners get the whole batch, each event once and in its original
         // orientation. Registration for this is forwarded by JoltSceneInterface, but
         // nothing signalled it until now, so a handler registered through
         // RegisterSceneCollisionEventHandler never fired.
-        if (!dispatchableEvents.empty())
+        if (!dispatchableEvents.empty() && m_sceneCollisionEvent.HasHandlerConnected())
         {
             m_sceneCollisionEvent.Signal(m_sceneHandle, dispatchableEvents);
         }
@@ -1515,6 +1529,12 @@ namespace JoltPhysics
             it = (keyLow == removedIndex || keyHigh == removedIndex) ? m_suppressedCollisionPairs.erase(it)
                                                                     : AZStd::next(it);
         }
+    }
+
+    bool JoltScene::TrackPairPersistedThisStep(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
+    {
+        AZStd::lock_guard lock(m_persistedPairsMutex);
+        return m_persistedPairsThisStep.insert(MakeContactPairKey(bodyId1, bodyId2)).second;
     }
 
     bool JoltScene::TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
@@ -1898,7 +1918,12 @@ namespace JoltPhysics
     {
         ApplySubShapeMaterials(inBody1, inBody2, inManifold, ioSettings);
 
-        if (!inBody1.IsSensor() && !inBody2.IsSensor())
+        // One Persist per body pair per step, not per manifold. Two compounds resting on
+        // each other touch through many sub-shapes, and each one used to queue its own
+        // event: a heap allocation, a lock acquisition on the parallel narrowphase, and a
+        // duplicate report of the same collision. PhysX raises one per pair.
+        if (!inBody1.IsSensor() && !inBody2.IsSensor() &&
+            m_scene->TrackPairPersistedThisStep(inBody1.GetID(), inBody2.GetID()))
         {
             m_scene->QueueCollisionEvent(
                 AzPhysics::CollisionEvent::Type::Persist, inBody1.GetID(), inBody2.GetID(), inManifold);

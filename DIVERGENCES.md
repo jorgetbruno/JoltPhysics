@@ -503,6 +503,20 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Collision event dispatch
+
+- **Persist is raised once per body pair per step, not once per touching sub-shape.**
+  Two compounds resting on each other touch through many manifolds, and Jolt calls
+  `OnContactPersisted` for each; raising an event per call reported the same collision
+  several times and charged a heap allocation and a lock acquisition on the parallel
+  narrowphase for every one. PhysX raises one per pair, which is also what a handler
+  written against the AzPhysics contract expects. Begin was already deduplicated this
+  way; Persist now matches it.
+- **The scene-level collision event is only signalled when something is listening.**
+  Per-body dispatch cannot be gated the same way: `AzPhysics::SimulatedBody` keeps its
+  collision events private with no way to ask whether a handler is connected, so the
+  per-body path still runs whether or not anyone subscribed.
+
 ## Per-collider Simulated and Scene Queries flags
 
 - **Both are honored, through mechanisms Jolt does not offer directly.** PhysX has

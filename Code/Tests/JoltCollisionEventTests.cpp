@@ -456,4 +456,62 @@ namespace JoltPhysics
         EXPECT_GE(otherBoxEvents, 1); // the un-suppressed pair still reports normally
     }
 
+    TEST_F(JoltCollisionEventTests, PersistIsRaisedOncePerBodyPairPerStep)
+    {
+        // A pair touching through several sub-shapes used to raise a Persist per manifold:
+        // the same collision reported several times, and a heap allocation plus a lock on
+        // the parallel narrowphase for each. PhysX raises one per pair, so a compound body
+        // resting on a floor must produce exactly one Persist per step.
+        auto floorCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto floorShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration floorConfig;
+        floorConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(floorCollider, floorShape);
+        m_scene->AddSimulatedBody(&floorConfig);
+
+        // Four separate feet, so the pair genuinely touches through four sub-shapes.
+        AzPhysics::ShapeColliderPairList feet;
+        for (const float x : { -1.0f, 1.0f })
+        {
+            for (const float y : { -1.0f, 1.0f })
+            {
+                auto collider = AZStd::make_shared<Physics::ColliderConfiguration>();
+                collider->m_position = AZ::Vector3(x, y, 0.0f);
+                feet.emplace_back(collider, AZStd::make_shared<Physics::BoxShapeConfiguration>());
+            }
+        }
+
+        AzPhysics::RigidBodyConfiguration bodyConfig;
+        bodyConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.5f);
+        // A settled body would fall asleep and stop generating contacts altogether, which
+        // would pass this test for the wrong reason.
+        bodyConfig.m_sleepMinEnergy = 0.0f;
+        bodyConfig.m_colliderAndShapeData = feet;
+        auto bodyHandle = m_scene->AddSimulatedBody(&bodyConfig);
+        auto* body = m_scene->GetSimulatedBodyFromHandle(bodyHandle);
+        ASSERT_NE(body, nullptr);
+
+        int persistCount = 0;
+        AzPhysics::SimulatedBodyEvents::OnCollisionPersist::Handler persistHandler(
+            [&persistCount]([[maybe_unused]] AzPhysics::SimulatedBodyHandle handle,
+                [[maybe_unused]] const AzPhysics::CollisionEvent& event)
+            {
+                ++persistCount;
+            });
+        body->RegisterOnCollisionPersistHandler(persistHandler);
+
+        // Let it settle so every foot is genuinely resting, then count one step.
+        for (int i = 0; i < 90; ++i)
+        {
+            m_scene->StartSimulation(1.0f / 60.0f);
+            m_scene->FinishSimulation();
+        }
+
+        persistCount = 0;
+        m_scene->StartSimulation(1.0f / 60.0f);
+        m_scene->FinishSimulation();
+
+        EXPECT_EQ(persistCount, 1) << "Persist should be raised once per body pair, not once per touching sub-shape";
+    }
+
 } // namespace JoltPhysics
