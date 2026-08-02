@@ -89,6 +89,16 @@ namespace JoltPhysics
                     ->Property("MaxHandBrakeTorque", BehaviorValueProperty(&JoltWheelConfiguration::m_maxHandBrakeTorque))
                     ->Property("TrackedLongitudinalFriction", BehaviorValueProperty(&JoltWheelConfiguration::m_trackedLongitudinalFriction))
                     ->Property("TrackedLateralFriction", BehaviorValueProperty(&JoltWheelConfiguration::m_trackedLateralFriction))
+                    // The tyre curves: the gem's own header calls these the single biggest
+                    // handling knob a vehicle has, and they were the one part of the
+                    // configuration a script could read back but never author.
+                    ->Property("LongitudinalFrictionCurve", BehaviorValueProperty(&JoltWheelConfiguration::m_longitudinalFrictionCurve))
+                    ->Property("LateralFrictionCurve", BehaviorValueProperty(&JoltWheelConfiguration::m_lateralFrictionCurve))
+                    ->Property("SuspensionSpringMode",
+                        [](const JoltWheelConfiguration* wheel) { return static_cast<int>(wheel->m_suspensionSpringMode); },
+                        [](JoltWheelConfiguration* wheel, int value) { wheel->m_suspensionSpringMode = static_cast<JoltSuspensionSpringMode>(value); })
+                    ->Property("SuspensionForcePoint", BehaviorValueProperty(&JoltWheelConfiguration::m_suspensionForcePoint))
+                    ->Property("EnableSuspensionForcePoint", BehaviorValueProperty(&JoltWheelConfiguration::m_enableSuspensionForcePoint))
                     ;
 
                 behaviorContext->Class<JoltVehicleAntiRollBar>("JoltVehicleAntiRollBar")
@@ -121,6 +131,7 @@ namespace JoltPhysics
                     ->Property("TransmissionMode",
                         [](const JoltVehicleConfiguration* config) { return static_cast<int>(config->m_transmissionMode); },
                         [](JoltVehicleConfiguration* config, int value) { config->m_transmissionMode = static_cast<JoltVehicleTransmissionMode>(value); })
+                    ->Property("EngineTorqueCurve", BehaviorValueProperty(&JoltVehicleConfiguration::m_engineTorqueCurve))
                     ->Property("Wheels", BehaviorValueProperty(&JoltVehicleConfiguration::m_wheels))
                     ->Property("AntiRollBars", BehaviorValueProperty(&JoltVehicleConfiguration::m_antiRollBars))
                     ->Property("Differentials", BehaviorValueProperty(&JoltVehicleConfiguration::m_differentials))
@@ -161,6 +172,10 @@ namespace JoltPhysics
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
+            // The friction and torque curves are AZStd::vector<AZ::Vector2>; the generic
+            // type has to be registered for script to marshal one across.
+            serializeContext->RegisterGenericType<AZStd::vector<AZ::Vector2>>();
+
             serializeContext->Class<JoltVehicleComponent, AZ::Component>()
                 ->Version(1)
                 ->Field("VehicleConfiguration", &JoltVehicleComponent::m_configuration)

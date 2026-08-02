@@ -35,6 +35,31 @@ namespace JoltPhysics
         }
     };
 
+    AZ::Crc32 JoltSoftBodySettings::GetProceduralShapeVisibility() const
+    {
+        return m_shape == JoltSoftBodyShape::Mesh ? AZ::Edit::PropertyVisibility::Hide
+                                                  : AZ::Edit::PropertyVisibility::Show;
+    }
+
+    AZ::Crc32 JoltSoftBodySettings::GetMeshShapeVisibility() const
+    {
+        return m_shape == JoltSoftBodyShape::Mesh ? AZ::Edit::PropertyVisibility::Show
+                                                  : AZ::Edit::PropertyVisibility::Hide;
+    }
+
+    AZ::Crc32 JoltSoftBodySettings::GetClothOnlyVisibility() const
+    {
+        return m_shape == JoltSoftBodyShape::Cloth ? AZ::Edit::PropertyVisibility::Show
+                                                   : AZ::Edit::PropertyVisibility::Hide;
+    }
+
+    AZ::Crc32 JoltSoftBodySettings::GetClosedShapeVisibility() const
+    {
+        // Pressure only does anything inside a closed surface.
+        return m_shape == JoltSoftBodyShape::Cloth ? AZ::Edit::PropertyVisibility::Hide
+                                                   : AZ::Edit::PropertyVisibility::Show;
+    }
+
     void JoltSoftBodyComponent::Reflect(AZ::ReflectContext* context)
     {
         Internal::ReflectEBusOnce(context, "JoltSoftBodyRequestBus",
@@ -150,25 +175,29 @@ namespace JoltPhysics
                         ->EnumAttribute(JoltSoftBodyShape::Cube, "Cube")
                         ->EnumAttribute(JoltSoftBodyShape::Balloon, "Balloon")
                         ->EnumAttribute(JoltSoftBodyShape::Mesh, "Mesh")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_meshAsset,
                         "Mesh asset", "The .joltmesh asset whose first triangle mesh becomes the simulated surface "
                         "(Mesh shape only). Split render vertices are welded so the sheet does not tear at UV "
-                        "seams. Size, resolution and pinning presets do not apply to a mesh.")
+                        "seams.")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetMeshShapeVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltSoftBodySettings::m_pinning,
-                        "Pinning", "Which cloth particles are fixed in place. A cloth with nothing pinned falls. "
-                        "Only applies to the Cloth shape.")
+                        "Pinning", "Which cloth particles are fixed in place. A cloth with nothing pinned falls.")
                         ->EnumAttribute(JoltSoftBodyPinning::None, "None")
                         ->EnumAttribute(JoltSoftBodyPinning::Corners, "Corners")
                         ->EnumAttribute(JoltSoftBodyPinning::TopEdge, "Top edge")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetClothOnlyVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_size,
                         "Size", "Extents in metres. Cloth uses X and Y; Cube and Balloon use X alone.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
                         ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetProceduralShapeVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_resolution,
                         "Resolution", "Particles along each axis. Cost grows as the square of this for a cloth and "
                         "the cube of it for a cube, so raise it carefully.")
                         ->Attribute(AZ::Edit::Attributes::Min, 2)
                         ->Attribute(AZ::Edit::Attributes::Max, 32)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetProceduralShapeVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_mass,
                         "Mass", "Total mass, divided evenly over the particles.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.001f)
@@ -195,6 +224,7 @@ namespace JoltPhysics
                         "Pressure", "Internal pressure. Only does anything on a closed shape, so leave it at 0 for "
                         "cloth and raise it to inflate a balloon.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetClosedShapeVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_gravityFactor,
                         "Gravity factor", "Multiplier on gravity for this body alone. 0 makes it hang in the air.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_friction,

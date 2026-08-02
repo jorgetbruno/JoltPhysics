@@ -39,6 +39,15 @@ namespace JoltPhysics
     //! Jolt's motion properties and can change every frame.
     struct JoltSoftBodySettings
     {
+        //! Edit-context helpers: a soft body's grid shows every field for every shape, so
+        //! half the inspector is inert depending on what is selected - and a silently
+        //! ignored edit (resizing a mesh body, pinning a cube) reads as a bug. Same
+        //! per-type visibility idiom the vehicle configuration already uses.
+        AZ::Crc32 GetProceduralShapeVisibility() const;  //!< Cloth, Cube, Balloon
+        AZ::Crc32 GetMeshShapeVisibility() const;        //!< Mesh only
+        AZ::Crc32 GetClothOnlyVisibility() const;        //!< Cloth only (pinning presets)
+        AZ::Crc32 GetClosedShapeVisibility() const;      //!< Cube, Balloon, Mesh (pressure)
+
         AZ_CLASS_ALLOCATOR(JoltSoftBodySettings, AZ::SystemAllocator);
         AZ_TYPE_INFO(JoltSoftBodySettings, "{7C1E9A4B-2D63-4F8A-B5C7-1E9A4B2D63F8}");
 

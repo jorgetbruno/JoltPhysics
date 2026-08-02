@@ -23,6 +23,12 @@ namespace JoltPhysics
             ASSERT_NE(m_behaviorContext, nullptr) << "No application behavior context";
         }
 
+        const AZ::BehaviorClass* FindClass(const char* name) const
+        {
+            const auto it = m_behaviorContext->m_classes.find(name);
+            return it != m_behaviorContext->m_classes.end() ? it->second : nullptr;
+        }
+
         const AZ::BehaviorEBus* FindBus(const char* name) const
         {
             const auto it = m_behaviorContext->m_ebuses.find(name);
@@ -42,6 +48,27 @@ namespace JoltPhysics
 
         AZ::BehaviorContext* m_behaviorContext = nullptr;
     };
+
+    TEST_F(JoltScriptReflectionTests, VehicleConfigClassesExposeTheirHandlingCurves)
+    {
+        // A scripter reads the config, edits it and writes it back. Unreflected fields
+        // survive the round trip untouched - so the omissions did not corrupt anything,
+        // they just made the biggest handling knobs unauthorable while DIVERGENCES claimed
+        // the configuration was scriptable.
+        const AZ::BehaviorClass* wheelClass = FindClass("JoltWheelConfiguration");
+        ASSERT_NE(wheelClass, nullptr);
+        for (const char* propertyName :
+             { "LongitudinalFrictionCurve", "LateralFrictionCurve", "SuspensionSpringMode",
+               "SuspensionForcePoint", "EnableSuspensionForcePoint" })
+        {
+            EXPECT_NE(wheelClass->m_properties.find(propertyName), wheelClass->m_properties.end())
+                << "JoltWheelConfiguration is missing the script property " << propertyName;
+        }
+
+        const AZ::BehaviorClass* vehicleClass = FindClass("JoltVehicleConfiguration");
+        ASSERT_NE(vehicleClass, nullptr);
+        EXPECT_NE(vehicleClass->m_properties.find("EngineTorqueCurve"), vehicleClass->m_properties.end());
+    }
 
     TEST_F(JoltScriptReflectionTests, RigidBodyBusIsReflectedWithTheGameplayControlSurface)
     {
