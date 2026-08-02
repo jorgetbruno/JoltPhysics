@@ -442,4 +442,42 @@ namespace JoltPhysics
 
         system->Shutdown();
     }
+    TEST_F(JoltSceneTests, AHandleDoesNotOutliveItsBodyIntoARecycledSlot)
+    {
+        // Body slots are recycled, and the handle's Crc came from the debug name - which
+        // most bodies do not have - so a handle held across a despawn resolved to whatever
+        // body inherited the slot. Gameplay that keeps a handle over a respawn (a spawner,
+        // a queued callback) would teleport, disable or remove the wrong object, and only
+        // in scenes with churn, which is the hardest kind of bug to reproduce.
+        auto makeBody = [this](const AZ::Vector3& position)
+        {
+            AzPhysics::RigidBodyConfiguration config;
+            config.m_position = position;
+            config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                AZStd::make_shared<Physics::ColliderConfiguration>(),
+                AZStd::make_shared<Physics::BoxShapeConfiguration>());
+            return m_scene->AddSimulatedBody(&config);
+        };
+
+        AzPhysics::SimulatedBodyHandle owned = makeBody(AZ::Vector3(1.0f, 0.0f, 0.0f));
+        ASSERT_NE(m_scene->GetSimulatedBodyFromHandle(owned), nullptr);
+
+        // RemoveSimulatedBody invalidates the caller's own handle, so the hazard is a
+        // *copy* someone else is still holding - a queued callback, a spawner's records.
+        const AzPhysics::SimulatedBodyHandle staleCopy = owned;
+        m_scene->RemoveSimulatedBody(owned);
+        EXPECT_EQ(m_scene->GetSimulatedBodyFromHandle(staleCopy), nullptr);
+
+        // The next body takes the freed slot; the copy must still not reach it.
+        const AzPhysics::SimulatedBodyHandle second = makeBody(AZ::Vector3(2.0f, 0.0f, 0.0f));
+        ASSERT_NE(m_scene->GetSimulatedBodyFromHandle(second), nullptr);
+        ASSERT_EQ(
+            AZStd::get<AzPhysics::SimulatedBodyIndex>(staleCopy),
+            AZStd::get<AzPhysics::SimulatedBodyIndex>(second))
+            << "the slot was not reused, so this test is not exercising what it claims";
+
+        EXPECT_EQ(m_scene->GetSimulatedBodyFromHandle(staleCopy), nullptr)
+            << "a stale handle resolved to the body that inherited its slot";
+    }
+
 } // namespace JoltPhysics

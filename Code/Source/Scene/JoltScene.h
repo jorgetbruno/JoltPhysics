@@ -310,6 +310,10 @@ namespace JoltPhysics
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::SimulatedBody*>> m_simulatedBodies;
         AZStd::vector<AzPhysics::SimulatedBody*> m_deferredDeletions;
         AZStd::queue<AzPhysics::SimulatedBodyIndex> m_freeSceneSlots;
+        //! How many times each slot has been handed out. Stamped into a handle's Crc so a
+        //! handle outliving its body resolves to null rather than to the slot's next
+        //! occupant.
+        AZStd::vector<AZ::u32> m_slotGenerations;
 
         AZStd::unordered_map<AZ::u32, AzPhysics::SimulatedBodyHandle> m_bodyHandleByJoltId;
         AZStd::unordered_set<AZ::u32> m_sensorBodyIds;

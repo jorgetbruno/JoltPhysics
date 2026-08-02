@@ -13,6 +13,7 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Physics/Character.h>
 
 namespace JoltPhysics
 {
@@ -161,6 +162,62 @@ namespace JoltPhysics
 
         EXPECT_GE(exitCount, 1);
         EXPECT_EQ(exitOther, boxHandleValue); // Exit correctly identifies the removed body
+    }
+
+    TEST_F(JoltTriggerTests, RemovingACharacterInsideATriggerStillFiresExit)
+    {
+        // The rigid-body case above is guaranteed by test; the character case was not, and
+        // characters despawning inside triggers is routine gameplay - a checkpoint, a
+        // water zone, an elevator. The character's inner body is registered for events
+        // like any other, so without synthesizing the Exit the sensor stays convinced it
+        // is occupied and the overlap entry is never cleared.
+        auto triggerCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triggerCollider->m_isTrigger = true;
+        auto triggerShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        triggerShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 4.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration triggerConfig;
+        triggerConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(triggerCollider, triggerShape);
+        auto triggerHandle = m_scene->AddSimulatedBody(&triggerConfig);
+        ASSERT_NE(triggerHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        Physics::CharacterConfiguration characterConfig;
+        characterConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+        characterConfig.m_entityId = AZ::EntityId(0xC0FFEE);
+        characterConfig.m_debugName = "TriggerCharacter";
+        characterConfig.m_shapeConfig = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+
+        auto characterHandle = m_scene->AddSimulatedBody(&characterConfig);
+        ASSERT_NE(characterHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        const AzPhysics::SimulatedBodyHandle characterHandleValue = characterHandle;
+
+        int enterCount = 0;
+        int exitCount = 0;
+        AzPhysics::SimulatedBodyHandle exitOther = AzPhysics::InvalidSimulatedBodyHandle;
+
+        auto* triggerBody = m_scene->GetSimulatedBodyFromHandle(triggerHandle);
+        ASSERT_NE(triggerBody, nullptr);
+
+        AzPhysics::SimulatedBodyEvents::OnTriggerEnter::Handler enterHandler(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent&) { ++enterCount; });
+        AzPhysics::SimulatedBodyEvents::OnTriggerExit::Handler exitHandler(
+            [&](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent& triggerEvent)
+            {
+                ++exitCount;
+                exitOther = triggerEvent.m_otherBodyHandle;
+            });
+        triggerBody->RegisterOnTriggerEnterHandler(enterHandler);
+        triggerBody->RegisterOnTriggerExitHandler(exitHandler);
+
+        SimulateSeconds(0.2f);
+        ASSERT_GE(enterCount, 1) << "the character never registered as entering the trigger";
+        EXPECT_EQ(exitCount, 0);
+
+        m_scene->RemoveSimulatedBody(characterHandle);
+        SimulateSeconds(0.1f);
+
+        EXPECT_GE(exitCount, 1) << "removing the character left the sensor believing it was still occupied";
+        EXPECT_EQ(exitOther, characterHandleValue);
     }
 
     TEST_F(JoltTriggerTests, NonTriggerBodyDoesNotFireTriggerEvents)

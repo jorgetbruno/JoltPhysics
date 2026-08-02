@@ -344,7 +344,19 @@ namespace JoltPhysics
             return AzPhysics::InvalidSimulatedBodyHandle;
         }
 
+        // The handle's Crc has to distinguish *this* body from whatever occupied the slot
+        // before it, and the debug name cannot: most bodies have none, so two unnamed
+        // bodies in the same recycled slot would produce identical handles. Folding in a
+        // per-slot generation makes a stale handle detectable, which is the difference
+        // between a caller quietly teleporting the wrong object and getting a null.
+        if (bodyIndex >= static_cast<AzPhysics::SimulatedBodyIndex>(m_slotGenerations.size()))
+        {
+            m_slotGenerations.resize(bodyIndex + 1, 0);
+        }
+        const AZ::u32 generation = ++m_slotGenerations[bodyIndex];
+
         AZ::Crc32 bodyCrc(simulatedBodyConfig->m_debugName.c_str());
+        bodyCrc.Add(&generation, sizeof(generation));
         AzPhysics::SimulatedBodyHandle handle(bodyCrc, bodyIndex);
 
         m_simulatedBodies[bodyIndex] = { bodyCrc, body };
@@ -667,11 +679,15 @@ namespace JoltPhysics
         }
 
         const auto index = AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandle);
-        if (index < m_simulatedBodies.size())
+        if (index < m_simulatedBodies.size() &&
+            m_simulatedBodies[index].first == AZStd::get<AZ::Crc32>(bodyHandle))
         {
             return m_simulatedBodies[index].second;
         }
 
+        // Either out of range, or the slot has been recycled since this handle was
+        // issued. Callers that hold handles across a despawn - a queued callback, a
+        // spawner reusing ids - used to receive whatever body inherited the slot.
         return nullptr;
     }
 
@@ -724,7 +740,17 @@ namespace JoltPhysics
                 // character must be removed from the physics system explicitly.
                 if (const JPH::BodyID innerBodyId = character->GetInnerBodyId(); !innerBodyId.IsInvalid())
                 {
+                    // A character despawning inside a trigger is routine - a checkpoint, a
+                    // water zone, an elevator - and its inner body is registered for events
+                    // like any other, so the sensor is left believing it is still occupied
+                    // and the overlap entry never cleared. The rigid, static and soft body
+                    // branches all synthesize these; the character branch used to erase its
+                    // mapping first, after which Jolt's own late OnContactRemoved could no
+                    // longer resolve the body to raise them.
+                    FlushCollisionEndsForRemovedBody(innerBodyId, bodyHandle);
+                    FlushTriggerExitsForRemovedBody(innerBodyId);
                     m_bodyHandleByJoltId.erase(innerBodyId.GetIndexAndSequenceNumber());
+                    m_sensorBodyIds.erase(innerBodyId.GetIndexAndSequenceNumber());
                 }
                 character->RemoveFromScene();
             }
