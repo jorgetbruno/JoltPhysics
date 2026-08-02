@@ -30,6 +30,19 @@ namespace JoltPhysics
             return true; // handled; do not print
         }
 
+        //! Errors are collected the same way, for tests whose subject is a diagnostic
+        //! firing - a malformed asset, say - where the error is the expected outcome
+        //! rather than a failure of the test.
+        bool OnPreError(const char* window, const char*, int, const char*, const char* message) override
+        {
+            if (window && AZStd::string_view(window) == "JoltPhysics")
+            {
+                m_warnings.push_back(message ? message : "");
+                return true;
+            }
+            return false;
+        }
+
         bool ContainsWarningWith(AZStd::string_view substring) const
         {
             for (const AZStd::string& warning : m_warnings)

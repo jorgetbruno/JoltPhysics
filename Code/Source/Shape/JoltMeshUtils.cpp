@@ -532,6 +532,22 @@ namespace JoltPhysics
             memcpy(&hullCount, cursor, sizeof(hullCount));
             cursor += sizeof(hullCount);
 
+            // Bound the count against what is actually left before reserving for it. Every
+            // hull costs at least its own vertex count plus one three-float vertex, so a
+            // count larger than the remaining bytes allow cannot be real - and reserving
+            // for a corrupted one (up to four billion vector objects) aborts inside the
+            // allocator instead of reaching the clean error path a few lines down.
+            constexpr size_t MinimumBytesPerHull = sizeof(AZ::u32) + 3 * sizeof(float);
+            const size_t remainingBytes = static_cast<size_t>(end - cursor);
+            if (hullCount > remainingBytes / MinimumBytesPerHull)
+            {
+                AZ_Error("JoltPhysics", false,
+                    "JoltMeshUtils: hull-group blob claims %u hulls, which cannot fit in its remaining %zu bytes "
+                    "(corrupt or truncated asset)",
+                    hullCount, remainingBytes);
+                return nullptr;
+            }
+
             hullPointClouds.reserve(hullCount);
             for (AZ::u32 hull = 0; hull < hullCount; ++hull)
             {

@@ -1,10 +1,13 @@
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
+
+#include <JoltTestWarningCatcher.h>
 #include <AzCore/Math/Matrix4x4.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <Scene/JoltScene.h>
+#include <JoltPhysics/JoltModuleGlobals.h>
 #include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShape.h>
 #include <Shape/JoltShapeUtils.h>
@@ -531,6 +534,88 @@ namespace JoltPhysics
             JPH::RayCastSettings(), JPH::SubShapeIDCreator(), collector);
         ASSERT_TRUE(collector.m_hit);
         EXPECT_EQ(mesh->GetMaterialIndex(collector.m_subShapeId), 31u);
+    }
+
+    // Cooked blobs arrive from disk, so the decoders are the gem's boundary with data it
+    // did not produce this run: an interrupted Asset Processor write, a corrupted product,
+    // a stale file. Every one of these must reach the error-and-null path rather than
+    // reading past the buffer or trying to allocate its way out.
+    class JoltBlobDecoderNegativePaths : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            // Decoding allocates through Jolt (JPH::Array), and unlike the other fixtures
+            // here this one builds no JoltSystem - so nothing would have installed this
+            // module's allocation hooks and the first successful hull read would jump
+            // through a null pointer. Exactly the trap JoltModuleGlobals.h exists for.
+            InstallJoltModuleGlobals();
+        }
+
+        static AZStd::vector<AZ::u8> MakeHullGroupBlob()
+        {
+            AZStd::vector<AZ::Vector3> cube;
+            for (const float dx : { -0.5f, 0.5f })
+            {
+                for (const float dy : { -0.5f, 0.5f })
+                {
+                    for (const float dz : { -0.5f, 0.5f })
+                    {
+                        cube.push_back(AZ::Vector3(dx, dy, dz));
+                    }
+                }
+            }
+            return JoltMeshUtils::PackConvexHulls({ cube, cube });
+        }
+
+        //! Decoding failures are the expected outcome here, so their diagnostics are
+        //! captured rather than printed - and their presence is what the tests check.
+        JoltWarningCatcher m_diagnostics;
+    };
+
+    TEST_F(JoltBlobDecoderNegativePaths, AHullCountLargerThanTheBlobIsRejectedNotReservedFor)
+    {
+        // The hull count is read straight out of the file and used to reserve. A bit flip
+        // in that field asked for up to four billion vector objects - an allocation
+        // failure inside reserve, rather than the clean null this returns.
+        AZStd::vector<AZ::u8> blob = MakeHullGroupBlob();
+        ASSERT_GT(blob.size(), 20u);
+
+        // The hull count sits immediately after the 12-byte header.
+        const AZ::u32 absurdCount = 0xFFFFFFF0u;
+        memcpy(blob.data() + 12, &absurdCount, sizeof(absurdCount));
+
+        EXPECT_EQ(JoltMeshUtils::CreateConvexShapeFromCookedData(blob), nullptr);
+        EXPECT_TRUE(m_diagnostics.ContainsWarningWith("cannot fit"))
+            << "the rejection should say why, not just return null";
+    }
+
+    TEST_F(JoltBlobDecoderNegativePaths, TruncatedHullGroupBlobsDecodeToNothing)
+    {
+        const AZStd::vector<AZ::u8> good = MakeHullGroupBlob();
+        for (size_t size = 0; size < good.size(); size += AZStd::max<size_t>(good.size() / 16, 1))
+        {
+            const AZStd::vector<AZ::u8> truncated(good.begin(), good.begin() + size);
+            EXPECT_EQ(JoltMeshUtils::CreateConvexShapeFromCookedData(truncated), nullptr)
+                << "a blob truncated to " << size << " bytes decoded to a shape";
+        }
+    }
+
+    TEST_F(JoltBlobDecoderNegativePaths, GarbageBytesDecodeToNothing)
+    {
+        const AZStd::vector<AZ::u8> garbage(64, 0xAB);
+        EXPECT_EQ(JoltMeshUtils::CreateConvexShapeFromCookedData(garbage), nullptr);
+        EXPECT_EQ(JoltMeshUtils::CreateMeshShapeFromCookedData(garbage), nullptr);
+    }
+
+    TEST_F(JoltBlobDecoderNegativePaths, AValidHeaderOverACorruptedBodyDecodesToNothing)
+    {
+        AZStd::vector<AZ::u8> corrupted = MakeHullGroupBlob();
+        for (size_t i = 12; i < corrupted.size(); ++i)
+        {
+            corrupted[i] = 0xFF;
+        }
+        EXPECT_EQ(JoltMeshUtils::CreateConvexShapeFromCookedData(corrupted), nullptr);
     }
 
 } // namespace JoltPhysics
