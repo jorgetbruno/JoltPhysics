@@ -310,6 +310,21 @@ feature, trust the topic sections below the milestones.**
   with a car-sized engine wheelies, loses front contact and falls over, so the engine
   needs sizing for the vehicle too.
 
+## Joint bus addressing
+
+- **An entity carries at most one joint**, and `JoltJointRequestBus` is addressed by
+  plain `EntityId`. PhysX addresses its joint bus by `AZ::EntityComponentIdPair` and
+  puts no self-incompatibility on its joint components, so a PhysX entity can carry
+  several - a plank hung from two chains, a door with a hinge and a spring-damper.
+  Content like that needs proxy entities here, and a script cannot name "the second
+  joint" because the bus id cannot express one.
+- **Lifting the restriction means changing the bus id**, not just dropping the service
+  incompatibility: `AZ::ComponentBus` addresses by entity, so two joint components on one
+  entity would make every `GetPosition`-style request ambiguous rather than
+  multi-answering usefully. That change breaks every script written against the current
+  surface, which is why it is recorded here rather than done quietly - the surface is
+  young enough that the cost is small today and grows with every script written.
+
 ## Gear and rack-and-pinion joints
 
 - **No PhysX counterpart:** the PhysX gem wraps neither, so these are exposed

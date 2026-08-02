@@ -30,6 +30,32 @@ deviations from PhysX behavior.
   spline component to follow), and force regions have no editor viewport preview of the
   forces they apply.
 
+- **No shape-collider equivalent.** PhysX ships `ShapeColliderComponent`, which drives a
+  collider from an LmbrCentral shape component (Box, Capsule, Sphere, Cylinder, Quad and
+  **Polygon Prism**). Box-like cases can be re-authored with this gem's own primitive
+  colliders, but a Polygon Prism has no representation at all - a migrating team must
+  re-model each extruded blocker, kill volume or water region as a mesh asset. The
+  decomposition machinery already here (VHACD, hull groups) is the natural path to an
+  extruded-prism collider when it is wanted.
+
+- **One joint per entity.** `JoltJointService` is declared incompatible with itself and
+  the joint bus is addressed by entity id; see the joint-bus entry in DIVERGENCES.md for
+  what lifting it would cost.
+
+- **Per-contact material resolution is not cached.** Every manifold add and persist
+  resolves the touching collider's material, which for a single-collider body reproduces
+  the friction and restitution already baked into the Jolt body at creation. Caching it
+  is not free to do correctly: the resolution is deliberately live so a material edited
+  at runtime applies to bodies that already exist (pinned by
+  `MaterialPropertyChangeAppliesToExistingBody`), so a cache needs invalidating whenever
+  a material property changes rather than a plain skip.
+
+- **`jolt_Debug` draws through `JPH::DebugRendererSimple`**, which re-tessellates every
+  shape each frame and emits one triangle at a time; the gem then turns each into two
+  heap allocations and a bus broadcast. Jolt's full `DebugRenderer` interface exists to
+  cache geometry per shape and redraw it by handle, which is what a large scene needs
+  before the toggle is usable there.
+
 ## Build / Tooling
 
 - Gem registers via `external_subdirectories` (O3DE 26.05 manifest behavior), not the
