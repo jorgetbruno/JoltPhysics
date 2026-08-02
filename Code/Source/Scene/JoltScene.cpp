@@ -225,7 +225,6 @@ namespace JoltPhysics
         FlushEndedSoftBodyContacts();
         FlushSoftBodyParticleContacts();
 
-        FlushTransformSync();
         FlushQueuedEvents();
         ClearDeferredDeletions();
     }
@@ -1241,24 +1240,11 @@ namespace JoltPhysics
             return false;
         }
 
-        // Entities pick restored transforms up now rather than after the next step, so
-        // a rollback is visible even while the simulation is paused.
-        FlushTransformSync();
+        // Entities pick restored transforms up on their next tick, which happens whether
+        // or not the simulation is stepping - the rigid body components compare the body's
+        // pose against the last one they pushed, so a restore reaches the entity even for
+        // bodies that are asleep.
         return true;
-    }
-
-    void JoltScene::FlushTransformSync()
-    {
-        for (auto& [crc, body] : m_simulatedBodies)
-        {
-            if (body)
-            {
-                if (auto* rigidBody = azdynamic_cast<JoltRigidBody*>(body))
-                {
-                    rigidBody->SyncTransform();
-                }
-            }
-        }
     }
 
     void JoltScene::FlushQueuedEvents()

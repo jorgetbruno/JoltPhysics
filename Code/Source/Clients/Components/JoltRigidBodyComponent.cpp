@@ -220,13 +220,31 @@ namespace JoltPhysics
             return;
         }
 
-        if (AzPhysics::RigidBody* body = GetRigidBody();
-            body != nullptr && !body->IsKinematic())
+        AzPhysics::RigidBody* body = GetRigidBody();
+        if (body == nullptr || body->IsKinematic())
         {
-            m_syncingTransformFromBody = true;
-            AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTM, body->GetTransform());
-            m_syncingTransformFromBody = false;
+            return;
         }
+
+        // Writing an entity transform is not cheap - SetWorldTM dispatches on the
+        // transform notification bus, propagates to children and dirties entity bounds and
+        // visibility - and every rigid body in the level used to pay it every frame,
+        // awake or not. That made the cost scale with how many bodies exist rather than
+        // how many are moving, which defeats the point of Jolt letting them sleep.
+        //
+        // A pose comparison rather than IsAwake alone: a body can change pose while
+        // asleep - a restored snapshot, a teleport, a body put to sleep the same frame it
+        // was moved - and those still have to reach the entity.
+        const AZ::Transform bodyTransform = body->GetTransform();
+        if (!body->IsAwake() && bodyTransform.IsClose(m_lastSyncedTransform))
+        {
+            return;
+        }
+        m_lastSyncedTransform = bodyTransform;
+
+        m_syncingTransformFromBody = true;
+        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTM, bodyTransform);
+        m_syncingTransformFromBody = false;
     }
 
     int JoltRigidBodyComponent::GetTickOrder()

@@ -503,6 +503,24 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Transform sync
+
+- **A sleeping body whose pose has not changed does not write its entity transform.**
+  Every rigid body component used to push `SetWorldTM` every frame regardless of whether
+  the body had moved, so the per-frame cost scaled with how many bodies exist rather than
+  how many are moving - and that write is not cheap: it dispatches on the transform
+  notification bus, propagates to child entities, and dirties entity bounds and
+  visibility. Sleeping is most of what Jolt does for a big level, and this gave the
+  saving straight back.
+- **The gate is a pose comparison, not just `IsAwake`.** A body can change pose while
+  asleep - a restored snapshot, a teleport, a body put to sleep the same frame it was
+  moved - so each component compares against the last pose it pushed. That also removed
+  the need for a scene-side flush: `RestoreSimulationState` used to call a
+  `FlushTransformSync` that walked every body in the scene to call a `SyncTransform` that
+  did nothing, so the rollback visibility it promised was never actually delivered.
+  Components now pick a restore up on their next tick, which happens whether or not the
+  simulation is stepping.
+
 ## Heightfield updates
 
 - **A notified change updates only the region the provider names.**

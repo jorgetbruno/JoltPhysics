@@ -129,6 +129,11 @@ namespace JoltPhysics
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
 
         bool m_syncingTransformFromBody = false; //!< True while the entity transform is being updated from the physics body.
+        //! The last pose pushed to the entity. A sleeping body whose pose still matches
+        //! this needs no write, which is what lets a scene full of settled bodies cost
+        //! nothing to sync; a pose that differs while asleep (a restored snapshot, a
+        //! teleport) still gets through.
+        AZ::Transform m_lastSyncedTransform = AZ::Transform::CreateIdentity();
         bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.
     };
 } // namespace JoltPhysics

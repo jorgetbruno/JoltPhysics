@@ -177,7 +177,6 @@ namespace JoltPhysics
         bool IsColliderSimulated(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
         bool IsColliderInSceneQueries(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
 
-        void FlushTransformSync();
         void InitializeJoltSystem();
 
         //! Queues a trigger enter/exit event from the Jolt contact listener (job threads).
