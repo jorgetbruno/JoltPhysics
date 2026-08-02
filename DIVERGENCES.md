@@ -503,6 +503,34 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Force regions and wind
+
+- **`JoltForceRegionComponent` mirrors PhysX's force region**, which a migrating project
+  otherwise has no component to attach its data to. A trigger collider defines the volume,
+  the forces attached to it are summed, and the net force is applied to each occupant as
+  an impulse scaled by the frame time so the result does not depend on frame rate.
+- **Five of PhysX's seven force types are wrapped**: world space, local space, point,
+  simple drag and linear damping. **Spline follow is not** - it needs a spline component
+  to follow and an authoring story of its own. PhysX's `ForceRegionForces.h` is the
+  reference for the field names and units, so authored values transfer.
+- **Occupancy comes from trigger events, not a per-frame overlap query**, so a region
+  costs the boundary crossings it actually sees plus one impulse per occupant per tick.
+  A body removed while inside is dropped when it fails to resolve, since its Exit event
+  will never arrive.
+- **Sleeping bodies are not woken by a region**, matching PhysX: a force region does not
+  hold a scene awake. A body already at rest inside a region stays at rest until
+  something else disturbs it.
+- **`JoltWindProvider` supplies `Physics::WindRequests`.** AzFramework declares that
+  interface and leaves the implementation to the physics backend; the only one in 26.05
+  ships with PhysX, which a Jolt project disables, so everything that reads wind (cloth,
+  vegetation, the sibling JoltHair gem) previously saw a null interface with nothing to
+  explain it. Tagging follows PhysX's model - a region carrying the configured global tag
+  contributes wind everywhere, one carrying the local tag contributes inside its own
+  bounds - so wind content transfers too.
+- **A wind region's velocity is its world-space force's vector.** Other force types have
+  no direction that means "wind" on their own and are ignored by the wind interface
+  rather than guessed at.
+
 ## Transform sync
 
 - **A sleeping body whose pose has not changed does not write its entity transform.**

@@ -18,6 +18,7 @@ set(FILES
     Tests/JoltTriggerTests.cpp
     Tests/JoltCollisionEventTests.cpp
     Tests/JoltRagdollTests.cpp
+    Tests/JoltForceRegionTests.cpp
     Tests/JoltRigidBodyTests.cpp
     Tests/JoltComponentBodyCreationTests.cpp
     Tests/JoltCharacterTests.cpp

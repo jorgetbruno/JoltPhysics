@@ -23,6 +23,12 @@ set(FILES
     Source/Pipeline/JoltMeshAsset.h
     Source/Pipeline/JoltMeshAssetHandler.cpp
     Source/Pipeline/JoltMeshAssetHandler.h
+    Source/ForceRegion/JoltForceRegionForces.h
+    Source/ForceRegion/JoltForceRegionForces.cpp
+    Source/ForceRegion/JoltForceRegionComponent.h
+    Source/ForceRegion/JoltForceRegionComponent.cpp
+    Source/ForceRegion/JoltWindProvider.h
+    Source/ForceRegion/JoltWindProvider.cpp
     Source/Clients/Components/JoltRigidBodyComponent.cpp
     Source/Clients/Components/JoltRigidBodyComponent.h
     Source/Clients/Components/JoltStaticRigidBodyComponent.cpp

@@ -26,6 +26,10 @@ deviations from PhysX behavior.
   actor's skeleton yet — that integration is the remaining piece of the skinning
   story.
 
+- **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
+  spline component to follow), and force regions have no editor viewport preview of the
+  forces they apply.
+
 ## Build / Tooling
 
 - Gem registers via `external_subdirectories` (O3DE 26.05 manifest behavior), not the

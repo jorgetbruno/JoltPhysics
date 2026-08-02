@@ -20,6 +20,11 @@
 
 namespace JoltPhysics
 {
+    class JoltWindProvider;
+}
+
+namespace JoltPhysics
+{
     class JoltSystem;
 
     class JoltPhysicsSystemComponent
@@ -130,6 +135,11 @@ namespace JoltPhysics
         //! They live in the runtime component, not only in the builder, because games and the
         //! Asset Processor must be able to load .joltmesh product assets too.
         AZStd::vector<AZStd::unique_ptr<AZ::Data::AssetHandler>> m_assetHandlers;
+
+        //! Supplies Physics::WindRequests from wind-tagged force regions. Owned here
+        //! because in a Jolt project nothing else would: AzFramework declares the
+        //! interface and leaves the implementation to the physics backend.
+        AZStd::unique_ptr<JoltWindProvider> m_windProvider;
     };
 
 } // namespace JoltPhysics

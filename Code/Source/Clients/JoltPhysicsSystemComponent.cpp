@@ -1,5 +1,7 @@
 #include <Clients/JoltPhysicsSystemComponent.h>
 
+#include <ForceRegion/JoltWindProvider.h>
+
 #include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Console/IConsole.h>
 #include <AzCore/Serialization/SerializeContext.h>
@@ -147,11 +149,17 @@ namespace JoltPhysics
         // WhiteBox gem's EditorWhiteBoxColliderComponent) go through AZ::Interface<Physics::System>
         // specifically, so both need to resolve to this component.
         AZ::Interface<Physics::System>::Register(this);
+
+        // Nothing else supplies wind in a Jolt project - the engine declares the interface
+        // and PhysX, which this gem replaces, is the only backend that implements it.
+        m_windProvider = AZStd::make_unique<JoltWindProvider>();
     }
 
     void JoltPhysicsSystemComponent::Deactivate()
     {
         AZ::Interface<Physics::System>::Unregister(this);
+
+        m_windProvider.reset();
 
         AZ::TickBus::Handler::BusDisconnect();
         JoltPhysicsSystemRequestBus::Handler::BusDisconnect();
