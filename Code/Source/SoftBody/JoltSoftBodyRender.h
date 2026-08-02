@@ -17,6 +17,15 @@ namespace JoltPhysics
     //!
     //! A soft body has no mesh asset and its shape changes every step, so this is the only
     //! way to see one. Positions are already in world space, so no transform is pushed.
+    //! Marks the particles a soft body holds in place.
+    //!
+    //! Pinning is the one soft-body setting with no viewport feedback at all: the presets
+    //! are chosen from a combo box that never shows which particles they mean, and runtime
+    //! pinning is by particle index against a body that displays no indices. Authors could
+    //! only check a choice by running the simulation and watching what fell.
+    void DrawSoftBodyPinnedParticles(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZStd::vector<AZ::Vector3>& pinnedPositions);
+
     void DrawSoftBody(
         AzFramework::DebugDisplayRequests& debugDisplay,
         const AZStd::vector<AZ::Vector3>& vertexPositions,

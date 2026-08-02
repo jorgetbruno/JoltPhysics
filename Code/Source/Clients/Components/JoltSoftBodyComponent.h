@@ -99,5 +99,8 @@ namespace JoltPhysics
 
         //! Reused every frame so drawing a soft body does not allocate per tick.
         AZStd::vector<AZ::Vector3> m_vertexPositionCache;
+        //! Scratch for the pinned-particle markers, kept so drawing them costs no
+        //! allocation per frame.
+        AZStd::vector<AZ::Vector3> m_pinnedPositions;
     };
 } // namespace JoltPhysics

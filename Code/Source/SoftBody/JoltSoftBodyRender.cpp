@@ -10,6 +10,28 @@ namespace JoltPhysics
         const AZ::Color SurfaceColor(0.85f, 0.45f, 0.25f, 0.35f);
         const AZ::Color WireColor(1.00f, 0.70f, 0.45f, 0.90f);
         const AZ::Color PreviewColor(0.85f, 0.45f, 0.25f, 0.65f);
+        //! Cold against the body's warm palette, so a pin reads at a glance.
+        const AZ::Color PinnedColor(0.30f, 0.75f, 1.00f, 1.00f);
+        constexpr float PinnedMarkerRadius = 0.03f;
+    }
+
+    void DrawSoftBodyPinnedParticles(
+        AzFramework::DebugDisplayRequests& debugDisplay, const AZStd::vector<AZ::Vector3>& pinnedPositions)
+    {
+        if (pinnedPositions.empty())
+        {
+            return;
+        }
+
+        // Drawn over the surface rather than through it: a pin on the far side of a
+        // draped cloth is exactly the one an author is trying to find.
+        debugDisplay.DepthTestOff();
+        debugDisplay.SetColor(PinnedColor);
+        for (const AZ::Vector3& position : pinnedPositions)
+        {
+            debugDisplay.DrawBall(position, PinnedMarkerRadius);
+        }
+        debugDisplay.DepthTestOn();
     }
 
     void DrawSoftBody(

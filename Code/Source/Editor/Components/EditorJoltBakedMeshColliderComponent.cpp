@@ -1,3 +1,5 @@
+#include <AzCore/std/math.h>
+#include <Jolt/Physics/Collision/Shape/CompoundShape.h>
 #include <Editor/Components/EditorJoltBakedMeshColliderComponent.h>
 
 #include <AzCore/Component/TransformBus.h>
@@ -29,6 +31,7 @@ namespace JoltPhysics
             serializeContext->Class<EditorJoltBakedMeshColliderComponent, EditorJoltColliderComponentBase>()
                 ->Version(2)
                 ->Field("MeshType", &EditorJoltBakedMeshColliderComponent::m_meshType)
+                ->Field("BakeStatus", &EditorJoltBakedMeshColliderComponent::m_bakeStatus)
                 ->Field("ConvexMode", &EditorJoltBakedMeshColliderComponent::m_convexMode)
                 ->Field("DecompositionMaxHulls", &EditorJoltBakedMeshColliderComponent::m_decompositionMaxHulls)
                 ->Field("DecompositionVoxelResolution", &EditorJoltBakedMeshColliderComponent::m_decompositionVoxelResolution)
@@ -87,6 +90,9 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0)
                     ->UIElement(AZ::Edit::UIHandlers::Button, "", "Re-bake the collision mesh from the entity's current render geometry.")
                         ->Attribute(AZ::Edit::Attributes::ButtonText, "Bake from render mesh")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltBakedMeshColliderComponent::m_bakeStatus,
+                        "Status", "What the last bake produced, and whether one is running.")
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, true)
                         ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorJoltBakedMeshColliderComponent::OnBakeButtonPressed)
                     ;
             }
@@ -241,6 +247,7 @@ namespace JoltPhysics
             return false;
         }
 
+        m_bakeStatus = "Decomposing...";
         AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s': decomposing %zu triangles into at most "
             "%u hulls...\n",
             GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
@@ -271,6 +278,8 @@ namespace JoltPhysics
             m_shapeConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), m_meshType);
             m_debugLinesDirty = true;
             MarkBakedDataDirty();
+            m_bakeStatus = AZStd::string::format(
+                "%zu hulls, %zu KiB - save the level to keep it", hullCount, cookedData.size() / 1024);
             AZ_Printf("JoltPhysics", "Jolt Baked Mesh Collider on entity '%s' decomposed into %zu hulls (%zu KiB). "
                 "Save the level to keep it.\n",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
@@ -280,6 +289,7 @@ namespace JoltPhysics
         {
             // The geometry was there and VHACD still produced nothing; retrying every
             // tick would just burn worker threads, so give up until the user re-bakes.
+            m_bakeStatus = "Decomposition produced no hulls";
             AZ_Warning("JoltPhysics", false,
                 "Jolt Baked Mesh Collider: convex decomposition produced no hulls on entity '%s'.",
                 GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>");
@@ -356,6 +366,14 @@ namespace JoltPhysics
             m_shapeConfiguration = Physics::CookedMeshShapeConfiguration();
             m_debugLinesDirty = true;
         }
+
+        // The wireframe refreshes either way, but the edit-mode body did not: switching
+        // Triangle Mesh to Convex Hull left the editor scene simulating the old geometry
+        // while the viewport drew the new, and a failed re-bake left a phantom collider
+        // for geometry that had just been cleared. Editor-world consumers - the vehicle
+        // settle preview's ground raycast, the soft-body live drape - would then rest on
+        // something invisible.
+        MarkBakedDataDirty();
         return AZ::Edit::PropertyRefreshLevels::AttributesAndValues;
     }
 
@@ -392,7 +410,42 @@ namespace JoltPhysics
             ? JoltMeshUtils::CreateConvexShapeFromCookedData(cookedData)
             : JoltMeshUtils::CreateMeshShapeFromCookedData(cookedData);
 
-        EditorColliderGeometry::BuildShapeWireframe(shape.GetPtr(), m_debugLines, m_debugBounds);
+        m_debugHullStarts.clear();
+
+        // A decomposition is a compound of hulls. Building each child's wireframe on its
+        // own records where it starts, so the viewport can give every hull its own colour:
+        // one flat green outline of all of them at once is exactly as informative as no
+        // outline at all, which makes the Max Hulls and Concavity knobs above unjudgeable.
+        const JPH::Shape* nativeShape = shape.GetPtr();
+        if (nativeShape != nullptr &&
+            (nativeShape->GetSubType() == JPH::EShapeSubType::StaticCompound ||
+             nativeShape->GetSubType() == JPH::EShapeSubType::MutableCompound))
+        {
+            const auto* compound = static_cast<const JPH::CompoundShape*>(nativeShape);
+            for (const JPH::CompoundShape::SubShape& subShape : compound->GetSubShapes())
+            {
+                m_debugHullStarts.push_back(m_debugLines.size());
+
+                AZStd::vector<AZ::Vector3> hullLines;
+                AZ::Aabb hullBounds = AZ::Aabb::CreateNull();
+                EditorColliderGeometry::BuildShapeWireframe(subShape.mShape, hullLines, hullBounds);
+
+                // Sub-shape positions are stored relative to the compound's centre of
+                // mass; the hulls are authored at the compound origin, so adding it back
+                // puts them where the geometry actually is.
+                const JPH::Vec3 offset = subShape.GetPositionCOM() + compound->GetCenterOfMass();
+                const AZ::Vector3 hullOffset(offset.GetX(), offset.GetY(), offset.GetZ());
+                for (AZ::Vector3& point : hullLines)
+                {
+                    point += hullOffset;
+                    m_debugBounds.AddPoint(point);
+                    m_debugLines.push_back(point);
+                }
+            }
+            return;
+        }
+
+        EditorColliderGeometry::BuildShapeWireframe(nativeShape, m_debugLines, m_debugBounds);
     }
 
     AZ::Aabb EditorJoltBakedMeshColliderComponent::GetLocalShapeBounds() const
@@ -405,6 +458,29 @@ namespace JoltPhysics
         }
         return m_debugBounds;
     }
+
+    namespace
+    {
+        //! Fully saturated colour for a hue in [0,1), so decomposed hulls are told apart
+        //! by colour rather than by guessing where one ends.
+        AZ::Color HullColorFromHue(float hue)
+        {
+            const float sector = hue * 6.0f;
+            const int index = static_cast<int>(sector) % 6;
+            const float fraction = sector - AZStd::floorf(sector);
+            const float rising = fraction;
+            const float falling = 1.0f - fraction;
+            switch (index)
+            {
+            case 0: return AZ::Color(1.0f, rising, 0.0f, 1.0f);
+            case 1: return AZ::Color(falling, 1.0f, 0.0f, 1.0f);
+            case 2: return AZ::Color(0.0f, 1.0f, rising, 1.0f);
+            case 3: return AZ::Color(0.0f, falling, 1.0f, 1.0f);
+            case 4: return AZ::Color(rising, 0.0f, 1.0f, 1.0f);
+            default: return AZ::Color(1.0f, 0.0f, falling, 1.0f);
+            }
+        }
+    } // namespace
 
     void EditorJoltBakedMeshColliderComponent::DrawShape(AzFramework::DebugDisplayRequests& debugDisplay) const
     {
@@ -428,7 +504,32 @@ namespace JoltPhysics
             m_debugLinesWorld[i] = colliderTransform.TransformPoint(m_debugLines[i]);
         }
 
-        debugDisplay.DrawLines(m_debugLinesWorld, AZ::Color(0.0f, 1.0f, 0.0f, 1.0f));
+        if (m_debugHullStarts.size() <= 1)
+        {
+            debugDisplay.DrawLines(m_debugLinesWorld, AZ::Color(0.0f, 1.0f, 0.0f, 1.0f));
+            return;
+        }
+
+        // Hues spread around the wheel so neighbouring hulls never share a colour, which
+        // is what makes a decomposition readable: where the pieces meet, and whether one
+        // has swallowed detail it should have kept.
+        AZStd::vector<AZ::Vector3> hullLines;
+        for (size_t hull = 0; hull < m_debugHullStarts.size(); ++hull)
+        {
+            const size_t begin = m_debugHullStarts[hull];
+            const size_t end =
+                (hull + 1 < m_debugHullStarts.size()) ? m_debugHullStarts[hull + 1] : m_debugLinesWorld.size();
+            if (begin >= end)
+            {
+                continue;
+            }
+
+            hullLines.assign(m_debugLinesWorld.begin() + begin, m_debugLinesWorld.begin() + end);
+
+            const float hue = static_cast<float>(hull) * 0.618033f; // golden ratio: no two adjacent hues repeat
+            const float wrapped = hue - AZStd::floorf(hue);
+            debugDisplay.DrawLines(hullLines, HullColorFromHue(wrapped));
+        }
     }
 
 } // namespace JoltPhysics

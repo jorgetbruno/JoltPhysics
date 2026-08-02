@@ -373,6 +373,20 @@ namespace JoltPhysics
         if (auto* debugDisplay = AzFramework::DebugDisplayRequestBus::FindFirstHandler(debugDisplayBus))
         {
             DrawSoftBody(*debugDisplay, m_vertexPositionCache, softBody->GetTriangleIndices());
+
+            // Which particles are held, read from the live body rather than re-derived
+            // from the preset: a mesh-sourced body has no preset, and runtime
+            // SetVertexPinned calls would never show up in one anyway.
+            m_pinnedPositions.clear();
+            const AZ::u32 vertexCount = static_cast<AZ::u32>(m_vertexPositionCache.size());
+            for (AZ::u32 index = 0; index < vertexCount; ++index)
+            {
+                if (softBody->IsVertexPinned(index))
+                {
+                    m_pinnedPositions.push_back(m_vertexPositionCache[index]);
+                }
+            }
+            DrawSoftBodyPinnedParticles(*debugDisplay, m_pinnedPositions);
         }
     }
 

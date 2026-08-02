@@ -119,8 +119,17 @@ namespace JoltPhysics
         //! Last progress decile already printed, so the console gets one line per 10%.
         int m_reportedProgressDecile = -1;
 
+        //! What the last bake produced, shown read-only in the property grid. Decomposition
+        //! runs on a worker for seconds at a time and reported only to the console, so
+        //! from the inspector a running bake and a dead button looked identical.
+        AZStd::string m_bakeStatus;
+
         //! Edge list (point pairs, entity-local space) of the baked mesh, for viewport drawing.
         mutable AZStd::vector<AZ::Vector3> m_debugLines;
+        //! Where each hull's segments start in m_debugLines, so the viewport can give
+        //! every hull its own colour - one flat green wireframe made a decomposition
+        //! impossible to judge, which is the whole point of the tuning parameters above.
+        mutable AZStd::vector<size_t> m_debugHullStarts;
         mutable AZStd::vector<AZ::Vector3> m_debugLinesWorld; //!< Per-frame transformed scratch.
         mutable AZ::Aabb m_debugBounds = AZ::Aabb::CreateNull(); //!< Bounds of the same vertices.
         mutable bool m_debugLinesDirty = true;
