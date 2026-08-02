@@ -4,6 +4,7 @@
 #include <Shape/JoltShape.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Material/JoltMaterial.h>
+#include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
@@ -136,10 +137,21 @@ namespace JoltPhysics
         // this covers a dynamic body sliding over a static mesh or heightfield.
         bodySettings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
-        if (m_configuration.m_mass > 0.0f)
+        // Mass: computed from the geometry, or taken from the configuration. The engine
+        // defaults m_computeMass to true and PhysX honours it, so a body ported from PhysX
+        // carries a meaningless m_mass of 1 kg that used to be applied verbatim here -
+        // every crate in a migrated level weighing the same as a loaf of bread.
+        //
+        // CalculateInertia either way: Jolt derives the inertia tensor from the shape and
+        // scales it to whichever mass it is given, which is what both branches want.
+        const float configuredMass = m_configuration.m_computeMass ? 0.0f : m_configuration.m_mass;
+        const float resolvedMass = configuredMass > 0.0f ? configuredMass : ComputeMassFromGeometry();
+        if (resolvedMass > 0.0f)
         {
             bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            bodySettings.mMassPropertiesOverride.mMass = m_configuration.m_mass;
+            bodySettings.mMassPropertiesOverride.mMass = resolvedMass;
+            // Keep the configuration honest, so GetMass and a later save agree with the body.
+            m_configuration.m_mass = resolvedMass;
         }
 
         bodySettings.mAllowSleeping = m_configuration.m_sleepMinEnergy > 0.0f;
@@ -827,6 +839,46 @@ namespace JoltPhysics
         return JoltShapeUtils::MakeMutableCompound(m_baseShape, createdColliderCount);
     }
 
+    float JoltRigidBody::ComputeMassFromGeometry() const
+    {
+        // Jolt builds shapes at its own default density, so a shape's computed mass is
+        // volume * JPH default density - divide it back out to recover the volume, then
+        // apply the collider's real material density. The two defaults are both
+        // 1000 kg/m^3, so an unauthored material scales by exactly one.
+        constexpr float JoltDefaultShapeDensity = 1000.0f;
+
+        float totalMass = 0.0f;
+        for (const JoltColliderMaterial& entry : m_colliderMaterials)
+        {
+            const auto* joltShape = azrtti_cast<const JoltShape*>(entry.m_shape.get());
+            if (!joltShape)
+            {
+                continue;
+            }
+            const auto* nativeShape = static_cast<const JPH::Shape*>(joltShape->GetNativePointer());
+            if (!nativeShape)
+            {
+                continue;
+            }
+
+            // A triangle mesh encloses no volume and reports no mass; it cannot contribute
+            // to a dynamic body's mass and Jolt will not simulate one dynamically anyway.
+            const float volume = nativeShape->GetMassProperties().mMass / JoltDefaultShapeDensity;
+            if (volume <= 0.0f)
+            {
+                continue;
+            }
+
+            float density = JoltMaterial::DefaultDensity;
+            if (const auto* material = azdynamic_cast<const JoltMaterial*>(entry.Get().get()))
+            {
+                density = material->GetDensity();
+            }
+            totalMass += volume * density;
+        }
+        return totalMass;
+    }
+
     void JoltRigidBody::ApplyBaseShapeToBody()
     {
         auto* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
@@ -842,13 +894,14 @@ namespace JoltPhysics
                 Conversions::ToJolt(-m_configuration.m_centerOfMassOffset), JPH::Quat::sIdentity(), m_baseShape);
         }
 
-        // Recompute the inertia for the new geometry, then restore an explicitly
-        // configured mass (which the recompute would otherwise overwrite with the
-        // density-derived mass).
+        // Recompute the inertia for the new geometry, then set the mass the body should
+        // have: recomputed from the new geometry when the body computes its own mass,
+        // otherwise the configured one (which the recompute would have overwritten).
         bodyInterface->SetShape(m_bodyId, shape, /*updateMassProperties*/ true, JPH::EActivation::Activate);
-        if (m_configuration.m_mass > 0.0f)
+        const float mass = m_configuration.m_computeMass ? ComputeMassFromGeometry() : m_configuration.m_mass;
+        if (mass > 0.0f)
         {
-            SetMass(m_configuration.m_mass);
+            SetMass(mass);
         }
     }
 
@@ -923,38 +976,69 @@ namespace JoltPhysics
         const AZ::Matrix3x3& inertiaTensorOverride,
         const float massOverride)
     {
-        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_COM) == AzPhysics::MassComputeFlags::COMPUTE_COM)
+        // Each flag means "compute this from the geometry", and the engine documents the
+        // matching override parameter as *ignored* when its flag is set. This read used to
+        // be inverted - applying an override precisely when asked to compute - so the
+        // default call, UpdateMassProperties() with DEFAULT flags, set mass to 1 kg, the
+        // centre of mass to zero and the inertia to identity instead of recomputing any
+        // of them.
+        const auto isSet = [flags](AzPhysics::MassComputeFlags flag)
         {
-            SetCenterOfMassOffset(centerOfMassOffsetOverride);
+            return (flags & flag) == flag;
+        };
+        const bool computeCenterOfMass = isSet(AzPhysics::MassComputeFlags::COMPUTE_COM);
+        const bool computeInertia = isSet(AzPhysics::MassComputeFlags::COMPUTE_INERTIA);
+        const bool computeMass = isSet(AzPhysics::MassComputeFlags::COMPUTE_MASS);
+
+        // Computing the centre of mass means letting the geometry decide it, which in this
+        // backend is the absence of an offset (see the centre-of-mass entry in DIVERGENCES).
+        SetCenterOfMassOffset(computeCenterOfMass ? AZ::Vector3::CreateZero() : centerOfMassOffsetOverride);
+
+        const float geometryMass = ComputeMassFromGeometry();
+        const float mass = computeMass ? (geometryMass > 0.0f ? geometryMass : m_configuration.m_mass)
+                                       : massOverride;
+        m_configuration.m_computeMass = computeMass;
+        m_configuration.m_mass = mass;
+
+        if (!m_scene || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+        auto* physicsSystem = m_scene->GetJoltPhysicsSystem();
+        if (!physicsSystem)
+        {
+            return;
         }
 
-        if (m_scene && !m_bodyId.IsInvalid())
+        JPH::BodyLockWrite bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded())
         {
-            if (auto* physicsSystem = m_scene->GetJoltPhysicsSystem())
-            {
-                JPH::BodyLockWrite bodyLock(physicsSystem->GetBodyLockInterface(), m_bodyId);
-                if (bodyLock.Succeeded())
-                {
-                    JPH::Body& body = bodyLock.GetBody();
-                    if (body.GetMotionProperties())
-                    {
-                        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_MASS) == AzPhysics::MassComputeFlags::COMPUTE_MASS)
-                        {
-                            m_configuration.m_mass = massOverride;
-                            body.GetMotionProperties()->SetInverseMass(1.0f / AZStd::max(massOverride, 0.001f));
-                        }
-                        if ((flags & AzPhysics::MassComputeFlags::COMPUTE_INERTIA) == AzPhysics::MassComputeFlags::COMPUTE_INERTIA)
-                        {
-                            // Jolt stores a diagonal local inertia; off-diagonal elements are not supported.
-                            body.GetMotionProperties()->SetInverseInertia(JPH::Vec3(
-                                inertiaTensorOverride(0, 0) > 0.0f ? 1.0f / inertiaTensorOverride(0, 0) : 0.0f,
-                                inertiaTensorOverride(1, 1) > 0.0f ? 1.0f / inertiaTensorOverride(1, 1) : 0.0f,
-                                inertiaTensorOverride(2, 2) > 0.0f ? 1.0f / inertiaTensorOverride(2, 2) : 0.0f),
-                                body.GetMotionProperties()->GetInertiaRotation());
-                        }
-                    }
-                }
-            }
+            return;
+        }
+        JPH::Body& body = bodyLock.GetBody();
+        JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+        if (!motionProperties)
+        {
+            return;
+        }
+
+        if (computeInertia)
+        {
+            // Take the shape's own inertia tensor and scale it to the mass in force, which
+            // is what Jolt does when it builds a body with CalculateInertia.
+            JPH::MassProperties massProperties = body.GetShape()->GetMassProperties();
+            massProperties.ScaleToMass(AZStd::max(mass, 0.001f));
+            motionProperties->SetMassProperties(motionProperties->GetAllowedDOFs(), massProperties);
+        }
+        else
+        {
+            motionProperties->SetInverseMass(1.0f / AZStd::max(mass, 0.001f));
+            // Jolt stores a diagonal local inertia; off-diagonal elements are not supported.
+            motionProperties->SetInverseInertia(JPH::Vec3(
+                inertiaTensorOverride(0, 0) > 0.0f ? 1.0f / inertiaTensorOverride(0, 0) : 0.0f,
+                inertiaTensorOverride(1, 1) > 0.0f ? 1.0f / inertiaTensorOverride(1, 1) : 0.0f,
+                inertiaTensorOverride(2, 2) > 0.0f ? 1.0f / inertiaTensorOverride(2, 2) : 0.0f),
+                motionProperties->GetInertiaRotation());
         }
     }
 

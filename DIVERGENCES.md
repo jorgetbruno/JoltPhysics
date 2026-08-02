@@ -503,6 +503,38 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Mass properties
+
+- **`Compute Mass` is honored, and it is on by default** — matching the engine's
+  `RigidBodyConfiguration` defaults and PhysX. A body computes its mass as the sum
+  over its colliders of shape volume × material density (default 1000 kg/m³, so a
+  1 m³ box weighs 1000 kg, exactly as under PhysX). Untick it to author a mass; the
+  Mass field is greyed while the geometry is in charge, rather than hidden, so the
+  inspector shows who owns the value. Inertia is always derived from the shape and
+  scaled to whichever mass is in force.
+  - **This changed behavior for content authored before it.** The gem previously
+    applied `m_mass` verbatim whenever it was above zero, and its inspector offered
+    no compute toggle, so bodies saved by earlier versions carry a typed mass with
+    `Compute Mass` unset in the file and therefore defaulting to *on*. Those bodies
+    now weigh what their geometry implies. Untick Compute Mass to restore an
+    authored value. The change is deliberate: a level ported from PhysX carries
+    `m_mass = 1` as a meaningless leftover (PhysX never reads it while computing),
+    so honoring it made every crate, barrel and ragdoll limb in a migrated project
+    weigh one kilogram.
+  - Triangle meshes enclose no volume and contribute no mass; a body whose geometry
+    is entirely non-volumetric falls back to its configured mass.
+- **`UpdateMassProperties` flags mean "compute", not "override".** The engine
+  documents each override parameter as ignored when its matching `COMPUTE_` flag is
+  set. The gem previously read this backwards — applying an override precisely when
+  asked to compute — which made the documented default call,
+  `UpdateMassProperties()`, set a body to 1 kg with identity inertia and a zero
+  center of mass instead of recomputing any of them.
+- **Per-collider densities are respected** on multi-collider bodies: each collider
+  contributes its own volume × its own material's density. Jolt itself carries
+  density on the shape, but shapes are shared and cached here (a cooked mesh caches
+  its native shape on the configuration), so the gem computes the mass rather than
+  mutating shared geometry.
+
 ## Scene queries and rigid body details
 
 - **Async scene queries complete on the next `FinishSimulation`**, not on a worker

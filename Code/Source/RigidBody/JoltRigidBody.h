@@ -159,6 +159,12 @@ namespace JoltPhysics
         //! Pushes m_baseShape onto the live Jolt body, re-applying the center of mass
         //! offset wrap and preserving an explicitly configured mass.
         void ApplyBaseShapeToBody();
+
+        //! Mass implied by the body's own geometry and its colliders' material densities,
+        //! which is what "Compute Mass" means: volume x density, summed over the colliders.
+        //! Returns 0 when nothing has volume - an empty body, or one whose only geometry is
+        //! a triangle mesh - so callers can fall back to the configured mass.
+        float ComputeMassFromGeometry() const;
     };
 
 } // namespace JoltPhysics

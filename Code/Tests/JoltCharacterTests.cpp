@@ -63,6 +63,8 @@ namespace JoltPhysics
 
             AzPhysics::RigidBodyConfiguration boxConfig;
             boxConfig.m_position = position;
+            // The caller names a mass, so the geometry must not override it.
+            boxConfig.m_computeMass = false;
             boxConfig.m_mass = mass;
             boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
             return m_scene->AddSimulatedBody(&boxConfig);

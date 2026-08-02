@@ -50,9 +50,17 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_kinematic,
                         "Kinematic", "Determines how the movement/position of the rigid body is controlled.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_computeMass,
+                        "Compute mass", "Derive the mass from the collider volumes and their material densities. "
+                        "Untick to author a mass directly.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_mass,
-                        "Mass", "Mass of the rigid body in kilograms.")
+                        "Mass", "Mass of the rigid body in kilograms. Read-only while Compute mass is ticked, "
+                        "because the geometry decides it.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                        // Greyed rather than hidden: a field that vanishes looks like a
+                        // missing feature, while a greyed one with the checkbox above it
+                        // says who is in charge of the value.
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &AzPhysics::RigidBodyConfiguration::m_computeMass)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_initialLinearVelocity,
                         "Initial linear velocity", "Initial linear velocity of the rigid body when it is activated.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_initialAngularVelocity,

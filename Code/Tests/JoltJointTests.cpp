@@ -71,6 +71,9 @@ namespace JoltPhysics
             AzPhysics::RigidBodyConfiguration boxConfig;
             boxConfig.m_position = position;
             boxConfig.m_initialAngularVelocity = initialAngularVelocity;
+            // An authored mass, not a computed one: these thresholds are calibrated
+            // against the body's weight, so the geometry must not decide it.
+            boxConfig.m_computeMass = false;
             boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
             return m_scene->AddSimulatedBody(&boxConfig);
         }
@@ -127,6 +130,9 @@ namespace JoltPhysics
             boxConfig.m_position = position;
             boxConfig.m_initialAngularVelocity = initialAngularVelocity;
             boxConfig.m_gravityEnabled = false;
+            // An authored mass, not a computed one: these thresholds are calibrated
+            // against the body's weight, so the geometry must not decide it.
+            boxConfig.m_computeMass = false;
             boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
             return m_scene->AddSimulatedBody(&boxConfig);
         }

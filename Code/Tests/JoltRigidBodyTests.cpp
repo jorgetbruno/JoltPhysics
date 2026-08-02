@@ -83,23 +83,69 @@ namespace JoltPhysics
         auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
         ASSERT_NE(body, nullptr);
 
-        // Unit box, mass 1: I = m/12 * (h^2 + d^2) = 1/6 per axis.
+        // A unit box computing its own mass weighs its volume times the default material
+        // density: 1 m^3 at 1000 kg/m^3. Inertia follows: I = m/12 * (h^2 + d^2) = m/6.
+        const float mass = body->GetMass();
+        ASSERT_NEAR(mass, 1000.0f, 0.01f);
+
         const AZ::Matrix3x3 inertia = body->GetInertiaLocal();
-        EXPECT_NEAR(inertia(0, 0), 1.0f / 6.0f, 0.01f);
-        EXPECT_NEAR(inertia(1, 1), 1.0f / 6.0f, 0.01f);
-        EXPECT_NEAR(inertia(2, 2), 1.0f / 6.0f, 0.01f);
+        EXPECT_NEAR(inertia(0, 0), mass / 6.0f, 0.1f);
+        EXPECT_NEAR(inertia(1, 1), mass / 6.0f, 0.1f);
+        EXPECT_NEAR(inertia(2, 2), mass / 6.0f, 0.1f);
 
         const AZ::Matrix3x3 inverseInertia = body->GetInverseInertiaLocal();
-        EXPECT_NEAR(inverseInertia(0, 0), 6.0f, 0.1f);
+        EXPECT_NEAR(inverseInertia(0, 0), 6.0f / mass, 0.001f);
     }
 
-    TEST_F(JoltRigidBodyTests, UpdateMassPropertiesAppliesOverrides)
+    TEST_F(JoltRigidBodyTests, MassComesFromVolumeWhenComputed)
     {
+        // Compute Mass is the engine default and what PhysX does, so a body ported from
+        // PhysX - which leaves m_mass at a meaningless 1 - has to end up weighing what its
+        // geometry implies rather than one kilogram.
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        boxShape->m_dimensions = AZ::Vector3(2.0f, 3.0f, 4.0f); // 24 m^3
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+        ASSERT_TRUE(config.m_computeMass) << "the engine default this fix depends on has changed";
+        ASSERT_NEAR(config.m_mass, 1.0f, 0.01f) << "the meaningless mass a PhysX body arrives with";
+
+        auto* body = static_cast<AzPhysics::RigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(m_scene->AddSimulatedBody(&config)));
+        ASSERT_NE(body, nullptr);
+        EXPECT_NEAR(body->GetMass(), 24.0f * 1000.0f, 1.0f);
+    }
+
+    TEST_F(JoltRigidBodyTests, AnAuthoredMassWinsOverTheGeometry)
+    {
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_computeMass = false;
+        config.m_mass = 7.0f;
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+
+        auto* body = static_cast<AzPhysics::RigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(m_scene->AddSimulatedBody(&config)));
+        ASSERT_NE(body, nullptr);
+        EXPECT_NEAR(body->GetMass(), 7.0f, 0.01f);
+
+        // Inertia is still derived from the shape, scaled to the authored mass.
+        EXPECT_NEAR(body->GetInertiaLocal()(0, 0), 7.0f / 6.0f, 0.01f);
+    }
+
+    TEST_F(JoltRigidBodyTests, UpdateMassPropertiesAppliesOverridesWhenNotAskedToCompute)
+    {
+        // The engine documents each override as ignored when its COMPUTE flag is set, so
+        // an override only lands when the matching flag is *absent*. This used to be read
+        // backwards, which made the overrides work and computing impossible.
         auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
         ASSERT_NE(body, nullptr);
 
         body->UpdateMassProperties(
-            AzPhysics::MassComputeFlags::COMPUTE_MASS | AzPhysics::MassComputeFlags::COMPUTE_INERTIA,
+            AzPhysics::MassComputeFlags::NONE,
             AZ::Vector3::CreateZero(),
             AZ::Matrix3x3::CreateDiagonal(AZ::Vector3(1.0f, 2.0f, 3.0f)),
             5.0f);
@@ -110,6 +156,23 @@ namespace JoltPhysics
         EXPECT_NEAR(inertia(0, 0), 1.0f, 0.01f);
         EXPECT_NEAR(inertia(1, 1), 2.0f, 0.01f);
         EXPECT_NEAR(inertia(2, 2), 3.0f, 0.01f);
+    }
+
+    TEST_F(JoltRigidBodyTests, UpdateMassPropertiesRecomputesFromGeometryByDefault)
+    {
+        auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
+        ASSERT_NE(body, nullptr);
+
+        body->SetMass(3.0f);
+        ASSERT_NEAR(body->GetMass(), 3.0f, 0.01f);
+
+        // A bare UpdateMassProperties() means "recompute everything from the shapes".
+        // Inverted, it set the body to the parameter defaults instead: 1 kg, identity
+        // inertia, zero centre of mass - quietly destroying real mass properties.
+        body->UpdateMassProperties();
+
+        EXPECT_NEAR(body->GetMass(), 1000.0f, 1.0f);
+        EXPECT_NEAR(body->GetInertiaLocal()(0, 0), 1000.0f / 6.0f, 1.0f);
     }
 
     TEST_F(JoltRigidBodyTests, CenterOfMassOffsetShiftsMassFrame)
@@ -312,6 +375,7 @@ namespace JoltPhysics
         auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
         AzPhysics::RigidBodyConfiguration config;
         config.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        config.m_computeMass = false; // an authored mass is the point of this test
         config.m_mass = 7.0f;
         config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
         auto handle = m_scene->AddSimulatedBody(&config);
