@@ -71,6 +71,10 @@ namespace JoltPhysics
         // one asset, the one it references.
         void OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
         void OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
+        //! Without this the Contents row says "Loading..." for the rest of the session and
+        //! nothing is logged - a renamed or deleted mesh group is a normal authoring
+        //! event, so this failure has to be visible where it happened.
+        void OnAssetError(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
 
         // AZ::Render::MeshComponentNotificationBus
         void OnModelReady(const AZ::Data::Asset<AZ::RPI::ModelAsset>& modelAsset,
@@ -115,6 +119,9 @@ namespace JoltPhysics
         //! mesh"). Serialized only because edit-context rows must be backed by a
         //! serialized member; recomputed whenever the asset state changes.
         AZStd::string m_contentLabel;
+        //! Set when the asset bus reports a load failure, so the Contents row stops
+        //! claiming the asset is still on its way.
+        bool m_assetFailedToLoad = false;
 
         AZ::NonUniformScaleChangedEvent::Handler m_nonUniformScaleChangedHandler;
 

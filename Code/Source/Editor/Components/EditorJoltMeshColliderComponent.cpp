@@ -145,12 +145,41 @@ namespace JoltPhysics
         RebuildEditorCollider();
     }
 
+    void EditorJoltMeshColliderComponent::OnAssetError(AZ::Data::Asset<AZ::Data::AssetData> asset)
+    {
+        if (asset != m_proxyShapeConfiguration.m_asset)
+        {
+            return;
+        }
+
+        // Renaming a mesh group in Scene Settings orphans the references to it (see the
+        // asset pipeline section of DIVERGENCES), so this is a failure authors reach by
+        // doing something ordinary - and it used to leave no trace at all: a permanent
+        // "Loading..." in the inspector and a body exported with no collision.
+        m_assetFailedToLoad = true;
+        m_contentLabel = "Failed to load - reprocess or reassign the asset";
+        AZ_Warning("JoltPhysics", false,
+            "Mesh collider on entity '%s': the .joltmesh asset '%s' failed to load, so this collider has no "
+            "geometry. The asset may have failed to process, or the mesh group it came from was renamed or "
+            "removed - check the Asset Processor and reassign the asset.",
+            GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+            m_proxyShapeConfiguration.m_asset.GetHint().c_str());
+
+        m_debugLinesDirty = true;
+        AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(
+            &AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay,
+            AzToolsFramework::Refresh_EntireTree);
+
+        RebuildEditorCollider();
+    }
+
     void EditorJoltMeshColliderComponent::OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset)
     {
         if (asset == m_proxyShapeConfiguration.m_asset)
         {
             m_proxyShapeConfiguration.m_asset = asset;
             m_proxyShapeConfiguration.m_configuration.m_asset = asset;
+            m_assetFailedToLoad = false;
 
             UpdateMaterialSlotsFromMeshAsset();
             UpdateContentLabel();
@@ -206,7 +235,9 @@ namespace JoltPhysics
         const auto* asset = m_proxyShapeConfiguration.m_asset.GetAs<Pipeline::JoltMeshAsset>();
         if (!m_proxyShapeConfiguration.m_asset.IsReady() || asset == nullptr)
         {
-            m_contentLabel = "Loading...";
+            // "Loading..." is only true while it might still arrive; past an error it is
+            // the message that hides the problem.
+            m_contentLabel = m_assetFailedToLoad ? "Failed to load - reprocess or reassign the asset" : "Loading...";
             return;
         }
 

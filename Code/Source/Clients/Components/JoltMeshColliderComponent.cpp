@@ -1,3 +1,4 @@
+#include <AzCore/Component/Entity.h>
 #include <Clients/Components/JoltMeshColliderComponent.h>
 
 #include <AzCore/Component/NonUniformScaleBus.h>
@@ -201,10 +202,15 @@ namespace JoltPhysics
         const auto* asset = m_shapeConfig->m_asset.GetAs<Pipeline::JoltMeshAsset>();
         if (!m_shapeConfig->m_asset.IsReady() || asset == nullptr || asset->m_assetData.m_colliderShapes.empty())
         {
-            // No shapes to expand (asset missing, still loading, or cooked empty):
-            // fall back to the single unexpanded pair, matching the base behavior.
-            // Activate already blocked on the load, so this only happens when the
-            // asset failed or genuinely has no collider shapes.
+            // No shapes to expand, and Activate already blocked on the load - so the asset
+            // failed or cooked empty rather than being slow. Either way this body ends up
+            // with no mesh collision, which is exactly the "why does my level have no
+            // collision" hunt that is impossible to run without a message.
+            AZ_Warning("JoltPhysics", false,
+                "Mesh collider on entity '%s': the .joltmesh asset '%s' has no collider shapes (it failed to "
+                "load, or cooked empty), so this body has no mesh collision.",
+                GetEntity() ? GetEntity()->GetName().c_str() : "<unknown>",
+                m_shapeConfig->m_asset.GetHint().c_str());
             return { GetShapeColliderPair() };
         }
 
