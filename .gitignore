@@ -2,3 +2,6 @@ build/
 _build/
 *.user
 .vs/
+
+# Audit findings: kept locally, not part of the repo
+AUDIT.md
