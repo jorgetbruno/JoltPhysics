@@ -87,8 +87,15 @@ outside it (see [The gem family](#the-gem-family)).
   ScriptCanvas can drive a vehicle (`JoltVehicleRequestBus`), tune and read a soft body
   (`JoltSoftBodyRequestBus`), drive and query a joint motor (`JoltJointRequestBus`, with
   a `JoltJointNotificationBus` handler for a joint breaking) and ask a character whether
-  it is grounded (`JoltCharacterGameplayRequestBus`). Rigid bodies, colliders and scene
-  queries are scriptable through the engine's own AzPhysics buses
+  it is grounded (`JoltCharacterGameplayRequestBus`).
+- **`Physics::RigidBodyRequestBus` is reflected by this gem** — velocities, impulses,
+  mass, damping, sleep, kinematic and gravity control on any Jolt body. AzFramework
+  declares that bus but leaves the script binding to a backend, and in 26.05 the only
+  one that supplies it is the PhysX gem, which a Jolt project has to disable; without
+  this the most-used physics script surface was missing entirely. The registration
+  yields if something else claimed the name first.
+- Scene queries and body enable/disable come from AzFramework's own reflection and
+  work regardless.
 
 **Determinism**
 - Scene simulation state snapshot and restore (`SaveSimulationState` /

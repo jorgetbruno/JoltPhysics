@@ -43,6 +43,19 @@ namespace JoltPhysics
         AZ::BehaviorContext* m_behaviorContext = nullptr;
     };
 
+    TEST_F(JoltScriptReflectionTests, RigidBodyBusIsReflectedWithTheGameplayControlSurface)
+    {
+        // AzFramework declares Physics::RigidBodyRequestBus but leaves the script binding
+        // to whichever backend is running, and in 26.05 the only one that reflects it is
+        // the PhysX gem - which a Jolt project disables. Without this the most-used
+        // physics script surface is simply absent: no impulses, no velocities, no mass.
+        ExpectBusHasEvents("RigidBodyRequestBus",
+            { "GetMass", "SetMass", "GetLinearVelocity", "SetLinearVelocity", "GetAngularVelocity",
+              "SetAngularVelocity", "ApplyLinearImpulse", "ApplyLinearImpulseAtWorldPoint",
+              "ApplyAngularImpulse", "IsKinematic", "SetKinematic", "SetKinematicTarget",
+              "IsGravityEnabled", "SetGravityEnabled", "ForceAwake", "ForceAsleep", "GetAabb" });
+    }
+
     TEST_F(JoltScriptReflectionTests, VehicleBusIsReflectedWithItsDrivingAndWheelEvents)
     {
         ExpectBusHasEvents("JoltVehicleRequestBus",

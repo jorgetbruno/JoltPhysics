@@ -2,11 +2,13 @@
 #include <Clients/Components/JoltRigidBodyComponent.h>
 
 #include <AzCore/Component/Entity.h>
+#include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzFramework/Physics/PhysicsScene.h>
+#include <AzFramework/Physics/RigidBodyBus.h>
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/SystemBus.h>
 #include <AzFramework/Physics/ColliderComponentBus.h>
@@ -18,6 +20,65 @@ namespace JoltPhysics
 {
     void JoltRigidBodyComponent::Reflect(AZ::ReflectContext* context)
     {
+        // The single most-used physics script surface, and in a Jolt project nobody was
+        // reflecting it: AzFramework declares Physics::RigidBodyRequestBus but leaves the
+        // script binding to a backend, and the only implementation in 26.05 lives in the
+        // PhysX gem - which a Jolt project has to disable. So Lua and Script Canvas could
+        // not set a velocity, apply an impulse or read a mass on any body.
+        //
+        // Guarded like the gem's property handlers: if PhysX (or anything else) got there
+        // first, leave its registration alone rather than fighting over the name.
+        Internal::ReflectEBusOnce(context, "RigidBodyRequestBus",
+            [](AZ::BehaviorContext* behaviorContext)
+            {
+                behaviorContext->EBus<Physics::RigidBodyRequestBus>("RigidBodyRequestBus")
+                    ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
+                    ->Attribute(AZ::Script::Attributes::Category, "Physics")
+                    ->Event("EnablePhysics", &Physics::RigidBodyRequests::EnablePhysics)
+                    ->Event("DisablePhysics", &Physics::RigidBodyRequests::DisablePhysics)
+                    ->Event("IsPhysicsEnabled", &Physics::RigidBodyRequests::IsPhysicsEnabled)
+
+                    ->Event("GetCenterOfMassWorld", &Physics::RigidBodyRequests::GetCenterOfMassWorld)
+                    ->Event("GetCenterOfMassLocal", &Physics::RigidBodyRequests::GetCenterOfMassLocal)
+                    ->Event("SetCenterOfMassOffset", &Physics::RigidBodyRequests::SetCenterOfMassOffset)
+
+                    ->Event("GetMass", &Physics::RigidBodyRequests::GetMass)
+                    ->Event("GetInverseMass", &Physics::RigidBodyRequests::GetInverseMass)
+                    ->Event("SetMass", &Physics::RigidBodyRequests::SetMass)
+
+                    ->Event("GetLinearVelocity", &Physics::RigidBodyRequests::GetLinearVelocity)
+                    ->Event("SetLinearVelocity", &Physics::RigidBodyRequests::SetLinearVelocity)
+                    ->Event("GetAngularVelocity", &Physics::RigidBodyRequests::GetAngularVelocity)
+                    ->Event("SetAngularVelocity", &Physics::RigidBodyRequests::SetAngularVelocity)
+                    ->Event("GetLinearVelocityAtWorldPoint", &Physics::RigidBodyRequests::GetLinearVelocityAtWorldPoint)
+
+                    ->Event("ApplyLinearImpulse", &Physics::RigidBodyRequests::ApplyLinearImpulse)
+                    ->Event("ApplyLinearImpulseAtWorldPoint", &Physics::RigidBodyRequests::ApplyLinearImpulseAtWorldPoint)
+                    ->Event("ApplyAngularImpulse", &Physics::RigidBodyRequests::ApplyAngularImpulse)
+
+                    ->Event("GetLinearDamping", &Physics::RigidBodyRequests::GetLinearDamping)
+                    ->Event("SetLinearDamping", &Physics::RigidBodyRequests::SetLinearDamping)
+                    ->Event("GetAngularDamping", &Physics::RigidBodyRequests::GetAngularDamping)
+                    ->Event("SetAngularDamping", &Physics::RigidBodyRequests::SetAngularDamping)
+
+                    ->Event("IsAwake", &Physics::RigidBodyRequests::IsAwake)
+                    ->Event("ForceAsleep", &Physics::RigidBodyRequests::ForceAsleep)
+                    ->Event("ForceAwake", &Physics::RigidBodyRequests::ForceAwake)
+                    ->Event("GetSleepThreshold", &Physics::RigidBodyRequests::GetSleepThreshold)
+                    ->Event("SetSleepThreshold", &Physics::RigidBodyRequests::SetSleepThreshold)
+
+                    ->Event("IsKinematic", &Physics::RigidBodyRequests::IsKinematic)
+                    ->Event("SetKinematic", &Physics::RigidBodyRequests::SetKinematic)
+                    ->Event("SetKinematicTarget", &Physics::RigidBodyRequests::SetKinematicTarget)
+
+                    ->Event("IsGravityEnabled", &Physics::RigidBodyRequests::IsGravityEnabled)
+                    ->Event("SetGravityEnabled", &Physics::RigidBodyRequests::SetGravityEnabled)
+                    ->Event("SetSimulationEnabled", &Physics::RigidBodyRequests::SetSimulationEnabled)
+
+                    ->Event("GetAabb", &Physics::RigidBodyRequests::GetAabb)
+                    ;
+            });
+
         Internal::ReflectOnce<AzPhysics::SimulatedBodyConfiguration>(context);
         Internal::ReflectOnce<AzPhysics::RigidBodyConfiguration>(context);
 
