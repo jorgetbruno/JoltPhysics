@@ -174,6 +174,18 @@ namespace JoltPhysics
         const float fixedDeltaTime = m_systemConfig.m_fixedTimestep;
         m_accumulatedTime += deltaTime;
 
+        // Bound the catch-up, or a hitch feeds itself: a two-second asset compile queues
+        // ~120 steps of every scene, stepping that backlog takes longer than the stall
+        // did, and the next frame's backlog is larger still. Time past the bound is
+        // dropped - physics runs slow for a frame instead of spiralling - which is what
+        // m_maxTimestep is for. Never below one step, or a large fixed timestep would
+        // stop the simulation entirely.
+        const float maxAccumulatedTime = AZStd::max(m_systemConfig.m_maxTimestep, fixedDeltaTime);
+        if (m_accumulatedTime > maxAccumulatedTime)
+        {
+            m_accumulatedTime = maxAccumulatedTime;
+        }
+
         while (m_accumulatedTime >= fixedDeltaTime)
         {
             for (const auto& scene : m_sceneList)

@@ -2,7 +2,13 @@
 #include <AzCore/UnitTest/TestTypes.h>
 
 #include <System/JoltSystem.h>
+#include <Scene/JoltScene.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
+
+#include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
+#include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 
 namespace JoltPhysics
 {
@@ -70,6 +76,58 @@ namespace JoltPhysics
         {
             EXPECT_EQ(firstPresets[i].m_id, secondPresets[i].m_id);
         }
+    }
+
+    TEST_F(JoltSystemTests, SimulateBoundsItsCatchUpToMaxTimestep)
+    {
+        // Without a bound, a hitch feeds itself: a long stall accumulates one queued step
+        // per fixed timestep it lasted, stepping that backlog takes longer than the stall,
+        // and the next frame's backlog is larger still. m_maxTimestep caps how much time a
+        // single Simulate call may work through.
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+
+        JoltSystemConfiguration config;
+        config.m_fixedTimestep = 0.1f;
+        config.m_maxTimestep = 0.5f; // at most five steps of simulated time per call
+        system->Initialize(&config);
+
+        AzPhysics::SceneConfiguration sceneConfig;
+        sceneConfig.m_sceneName = "TimestepScene";
+        const AzPhysics::SceneHandle sceneHandle = system->AddScene(sceneConfig);
+        AzPhysics::Scene* scene = system->GetScene(sceneHandle);
+
+        // A body in free fall counts the steps for us: under gravity its speed after N
+        // steps is g * N * dt exactly, so the velocity says how much time was simulated.
+        AzPhysics::RigidBodyConfiguration bodyConfig;
+        bodyConfig.m_position = AZ::Vector3(0.0f, 0.0f, 1000.0f);
+        bodyConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+            AZStd::make_shared<Physics::ColliderConfiguration>(),
+            AZStd::make_shared<Physics::BoxShapeConfiguration>());
+        auto* body = azdynamic_cast<AzPhysics::RigidBody*>(
+            scene->GetSimulatedBodyFromHandle(scene->AddSimulatedBody(&bodyConfig)));
+        ASSERT_NE(body, nullptr);
+
+        // Ten seconds of backlog - a debugger pause, or a long asset build - is a hundred
+        // queued steps unbounded, and the body would be doing 98 m/s.
+        system->Simulate(10.0f);
+
+        // Half a second of falling, a little under g*0.5 because Jolt damps by default.
+        // Bounds rather than an exact figure: the claim is that roughly five steps ran,
+        // not a hundred, and damping makes the exact value a function of step count.
+        const float speedAfterHitch = -body->GetLinearVelocity().GetZ();
+        EXPECT_GT(speedAfterHitch, 4.0f) << "the hitch simulated less than the bound allows";
+        EXPECT_LT(speedAfterHitch, 5.5f) << "the catch-up was not bounded";
+
+        // And the backlog does not survive to be paid off later: the next ordinary frame
+        // advances one step, not the ninety-five that were dropped.
+        system->Simulate(0.1f);
+        const float gainedInOneFrame = -body->GetLinearVelocity().GetZ() - speedAfterHitch;
+        EXPECT_GT(gainedInOneFrame, 0.5f);
+        EXPECT_LT(gainedInOneFrame, 1.5f) << "the dropped backlog was paid off on a later frame";
+
+        system->RemoveScene(sceneHandle);
+        system->Shutdown();
     }
 
     TEST_F(JoltSystemTests, SystemCanBeCreated)
