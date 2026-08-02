@@ -292,6 +292,88 @@ namespace JoltPhysics
         }
     }
 
+    //! A cooked convex hull whose points sit far from its own origin, so its centre of
+    //! mass is nowhere near the pose it is queried at. Jolt poses query shapes by their
+    //! centre of mass, so anything that forgets the correction runs the query displaced
+    //! by this offset - and every primitive shape hides the bug, their centre of mass
+    //! being the origin already.
+    static AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration> MakeOffCentreHull(float centreX)
+    {
+        AZStd::vector<AZ::Vector3> points;
+        for (const float dx : { -0.5f, 0.5f })
+        {
+            for (const float dy : { -0.5f, 0.5f })
+            {
+                for (const float dz : { -0.5f, 0.5f })
+                {
+                    points.push_back(AZ::Vector3(centreX + dx, dy, dz));
+                }
+            }
+        }
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackConvexMesh(points.data(), static_cast<AZ::u32>(points.size()));
+        cookedConfig->SetCookedMeshData(
+            blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+        return cookedConfig;
+    }
+
+    static void ReleaseCachedMesh(Physics::CookedMeshShapeConfiguration& config)
+    {
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(config.GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            config.SetCachedNativeMesh(nullptr);
+        }
+    }
+
+    TEST_F(JoltSceneQueryTests, OverlapWithAConvexHullPosesItByItsOriginNotItsCentroid)
+    {
+        CreateStaticBox(AZ::Vector3::CreateZero(), AZ::Vector3(1.0f, 1.0f, 1.0f));
+
+        // The hull's geometry sits 5 m along +x of its own origin, so posing its origin at
+        // -5 puts the geometry over the box at the world origin. Treating the pose as a
+        // centre-of-mass transform instead would put the geometry at -10 and find nothing.
+        auto hull = MakeOffCentreHull(5.0f);
+
+        AzPhysics::OverlapRequest request;
+        request.m_shapeConfiguration = hull;
+        request.m_pose = AZ::Transform::CreateTranslation(AZ::Vector3(-5.0f, 0.0f, 0.0f));
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        EXPECT_EQ(hits.m_hits.size(), 1u);
+
+        // And the mirror image: posed at its own origin, the geometry is out at +5 and
+        // must not find the box. This is what fails if the correction is applied twice.
+        request.m_pose = AZ::Transform::CreateIdentity();
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty());
+
+        ReleaseCachedMesh(*hull);
+    }
+
+    TEST_F(JoltSceneQueryTests, ShapeCastWithAConvexHullPosesItByItsOriginNotItsCentroid)
+    {
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(4.0f, 4.0f, 1.0f));
+
+        auto hull = MakeOffCentreHull(5.0f);
+
+        // Start the hull's origin at (-5, 0, 5): its geometry is then directly above the
+        // slab, and casting down 10 m must land on the slab's top face at z = 0. The hull
+        // is 1 m deep, so its origin stops 0.5 m above that.
+        AzPhysics::ShapeCastRequest request;
+        request.m_shapeConfiguration = hull;
+        request.m_start = AZ::Transform::CreateTranslation(AZ::Vector3(-5.0f, 0.0f, 5.0f));
+        request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        request.m_distance = 10.0f;
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        EXPECT_NEAR(hits.m_hits[0].m_distance, 4.5f, 0.05f);
+        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 0.0f, 0.05f);
+
+        ReleaseCachedMesh(*hull);
+    }
+
     TEST_F(JoltSceneQueryTests, FilterCallbackReceivesTheHitShape)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));

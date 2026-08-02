@@ -298,7 +298,16 @@ namespace JoltPhysics
         const JPH::RMat44 startTransform = JPH::RMat44::sRotationTranslation(
             Conversions::ToJolt(request.m_start.GetRotation()),
             Conversions::ToJolt(request.m_start.GetTranslation()));
-        const JPH::RShapeCast shapeCast(shape, JPH::Vec3::sReplicate(1.0f), startTransform, direction);
+        // Jolt poses a cast shape by its centre of mass, not its origin, and a cooked
+        // convex hull's centre of mass is its centroid - so handing it the world pose
+        // directly would run the whole query displaced by that centroid. sFromWorldTransform
+        // applies the correction; it is a no-op for the primitives, whose centre of mass
+        // is already the origin.
+        const JPH::RShapeCast shapeCast =
+            JPH::RShapeCast::sFromWorldTransform(shape, JPH::Vec3::sReplicate(1.0f), startTransform, direction);
+        // CollideShape below takes the same centre-of-mass convention, but as a plain
+        // transform with no helper of its own.
+        const JPH::RMat44 startTransformCOM = startTransform.PreTranslated(shape->GetCenterOfMass());
 
         const JPH::NarrowPhaseQuery& query = physicsSystem->GetNarrowPhaseQuery();
         const QueryBroadPhaseLayerFilter broadPhaseLayerFilter(request.m_queryType);
@@ -354,7 +363,7 @@ namespace JoltPhysics
         {
             JPH::CollideShapeSettings collideSettings;
             JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collideCollector;
-            query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), startTransform, collideSettings, JPH::RVec3::sZero(), collideCollector,
+            query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), startTransformCOM, collideSettings, JPH::RVec3::sZero(), collideCollector,
                 broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
 
             if (collideCollector.HadHit())
@@ -400,9 +409,13 @@ namespace JoltPhysics
             return false;
         }
 
+        // PreTranslated by the shape's centre of mass: CollideShape's transform parameter
+        // is a centre-of-mass transform, so a cooked convex hull handed its raw world pose
+        // would overlap-test from its centroid instead of its origin. No-op for primitives.
         const JPH::RMat44 pose = JPH::RMat44::sRotationTranslation(
             Conversions::ToJolt(request.m_pose.GetRotation()),
-            Conversions::ToJolt(request.m_pose.GetTranslation()));
+            Conversions::ToJolt(request.m_pose.GetTranslation()))
+            .PreTranslated(shape->GetCenterOfMass());
 
         const JPH::NarrowPhaseQuery& query = physicsSystem->GetNarrowPhaseQuery();
         const QueryBroadPhaseLayerFilter broadPhaseLayerFilter(request.m_queryType);
