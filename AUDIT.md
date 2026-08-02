@@ -11,6 +11,36 @@ restatement of a gap the gem already tracks or a divergence it already justifies
 Severity: **P0** correctness/crash/data-loss a user would hit · **P1** user-visible pain or
 a missing piece blocking real use · **P2** quality-of-life or debt · **P3** nice-to-have.
 
+## Status
+
+**Every P1 is fixed** (2026-08-02), each with tests and a DIVERGENCES entry where the
+behaviour changed. In commit order:
+
+| Finding | Commit |
+|---|---|
+| Fixed-step catch-up was unbounded | `dc3e7c9` |
+| Shape casts and overlaps posed query shapes by their centroid | `4a75d4a` |
+| `AddShape`/`RemoveShape` displaced convex hulls | `5829b46` |
+| Mass ignored `m_computeMass` and density; `UpdateMassProperties` flags inverted | `a084bab` |
+| `m_isSimulated` / `m_isInSceneQueries` ignored | `df22a92` |
+| `RigidBodyRequestBus` unreachable from script | `adc690e` |
+| No exported per-module Jolt globals installer | `84727e7` |
+| A failed `.joltmesh` load was invisible | `3441f75` |
+| Collision events: per-manifold cost and duplicate Persist | `e8227e0` |
+| Heightfield full-grid copy, ignored dirty region, scene-wide wake | `2582582` |
+| Transform sync ignored sleep | `bcd3060` |
+| No force regions and no wind provider | `e022524` |
+
+Two things surfaced while fixing them and are **not** yet addressed:
+
+- `JoltScene` never signals `OnSceneSimulationStart` / `OnSceneSimulationFinish`, although
+  `JoltSceneInterface` exposes registration for both — so an engine consumer registering
+  those handlers gets nothing.
+- Per-body collision dispatch cannot be gated on whether anything is listening:
+  `AzPhysics::SimulatedBody` keeps its collision events private with no way to ask.
+
+The P2 and P3 findings below are untouched.
+
 
 ## P1
 

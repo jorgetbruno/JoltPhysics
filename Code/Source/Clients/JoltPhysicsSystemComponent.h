@@ -18,10 +18,7 @@
 
 #include <Clients/DefaultWorldComponent.h>
 
-namespace JoltPhysics
-{
-    class JoltWindProvider;
-}
+#include <ForceRegion/JoltWindProvider.h>
 
 namespace JoltPhysics
 {

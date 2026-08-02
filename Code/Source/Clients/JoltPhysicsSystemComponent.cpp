@@ -1,7 +1,5 @@
 #include <Clients/JoltPhysicsSystemComponent.h>
 
-#include <ForceRegion/JoltWindProvider.h>
-
 #include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Console/IConsole.h>
 #include <AzCore/Serialization/SerializeContext.h>
