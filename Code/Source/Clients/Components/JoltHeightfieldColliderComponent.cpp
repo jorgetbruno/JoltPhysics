@@ -89,6 +89,10 @@ namespace JoltPhysics
             return false;
         }
 
+        // Seed the mirror the update path compares against, so the first change can be
+        // located without fetching the whole grid a second time.
+        m_lastHeights = heights;
+
         // Per-triangle material slots; Jolt resolves friction/restitution at contact time
         // (see JoltStaticRigidBody::CreateInScene), so default Jolt materials suffice here.
         AZStd::vector<AZ::Data::Asset<Physics::MaterialAsset>> providerMaterials;
@@ -136,33 +140,41 @@ namespace JoltPhysics
     }
 
     void JoltHeightfieldColliderComponent::OnHeightfieldDataChanged(
-        [[maybe_unused]] const AZ::Aabb& dirtyRegion,
+        const AZ::Aabb& dirtyRegion,
         Physics::HeightfieldProviderNotifications::HeightfieldChangeMask changeMask)
     {
         if ((changeMask & Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::HeightData) !=
             Physics::HeightfieldProviderNotifications::HeightfieldChangeMask::None)
         {
-            UpdateHeightsFromProvider();
+            // The provider says exactly what changed; taking it means a shovel-sized
+            // deformation costs a shovel-sized update rather than the whole map.
+            RefreshHeightsFromProvider(dirtyRegion);
         }
     }
 
     void JoltHeightfieldColliderComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
-        // Poll as a safety net for providers that change data without firing
-        // HeightfieldProviderNotificationBus (UpdateHeightsFromProvider early-outs
-        // when nothing changed).
-        UpdateHeightsFromProvider();
+        // A safety net for providers that change data without firing
+        // HeightfieldProviderNotificationBus, throttled because it is not free: the only
+        // way to ask "did anything change?" is to fetch the entire grid and compare it,
+        // so at 60 fps this was megabytes of copy and compare per second per heightfield
+        // to usually learn that nothing had happened. Every fifteenth frame bounds how
+        // stale a silent change can get - about a quarter second - at a fifteenth of the
+        // cost.
+        if (--m_ticksUntilProviderPoll > 0)
+        {
+            return;
+        }
+        m_ticksUntilProviderPoll = TicksBetweenProviderPolls;
+        RefreshHeightsFromProvider(AZ::Aabb::CreateNull());
     }
 
-    void JoltHeightfieldColliderComponent::UpdateHeightsFromProvider()
+    void JoltHeightfieldColliderComponent::RefreshHeightsFromProvider(const AZ::Aabb& dirtyRegion)
     {
         if (!m_nativeShape)
         {
             return;
         }
-
-        AZ::Vector2 gridSpacing;
-        Physics::HeightfieldProviderRequestsBus::EventResult(gridSpacing, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeightfieldGridSpacing);
 
         size_t numColumns = 0;
         size_t numRows = 0;
@@ -170,21 +182,10 @@ namespace JoltPhysics
             numColumns, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeightfieldGridColumns);
         Physics::HeightfieldProviderRequestsBus::EventResult(
             numRows, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeightfieldGridRows);
-
-        AZStd::vector<float> heights;
-        Physics::HeightfieldProviderRequestsBus::EventResult(heights, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeights);
-
-        if (numColumns < 2 || numRows < 2 || heights.size() != numColumns * numRows)
+        if (numColumns < 2 || numRows < 2)
         {
             return;
         }
-
-        if (heights == m_lastHeights)
-        {
-            // Nothing changed since the last update.
-            return;
-        }
-        m_lastHeights = heights;
 
         auto* heightFieldShape = static_cast<JPH::HeightFieldShape*>(const_cast<JPH::Shape*>(m_nativeShape.GetPtr()));
         const AZ::u32 sampleCount = heightFieldShape->GetSampleCount();
@@ -197,13 +198,88 @@ namespace JoltPhysics
             return;
         }
 
-        AZStd::vector<float> paddedHeights(sampleCount * sampleCount, FLT_MAX /* cNoCollisionValue */);
-        for (size_t y = 0; y < numRows; ++y)
+        // Sample bounds of what actually changed, as a half-open [min, max) grid box.
+        size_t changedMinColumn = 0;
+        size_t changedMinRow = 0;
+        size_t changedMaxColumn = numColumns;
+        size_t changedMaxRow = numRows;
+
+        const bool mirrorIsUsable = m_lastHeights.size() == numColumns * numRows;
+        bool haveRegion = false;
+        if (dirtyRegion.IsValid() && mirrorIsUsable)
         {
-            for (size_t x = 0; x < numColumns; ++x)
+            size_t startColumn = 0;
+            size_t startRow = 0;
+            size_t regionColumns = 0;
+            size_t regionRows = 0;
+            Physics::HeightfieldProviderRequestsBus::Event(
+                GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeightfieldIndicesFromRegion,
+                dirtyRegion, startColumn, startRow, regionColumns, regionRows);
+
+            if (regionColumns > 0 && regionRows > 0 && startColumn < numColumns && startRow < numRows)
             {
-                paddedHeights[y * sampleCount + x] = heights[y * numColumns + x];
+                changedMinColumn = startColumn;
+                changedMinRow = startRow;
+                changedMaxColumn = AZStd::min(startColumn + regionColumns, numColumns);
+                changedMaxRow = AZStd::min(startRow + regionRows, numRows);
+
+                // Read back only the region, into the mirror. This is the provider API's
+                // own partial path - the gem used to ignore it and re-fetch everything.
+                AZStd::vector<float>& mirror = m_lastHeights;
+                Physics::HeightfieldProviderRequestsBus::Event(
+                    GetEntityId(), &Physics::HeightfieldProviderRequests::UpdateHeightsAndMaterials,
+                    [&mirror, numColumns](size_t column, size_t row, const Physics::HeightMaterialPoint& point)
+                    {
+                        mirror[row * numColumns + column] = point.m_height;
+                    },
+                    startColumn, startRow, changedMaxColumn - startColumn, changedMaxRow - startRow);
+                haveRegion = true;
             }
+        }
+
+        if (!haveRegion)
+        {
+            // No usable region: fetch the grid and find the change ourselves. Still better
+            // than pushing everything to Jolt, since the sub-rectangle below is what gets
+            // recompressed.
+            AZStd::vector<float> heights;
+            Physics::HeightfieldProviderRequestsBus::EventResult(
+                heights, GetEntityId(), &Physics::HeightfieldProviderRequests::GetHeights);
+            if (heights.size() != numColumns * numRows)
+            {
+                return;
+            }
+            if (heights == m_lastHeights)
+            {
+                return; // nothing changed since the last look
+            }
+
+            if (mirrorIsUsable)
+            {
+                changedMinColumn = numColumns;
+                changedMinRow = numRows;
+                changedMaxColumn = 0;
+                changedMaxRow = 0;
+                for (size_t row = 0; row < numRows; ++row)
+                {
+                    for (size_t column = 0; column < numColumns; ++column)
+                    {
+                        const size_t index = row * numColumns + column;
+                        if (heights[index] != m_lastHeights[index])
+                        {
+                            changedMinColumn = AZStd::min(changedMinColumn, column);
+                            changedMinRow = AZStd::min(changedMinRow, row);
+                            changedMaxColumn = AZStd::max(changedMaxColumn, column + 1);
+                            changedMaxRow = AZStd::max(changedMaxRow, row + 1);
+                        }
+                    }
+                }
+                if (changedMinColumn >= changedMaxColumn || changedMinRow >= changedMaxRow)
+                {
+                    return;
+                }
+            }
+            m_lastHeights = AZStd::move(heights);
         }
 
         auto* joltSystem = GetJoltSystem();
@@ -212,43 +288,95 @@ namespace JoltPhysics
             return;
         }
 
+        // Jolt requires the rectangle to sit on block boundaries, so grow it outwards to
+        // the enclosing blocks. Samples past the provider's grid are the no-collision
+        // padding the shape was built with.
+        const AZ::u32 blockSize = AZStd::max(heightFieldShape->GetBlockSize(), 1u);
+        const auto snapDown = [blockSize](size_t value)
+        {
+            return static_cast<AZ::u32>((value / blockSize) * blockSize);
+        };
+        const auto snapUp = [blockSize, sampleCount](size_t value)
+        {
+            const AZ::u32 snapped = static_cast<AZ::u32>(((value + blockSize - 1) / blockSize) * blockSize);
+            return AZStd::min(snapped, sampleCount);
+        };
+
+        const AZ::u32 blockMinColumn = snapDown(changedMinColumn);
+        const AZ::u32 blockMinRow = snapDown(changedMinRow);
+        const AZ::u32 blockMaxColumn = snapUp(changedMaxColumn);
+        const AZ::u32 blockMaxRow = snapUp(changedMaxRow);
+        const AZ::u32 blockColumns = blockMaxColumn - blockMinColumn;
+        const AZ::u32 blockRows = blockMaxRow - blockMinRow;
+        if (blockColumns == 0 || blockRows == 0)
+        {
+            return;
+        }
+
+        AZStd::vector<float> patch(static_cast<size_t>(blockColumns) * blockRows, FLT_MAX /* cNoCollisionValue */);
+        for (AZ::u32 row = 0; row < blockRows; ++row)
+        {
+            const size_t sourceRow = blockMinRow + row;
+            if (sourceRow >= numRows)
+            {
+                continue;
+            }
+            for (AZ::u32 column = 0; column < blockColumns; ++column)
+            {
+                const size_t sourceColumn = blockMinColumn + column;
+                if (sourceColumn >= numColumns)
+                {
+                    continue;
+                }
+                patch[static_cast<size_t>(row) * blockColumns + column] =
+                    m_lastHeights[sourceRow * numColumns + sourceColumn];
+            }
+        }
+
         heightFieldShape->SetHeights(
-            0, 0, sampleCount, sampleCount, paddedHeights.data(), static_cast<intptr_t>(sampleCount), *joltSystem->GetJoltAllocator());
+            blockMinColumn, blockMinRow, blockColumns, blockRows, patch.data(),
+            static_cast<intptr_t>(blockColumns), *joltSystem->GetJoltAllocator());
 
         // Refresh the static body's broadphase bounds.
         AzPhysics::SimulatedBody* simulatedBody = nullptr;
         AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
             simulatedBody, GetEntityId(), &AzPhysics::SimulatedBodyComponentRequestsBus::Events::GetSimulatedBody);
-        if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(simulatedBody))
+        auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(simulatedBody);
+        if (!staticBody)
         {
-            if (auto* scene = static_cast<JoltScene*>(staticBody->GetScene()))
-            {
-                if (auto* bodyInterface = scene->GetBodyInterface())
-                {
-                    const AZ::Vector3 comPosition = staticBody->GetPosition();
-                    bodyInterface->NotifyShapeChanged(
-                        staticBody->GetBodyId(),
-                        JPH::Vec3(comPosition.GetX(), comPosition.GetY(), comPosition.GetZ()),
-                        false /* update mass properties */,
-                        JPH::EActivation::DontActivate);
+            return;
+        }
+        auto* scene = static_cast<JoltScene*>(staticBody->GetScene());
+        auto* bodyInterface = scene ? scene->GetBodyInterface() : nullptr;
+        if (!bodyInterface)
+        {
+            return;
+        }
 
-                    // Wake dynamic bodies overlapping the heightfield: moving the surface
-                    // under a sleeping body generates no contacts on its own in Jolt.
-                    // Note: Jolt's heightfield narrowphase only visits blocks whose height
-                    // range overlaps the body's AABB, so raising the surface *past* a body
-                    // in one step strands it underneath. Providers should animate large
-                    // raises in small increments so bodies can ride the surface up.
-                    const AZ::Aabb heightfieldAabb = staticBody->GetAabb();
-                    for (const auto& [crc, body] : scene->GetSimulatedBodyList())
-                    {
-                        if (body && body != staticBody && body->GetAabb().Overlaps(heightfieldAabb))
-                        {
-                            if (auto* rigidBody = azdynamic_cast<AzPhysics::RigidBody*>(body))
-                            {
-                                rigidBody->ForceAwake();
-                            }
-                        }
-                    }
+        const AZ::Vector3 comPosition = staticBody->GetPosition();
+        bodyInterface->NotifyShapeChanged(
+            staticBody->GetBodyId(),
+            JPH::Vec3(comPosition.GetX(), comPosition.GetY(), comPosition.GetZ()),
+            false /* update mass properties */,
+            JPH::EActivation::DontActivate);
+
+        // Wake dynamic bodies over the part that moved: shifting the surface under a
+        // sleeping body generates no contacts on its own in Jolt. Scoped to the changed
+        // region when the provider named one - waking every body on the terrain because
+        // one corner of it deformed is a scene-wide cost for a local event.
+        //
+        // Note: Jolt's heightfield narrowphase only visits blocks whose height range
+        // overlaps the body's AABB, so raising the surface *past* a body in one step
+        // strands it underneath. Providers should animate large raises in small
+        // increments so bodies can ride the surface up.
+        const AZ::Aabb wakeRegion = dirtyRegion.IsValid() ? dirtyRegion : staticBody->GetAabb();
+        for (const auto& [crc, body] : scene->GetSimulatedBodyList())
+        {
+            if (body && body != staticBody && body->GetAabb().Overlaps(wakeRegion))
+            {
+                if (auto* rigidBody = azdynamic_cast<AzPhysics::RigidBody*>(body))
+                {
+                    rigidBody->ForceAwake();
                 }
             }
         }

@@ -38,6 +38,13 @@ namespace JoltPhysics
         // AZ::TickBus
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
 
+        //! Pushes provider height changes into the live Jolt shape.
+        //! \param dirtyRegion the world-space region the provider says changed; when it is
+        //!        valid only those samples are read and written, and only bodies over that
+        //!        region are woken. An invalid (null) region means "look for yourself",
+        //!        which is the polling path.
+        void RefreshHeightsFromProvider(const AZ::Aabb& dirtyRegion);
+
     private:
         bool BuildHeightfieldShape();
         void UpdateHeightsFromProvider();
@@ -45,7 +52,17 @@ namespace JoltPhysics
         AZStd::shared_ptr<Physics::HeightfieldShapeConfiguration> m_shapeConfiguration =
             AZStd::make_shared<Physics::HeightfieldShapeConfiguration>();
         JPH::RefConst<JPH::Shape> m_nativeShape;
+        //! Mirror of the provider's grid, so a change can be located without asking for
+        //! the whole thing again.
         AZStd::vector<float> m_lastHeights;
+
+        //! Frames until the next unprompted poll. A provider that mutates without firing
+        //! its notification is still caught, but a full-grid read and compare is far too
+        //! expensive to run every frame - a 1024x1024 terrain is 4 MB of copy and compare
+        //! for a grid that usually has not changed. The editor's wireframe throttles the
+        //! same call for the same reason.
+        int m_ticksUntilProviderPoll = 0;
+        static constexpr int TicksBetweenProviderPolls = 15;
     };
 
 } // namespace JoltPhysics

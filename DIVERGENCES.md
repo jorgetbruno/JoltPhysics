@@ -503,6 +503,27 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Heightfield updates
+
+- **A notified change updates only the region the provider names.**
+  `HeightfieldProviderNotifications::OnHeightfieldDataChanged` carries a dirty region and
+  the provider interface has a matching partial read (`GetHeightfieldIndicesFromRegion`
+  plus `UpdateHeightsAndMaterials`); the gem used to discard the region, re-fetch the
+  entire grid and hand all of it to `SetHeights`, so deforming one shovel-width of a map
+  recompressed every block in it. The rectangle is snapped outwards to Jolt's block
+  boundaries, which `SetHeights` requires.
+- **The unprompted poll is throttled to every fifteenth frame**, matching the editor
+  wireframe's rule and for the same reason: the provider interface exposes no revision or
+  hash, so "did anything change?" and "give me the whole grid" are the same call - and at
+  60 fps that was megabytes of copy and compare per second per heightfield to usually
+  learn that nothing had happened. The poll exists for providers that mutate without
+  firing their notification; the throttle bounds how stale such a change can get to about
+  a quarter second rather than removing the safety net.
+- **Waking is scoped to the changed region** when one is known, instead of every body
+  overlapping the whole terrain. Moving the surface under a sleeping body generates no
+  contacts on its own in Jolt, so bodies over the change still have to be woken - but a
+  local deformation no longer wakes every sleeping body on the map.
+
 ## Collision event dispatch
 
 - **Persist is raised once per body pair per step, not once per touching sub-shape.**

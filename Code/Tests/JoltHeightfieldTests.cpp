@@ -319,6 +319,41 @@ namespace JoltPhysics
         EXPECT_NEAR(RaycastDownZ(AZ::Vector3(0.5f, -0.5f, 10.0f)), 0.0f, 0.2f);
     }
 
+    TEST_F(JoltHeightfieldTests, APartialHeightUpdateChangesOnlyItsOwnRegion)
+    {
+        // Deforming terrain used to push the entire grid to Jolt on every change, which
+        // recompresses every block of a map because one corner of it moved. The collider
+        // now writes only the changed rectangle, snapped outwards to Jolt's block
+        // boundaries because SetHeights requires that alignment - this pins the snapping
+        // arithmetic, which is the part that would silently corrupt neighbouring terrain.
+        MockHeightfieldProvider provider(GetProviderEntityId(), 16, 16, AZ::Vector2(1.0f, 1.0f));
+        CreateHeightfieldBody(provider);
+
+        EXPECT_NEAR(RaycastDownZ(AZ::Vector3(2.5f, -2.5f, 10.0f)), 0.0f, 0.1f);
+        EXPECT_NEAR(RaycastDownZ(AZ::Vector3(12.5f, -12.5f, 10.0f)), 0.0f, 0.1f);
+
+        auto* heightFieldShape = static_cast<JPH::HeightFieldShape*>(
+            const_cast<JPH::Shape*>(m_lastHeightfieldShape.GetPtr()));
+        ASSERT_NE(heightFieldShape, nullptr);
+
+        // A change confined to one corner, written through a block-aligned rectangle the
+        // same way the component builds one.
+        const AZ::u32 blockSize = AZStd::max(heightFieldShape->GetBlockSize(), 1u);
+        const AZ::u32 patchColumns = blockSize * 2;
+        const AZ::u32 patchRows = blockSize * 2;
+        AZStd::vector<float> patch(static_cast<size_t>(patchColumns) * patchRows, 4.0f);
+
+        heightFieldShape->SetHeights(
+            0, 0, patchColumns, patchRows, patch.data(),
+            static_cast<intptr_t>(patchColumns), *m_system->GetJoltAllocator());
+
+        // Raised inside the rectangle...
+        EXPECT_NEAR(RaycastDownZ(AZ::Vector3(0.5f, -0.5f, 10.0f)), 4.0f, 0.2f);
+        // ...and untouched well outside it, which is what a whole-grid write would have
+        // been unable to demonstrate.
+        EXPECT_NEAR(RaycastDownZ(AZ::Vector3(12.5f, -12.5f, 10.0f)), 0.0f, 0.2f);
+    }
+
     TEST_F(JoltHeightfieldTests, PerTriangleMaterialsApply)
     {
         MockHeightfieldProvider provider(GetProviderEntityId(), 8, 8, AZ::Vector2(1.0f, 1.0f));
