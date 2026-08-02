@@ -165,6 +165,18 @@ namespace JoltPhysics
         bool GetMaterialForSubShape(
             const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution);
 
+        //! The collider configuration behind a contact or query sub-shape, or null when the
+        //! body is not one this scene tracks per collider. Reads the live configuration, so
+        //! a runtime change applies to existing bodies.
+        const Physics::ColliderConfiguration* GetColliderConfigurationForSubShape(
+            JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
+
+        //! Whether a sub-shape's collider takes part in simulation / in scene queries.
+        //! Both default to true, so a body the scene does not track answers true and
+        //! behaves exactly as it did before these flags were honored.
+        bool IsColliderSimulated(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
+        bool IsColliderInSceneQueries(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
+
         void FlushTransformSync();
         void InitializeJoltSystem();
 

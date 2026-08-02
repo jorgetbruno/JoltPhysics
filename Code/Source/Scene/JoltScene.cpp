@@ -6,6 +6,7 @@
 #include <Joint/JoltJointConfiguration.h>
 #include <Material/JoltMaterialManager.h>
 #include <Shape/JoltHeightfieldUtils.h>
+#include <Shape/JoltShapeUtils.h>
 #include <System/JoltSystem.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <RigidBody/JoltStaticRigidBody.h>
@@ -26,6 +27,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/StateRecorderImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/Shape/DecoratedShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -439,6 +441,60 @@ namespace JoltPhysics
             return shape;
         }
     } // namespace
+
+    const Physics::ColliderConfiguration* JoltScene::GetColliderConfigurationForSubShape(
+        JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
+    {
+        const AzPhysics::SimulatedBodyHandle bodyHandle = GetBodyHandleFromJoltId(bodyId);
+        if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return nullptr;
+        }
+
+        auto* scene = const_cast<JoltScene*>(this);
+        AzPhysics::SimulatedBody* simulatedBody = scene->GetSimulatedBodyFromHandle(bodyHandle);
+        auto* rigidBody = azrtti_cast<JoltRigidBody*>(simulatedBody);
+        auto* staticBody = rigidBody ? nullptr : azrtti_cast<JoltStaticRigidBody*>(simulatedBody);
+
+        const size_t colliderCount =
+            rigidBody ? rigidBody->GetColliderCount() : (staticBody ? staticBody->GetColliderCount() : 0);
+        if (colliderCount == 0)
+        {
+            return nullptr;
+        }
+
+        const JPH::Shape* baseShape = nullptr;
+        if (const JPH::BodyLockInterfaceNoLock* lockInterface =
+                m_physicsSystem ? &m_physicsSystem->GetBodyLockInterfaceNoLock() : nullptr)
+        {
+            JPH::BodyLockRead bodyLock(*lockInterface, bodyId);
+            if (bodyLock.Succeeded())
+            {
+                baseShape = bodyLock.GetBody().GetShape();
+            }
+        }
+
+        const size_t colliderIndex =
+            JoltShapeUtils::GetColliderIndexFromSubShapeId(baseShape, subShapeId, colliderCount);
+        if (colliderIndex >= colliderCount)
+        {
+            return nullptr;
+        }
+        return rigidBody ? rigidBody->GetColliderConfiguration(colliderIndex)
+                         : staticBody->GetColliderConfiguration(colliderIndex);
+    }
+
+    bool JoltScene::IsColliderSimulated(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
+    {
+        const Physics::ColliderConfiguration* config = GetColliderConfigurationForSubShape(bodyId, subShapeId);
+        return config == nullptr || config->m_isSimulated;
+    }
+
+    bool JoltScene::IsColliderInSceneQueries(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
+    {
+        const Physics::ColliderConfiguration* config = GetColliderConfigurationForSubShape(bodyId, subShapeId);
+        return config == nullptr || config->m_isInSceneQueries;
+    }
 
     bool JoltScene::GetMaterialForSubShape(
         const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution)
@@ -1632,6 +1688,18 @@ namespace JoltPhysics
         {
             return JPH::ValidateResult::RejectContact;
         }
+
+        // A collider with Simulated unticked is query-only geometry - a hitbox, a probe
+        // volume - so it must not push anything. Jolt has no per-sub-shape simulation
+        // flag, but rejecting the contact here is the same thing from the outside.
+        // Rejecting only this contact, not the body pair: another collider on the same
+        // body may well be simulated.
+        if (!m_scene->IsColliderSimulated(inBody1.GetID(), inCollisionResult.mSubShapeID1) ||
+            !m_scene->IsColliderSimulated(inBody2.GetID(), inCollisionResult.mSubShapeID2))
+        {
+            return JPH::ValidateResult::RejectContact;
+        }
+
         return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
     }
 

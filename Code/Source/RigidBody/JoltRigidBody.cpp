@@ -861,6 +861,14 @@ namespace JoltPhysics
                 continue;
             }
 
+            // Query-only geometry has no business adding weight, matching the engine's
+            // INCLUDE_ALL_SHAPES flag being off by default.
+            if (const Physics::ColliderConfiguration* colliderConfig = joltShape->GetColliderConfiguration();
+                colliderConfig != nullptr && !colliderConfig->m_isSimulated)
+            {
+                continue;
+            }
+
             // A triangle mesh encloses no volume and reports no mass; it cannot contribute
             // to a dynamic body's mass and Jolt will not simulate one dynamically anyway.
             const float volume = nativeShape->GetMassProperties().mMass / JoltDefaultShapeDensity;

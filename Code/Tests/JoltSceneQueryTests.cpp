@@ -374,6 +374,54 @@ namespace JoltPhysics
         ReleaseCachedMesh(*hull);
     }
 
+    TEST_F(JoltSceneQueryTests, AColliderOptedOutOfSceneQueriesIsSkippedNotJustDiscarded)
+    {
+        // Scene Queries unticked is how PhysX authors make a collider invisible to
+        // raycasts while it still collides. The near box opts out, the far one does not,
+        // so a ray down the shared column has to pass through the first and report the
+        // second - the point being that a closest-hit query must not simply return
+        // nothing when its nearest candidate is filtered.
+        auto nearCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        nearCollider->m_isInSceneQueries = false;
+        nearCollider->m_position = AZ::Vector3(0.0f, 0.0f, 2.0f);
+        auto farCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        farCollider->m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+
+        AzPhysics::ShapeColliderPairList colliders = {
+            { nearCollider, AZStd::make_shared<Physics::BoxShapeConfiguration>() },
+            { farCollider, AZStd::make_shared<Physics::BoxShapeConfiguration>() },
+        };
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_entityId = AZ::EntityId(777);
+        staticConfig.m_colliderAndShapeData = colliders;
+        m_scene->AddSimulatedBody(&staticConfig);
+
+        auto request = CreateRayDown(AZ::Vector3(0.0f, 0.0f, 6.0f));
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+        // The far box's top face, not the near one's.
+        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 0.5f, 0.01f);
+    }
+
+    TEST_F(JoltSceneQueryTests, ANonSimulatedColliderIsStillFoundByQueries)
+    {
+        // The mirror case: Simulated unticked leaves the collider query-visible. Both
+        // flags default true, so this also pins that opting out of one does not opt out
+        // of the other.
+        auto collider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        collider->m_isSimulated = false;
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_entityId = AZ::EntityId(778);
+        staticConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(collider, AZStd::make_shared<Physics::BoxShapeConfiguration>());
+        m_scene->AddSimulatedBody(&staticConfig);
+
+        auto request = CreateRayDown(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 1u);
+    }
+
     TEST_F(JoltSceneQueryTests, FilterCallbackReceivesTheHitShape)
     {
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(20.0f, 20.0f, 1.0f));

@@ -175,6 +175,39 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetInertiaLocal()(0, 0), 1000.0f / 6.0f, 1.0f);
     }
 
+    TEST_F(JoltRigidBodyTests, ANonSimulatedColliderDoesNotHoldABodyUp)
+    {
+        // Simulated unticked is how PhysX authors make query-only geometry: hitboxes,
+        // camera probes. Jolt has no per-sub-shape simulation flag, so the gem rejects
+        // the contact instead - and the observable difference is that a body lands on
+        // the floor rather than resting on a hitbox.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_isSimulated = false;
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, 2.0f);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        // A real floor further down, so the falling body has something to land on.
+        auto floorCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto floorShape = AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(20.0f, 20.0f, 1.0f));
+        AzPhysics::StaticRigidBodyConfiguration floorConfig;
+        floorConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(floorCollider, floorShape);
+        m_scene->AddSimulatedBody(&floorConfig);
+
+        auto* body = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 6.0f));
+        ASSERT_NE(body, nullptr);
+
+        SimulateSeconds(3.0f);
+
+        // Through the query-only slab at z=2.5 and down onto the floor at z=0.
+        EXPECT_LT(body->GetPosition().GetZ(), 1.0f)
+            << "the body came to rest on a collider that is not supposed to simulate";
+        EXPECT_NEAR(body->GetPosition().GetZ(), 0.5f, 0.1f);
+    }
+
     TEST_F(JoltRigidBodyTests, CenterOfMassOffsetShiftsMassFrame)
     {
         auto* body = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 10.0f));

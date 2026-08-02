@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
 
 namespace JoltPhysics
 {
@@ -184,6 +185,39 @@ namespace JoltPhysics
         }
     }
 
+    //! Drops sub-shapes whose collider has Scene Queries unticked, so a collider can be
+    //! solid to the simulation while staying invisible to raycasts and overlaps.
+    //!
+    //! A shape-level filter rather than a check on the hits: with a closest-hit collector,
+    //! discarding a hit after the fact would report nothing where a farther, perfectly
+    //! valid collider should have been found.
+    class SceneQueryColliderFilter final : public JPH::ShapeFilter
+    {
+    public:
+        explicit SceneQueryColliderFilter(const JoltScene* scene)
+            : m_scene(scene)
+        {
+        }
+
+        bool ShouldCollide(
+            [[maybe_unused]] const JPH::Shape* inShape2, const JPH::SubShapeID& inSubShapeIDOfShape2) const override
+        {
+            return m_scene == nullptr || m_scene->IsColliderInSceneQueries(mBodyID2, inSubShapeIDOfShape2);
+        }
+
+        bool ShouldCollide(
+            [[maybe_unused]] const JPH::Shape* inShape1,
+            [[maybe_unused]] const JPH::SubShapeID& inSubShapeIDOfShape1,
+            [[maybe_unused]] const JPH::Shape* inShape2,
+            const JPH::SubShapeID& inSubShapeIDOfShape2) const override
+        {
+            return m_scene == nullptr || m_scene->IsColliderInSceneQueries(mBodyID2, inSubShapeIDOfShape2);
+        }
+
+    private:
+        const JoltScene* m_scene = nullptr;
+    };
+
     bool JoltSceneQueryHelpers::QueryScene(
         JoltScene* scene,
         const AzPhysics::SceneQueryRequest* request,
@@ -229,11 +263,12 @@ namespace JoltPhysics
         const JPH::NarrowPhaseQuery& query = physicsSystem->GetNarrowPhaseQuery();
         const QueryBroadPhaseLayerFilter broadPhaseLayerFilter(request.m_queryType);
         const SceneQueryObjectLayerFilter objectLayerFilter(request.m_collisionGroup.GetMask());
+        const SceneQueryColliderFilter shapeFilter(scene);
 
         if (request.m_reportMultipleHits)
         {
             JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
-            query.CastRay(ray, JPH::RayCastSettings(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
+            query.CastRay(ray, JPH::RayCastSettings(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
 
             if (collector.HadHit())
             {
@@ -257,9 +292,16 @@ namespace JoltPhysics
         }
         else
         {
-            JPH::RayCastResult hit;
-            if (query.CastRay(ray, hit, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter()))
+            // The collector form rather than the single-result CastRay overload, because
+            // only this one takes a shape filter - and a collider opted out of scene
+            // queries has to be skipped during traversal, not discarded afterwards, or the
+            // closest valid collider behind it would never be reported.
+            JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> closestCollector;
+            query.CastRay(ray, JPH::RayCastSettings(), closestCollector, broadPhaseLayerFilter, objectLayerFilter,
+                JPH::BodyFilter(), shapeFilter);
+            if (closestCollector.HadHit())
             {
+                const JPH::RayCastResult& hit = closestCollector.mHit;
                 AzPhysics::SceneQueryHit queryHit;
                 queryHit.m_distance = hit.mFraction * request.m_distance;
                 queryHit.m_position = Conversions::FromJolt(ray.GetPointOnRay(hit.mFraction));
@@ -312,6 +354,7 @@ namespace JoltPhysics
         const JPH::NarrowPhaseQuery& query = physicsSystem->GetNarrowPhaseQuery();
         const QueryBroadPhaseLayerFilter broadPhaseLayerFilter(request.m_queryType);
         const SceneQueryObjectLayerFilter objectLayerFilter(request.m_collisionGroup.GetMask());
+        const SceneQueryColliderFilter shapeFilter(scene);
 
         JPH::ShapeCastSettings settings;
 
@@ -319,7 +362,7 @@ namespace JoltPhysics
         if (reportMultiple)
         {
             JPH::AllHitCollisionCollector<JPH::CastShapeCollector> collector;
-            query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
+            query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
             collector.Sort();
 
             for (const auto& hit : collector.mHits)
@@ -338,7 +381,7 @@ namespace JoltPhysics
         else
         {
             JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-            query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
+            query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
 
             if (collector.HadHit())
             {
@@ -364,7 +407,7 @@ namespace JoltPhysics
             JPH::CollideShapeSettings collideSettings;
             JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collideCollector;
             query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), startTransformCOM, collideSettings, JPH::RVec3::sZero(), collideCollector,
-                broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
+                broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
 
             if (collideCollector.HadHit())
             {
@@ -420,11 +463,12 @@ namespace JoltPhysics
         const JPH::NarrowPhaseQuery& query = physicsSystem->GetNarrowPhaseQuery();
         const QueryBroadPhaseLayerFilter broadPhaseLayerFilter(request.m_queryType);
         const SceneQueryObjectLayerFilter objectLayerFilter(request.m_collisionGroup.GetMask());
+        const SceneQueryColliderFilter shapeFilter(scene);
 
         JPH::CollideShapeSettings settings;
         JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
         query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), pose, settings, JPH::RVec3::sZero(), collector,
-            broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter());
+            broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
 
         // CollideShape reports every contact point; an overlap query reports one hit per body.
         AZStd::unordered_set<AZ::u32> reportedBodies;

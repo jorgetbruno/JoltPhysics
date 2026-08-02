@@ -503,6 +503,25 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+## Per-collider Simulated and Scene Queries flags
+
+- **Both are honored, through mechanisms Jolt does not offer directly.** PhysX has
+  per-shape `eSIMULATION_SHAPE` / `eSCENE_QUERY_SHAPE` flags; Jolt has no per-sub-shape
+  equivalent, so the gem produces the same observable behavior a level apart:
+  - **Simulated off** — the contact listener rejects contacts involving that
+    collider in `OnContactValidate`, so it pushes nothing and nothing rests on it.
+    Only the contact is rejected, not the body pair, since another collider on the
+    same body may well be simulated. Such colliders also contribute no mass, which
+    is the engine's `INCLUDE_ALL_SHAPES` flag being off by default.
+  - **Scene Queries off** — a `JPH::ShapeFilter` skips the collider during query
+    traversal. Deliberately a filter and not a check on the results: with a
+    closest-hit query, discarding the hit afterwards would report nothing at all
+    where a farther, perfectly valid collider should have been found.
+- **The cost is a sub-shape to collider lookup per candidate contact and per query
+  hit**, the same mapping the per-collider material resolution already does.
+- Both flags read the *live* collider configuration, so changing one applies to
+  bodies that already exist.
+
 ## Mass properties
 
 - **`Compute Mass` is honored, and it is on by default** — matching the engine's
