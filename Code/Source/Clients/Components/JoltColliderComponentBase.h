@@ -4,6 +4,7 @@
 #include <AzCore/std/smart_ptr/make_shared.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
 
+#include <AzFramework/Physics/CollisionBus.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
@@ -16,6 +17,7 @@ namespace JoltPhysics
     //! wireframes during gameplay, since runtime components are only active in game mode).
     class JoltColliderComponentBase
         : public AZ::Component
+        , protected Physics::CollisionFilteringRequestBus::Handler
     {
     public:
         AZ_RTTI(JoltColliderComponentBase, "{B1C0AA01-7E4A-4B2C-9D3E-5F6A7B8C9D0E}", AZ::Component);
@@ -36,6 +38,27 @@ namespace JoltPhysics
         //! scale applied (a compound collider returns its child entities' pairs, each
         //! already scaled by that child entity's own collider component).
         virtual AzPhysics::ShapeColliderPairList GetShapeColliderPairs() const;
+
+        // Physics::CollisionFilteringRequestBus - gameplay-driven filtering: phasing
+        // through enemies while dodging, dropping a corpse to a no-player layer. PhysX
+        // implements this on its collider component, and scripts written against it are
+        // common; without it every call returned success and changed nothing.
+        void SetCollisionLayer(const AZStd::string& layerName, AZ::Crc32 colliderTag) override;
+        AZStd::string GetCollisionLayerName() override;
+        void SetCollisionGroup(const AZStd::string& groupName, AZ::Crc32 colliderTag) override;
+        AZStd::string GetCollisionGroupName() override;
+        void ToggleCollisionLayer(const AZStd::string& layerName, AZ::Crc32 colliderTag, bool enabled) override;
+
+        //! Pushes this collider's current layer/group onto the entity's live body, which
+        //! Jolt allows without a rebuild.
+        void ApplyFilteringToBody();
+
+        //! Resolves a layer name against the gem's collision configuration.
+        static bool TryFindCollisionLayer(const AZStd::string& layerName, AzPhysics::CollisionLayer& outLayer);
+
+        //! Whether a filtering request carrying this tag addresses this collider. An empty
+        //! tag means "every collider on the entity", matching PhysX.
+        bool MatchesColliderTag(AZ::Crc32 colliderTag) const;
 
         //! Applies the entity's overall scale (world uniform scale times any
         //! NonUniformScale component) to each pair: assigns it as the shape

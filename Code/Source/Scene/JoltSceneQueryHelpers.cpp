@@ -106,6 +106,18 @@ namespace JoltPhysics
                     {
                         queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::Shape;
                     }
+
+                    // Footstep audio, impact decals and surface VFX all key off the
+                    // material a ray struck; the flag and field existed on the hit and
+                    // were never filled, so every surface resolved to the default - which
+                    // is especially galling now that per-face mesh materials are a
+                    // headline feature queries could not report at all.
+                    if (AZStd::shared_ptr<Physics::Material> material =
+                            scene->GetMaterialInstanceForSubShape(bodyId, subShapeId))
+                    {
+                        queryHit.m_physicsMaterialId = material->GetId();
+                        queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::Material;
+                    }
                 }
                 queryHit.m_resultFlags |= AzPhysics::SceneQuery::ResultFlags::BodyHandle |
                                           AzPhysics::SceneQuery::ResultFlags::EntityId;

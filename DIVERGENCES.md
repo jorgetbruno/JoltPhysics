@@ -610,6 +610,31 @@ feature, trust the topic sections below the milestones.**
 - Both flags read the *live* collider configuration, so changing one applies to
   bodies that already exist.
 
+## Runtime collision filtering
+
+- **`Physics::CollisionFilteringRequestBus` is implemented on the collider components**,
+  as PhysX implements it on its own. Gameplay-driven filtering - phasing through enemies
+  mid-dodge, dropping a corpse to a layer the player ignores - is scripted through this
+  bus, and the gem had no handler at all: every call reported success and changed
+  nothing, which is the worst failure mode available.
+- **A filtering change moves the live body between Jolt object layers** rather than
+  rebuilding it. The layer and group are passed to the body explicitly instead of read
+  back from its own configuration, because a body holds *scaled clones* of the collider
+  configurations its components own - reading them there would see the authored values,
+  not the edited ones.
+- **`ToggleCollisionLayer` can only reach masks some configured group already has.** A
+  collider stores which named group it uses, not a mask of its own, so an arbitrary
+  toggle has nowhere to live. The gem looks for a group whose mask matches the result and
+  uses it; when none does, it warns and names the fix (define the combination as a group
+  and call `SetCollisionGroup`) rather than silently doing nothing. PhysX has the same
+  per-collider storage and resolves it the same way.
+- **Layer and group names resolve out of the gem's own configuration**, not
+  `Physics::CollisionRequestBus`. Same data either way, but the bus needs the system
+  component connected, and the configuration is available to anything that links the gem.
+- `JoltShape::SetCollisionLayer`/`SetCollisionGroup` still only record on the shape - the
+  shape has no way back to the body that used it. The component bus above is the path
+  that applies to a live body.
+
 ## Mass properties
 
 - **`Compute Mass` is honored, and it is on by default** — matching the engine's
@@ -650,6 +675,13 @@ feature, trust the topic sections below the milestones.**
   fires during the scene's next simulation finish, so results reflect the state that
   step produced. A scene that is never stepped never delivers its callbacks. The single
   request form is copied on queueing, since only a borrowed pointer is passed in.
+- **Query hits carry the material they struck** (`ResultFlags::Material` and
+  `m_physicsMaterialId`), resolved per collider from the same sub-shape mapping the hit
+  already carries. Footstep audio, impact decals and surface VFX all key off it, and the
+  field was never filled, so every surface came back as the default material. The
+  per-face table is deliberately not consulted: resolving it needs the touching triangle,
+  and the collider-level material is the honest answer for a hit rather than a guess at
+  which face a shape cast grazed.
 - **Query hits identify the collider they came from.** Rigid and static bodies build
   one `Physics::Shape` per collider at creation, in compound sub-shape order, so a
   hit's Jolt sub-shape id maps straight to a collider: `SceneQueryHit::m_shape` is

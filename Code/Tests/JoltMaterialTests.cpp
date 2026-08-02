@@ -735,4 +735,58 @@ namespace JoltPhysics
             << maxAfterBounce;
     }
 
+    TEST_F(JoltMaterialTests, SceneQueryHitsCarryTheMaterialTheyStruck)
+    {
+        // AzPhysics::SceneQueryHit reserves m_physicsMaterialId behind ResultFlags::Material
+        // precisely so surface-effect systems can pick a footstep sound or an impact decal
+        // from a raycast. The gem never filled either, so every surface a ported project
+        // queried came back as the default material.
+        auto leftCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        leftCollider->m_position = AZ::Vector3(-3.0f, 0.0f, 0.0f);
+        leftCollider->m_materialSlots.SetSlots({ "left" });
+        leftCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.11f, 0.0f));
+
+        auto rightCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        rightCollider->m_position = AZ::Vector3(3.0f, 0.0f, 0.0f);
+        rightCollider->m_materialSlots.SetSlots({ "right" });
+        rightCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.77f, 0.0f));
+
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        boxShape->m_dimensions = AZ::Vector3(2.0f, 2.0f, 1.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{
+            AzPhysics::ShapeColliderPair(leftCollider, boxShape),
+            AzPhysics::ShapeColliderPair(rightCollider, boxShape),
+        };
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto rayDownAt = [](float x)
+        {
+            AzPhysics::RayCastRequest request;
+            request.m_start = AZ::Vector3(x, 0.0f, 5.0f);
+            request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+            request.m_distance = 20.0f;
+            return request;
+        };
+
+        auto leftRequest = rayDownAt(-3.0f);
+        AzPhysics::SceneQueryHits leftHits = m_scene->QueryScene(&leftRequest);
+        ASSERT_EQ(leftHits.m_hits.size(), 1u);
+        EXPECT_TRUE(
+            (leftHits.m_hits[0].m_resultFlags & AzPhysics::SceneQuery::ResultFlags::Material) ==
+            AzPhysics::SceneQuery::ResultFlags::Material)
+            << "the hit did not report that it carries a material";
+        EXPECT_TRUE(leftHits.m_hits[0].m_physicsMaterialId.IsValid());
+
+        auto rightRequest = rayDownAt(3.0f);
+        AzPhysics::SceneQueryHits rightHits = m_scene->QueryScene(&rightRequest);
+        ASSERT_EQ(rightHits.m_hits.size(), 1u);
+        EXPECT_TRUE(rightHits.m_hits[0].m_physicsMaterialId.IsValid());
+
+        // Two colliders, two materials: the ids have to differ, or the hit is reporting
+        // the body's first material rather than the one it actually struck.
+        EXPECT_NE(leftHits.m_hits[0].m_physicsMaterialId, rightHits.m_hits[0].m_physicsMaterialId);
+    }
+
 } // namespace JoltPhysics

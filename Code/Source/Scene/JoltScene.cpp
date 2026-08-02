@@ -495,6 +495,52 @@ namespace JoltPhysics
                          : staticBody->GetColliderConfiguration(colliderIndex);
     }
 
+    AZStd::shared_ptr<Physics::Material> JoltScene::GetMaterialInstanceForSubShape(
+        JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
+    {
+        const AzPhysics::SimulatedBodyHandle bodyHandle = GetBodyHandleFromJoltId(bodyId);
+        if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+        {
+            return nullptr;
+        }
+
+        auto* scene = const_cast<JoltScene*>(this);
+        AzPhysics::SimulatedBody* simulatedBody = scene->GetSimulatedBodyFromHandle(bodyHandle);
+        auto* rigidBody = azrtti_cast<JoltRigidBody*>(simulatedBody);
+        auto* staticBody = rigidBody ? nullptr : azrtti_cast<JoltStaticRigidBody*>(simulatedBody);
+
+        const size_t colliderCount =
+            rigidBody ? rigidBody->GetColliderCount() : (staticBody ? staticBody->GetColliderCount() : 0);
+        if (colliderCount == 0)
+        {
+            return nullptr;
+        }
+
+        const JPH::Shape* baseShape = nullptr;
+        if (m_physicsSystem)
+        {
+            JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterfaceNoLock(), bodyId);
+            if (bodyLock.Succeeded())
+            {
+                baseShape = bodyLock.GetBody().GetShape();
+            }
+        }
+
+        const size_t colliderIndex =
+            JoltShapeUtils::GetColliderIndexFromSubShapeId(baseShape, subShapeId, colliderCount);
+        if (colliderIndex >= colliderCount)
+        {
+            return nullptr;
+        }
+
+        // The per-face table is deliberately not consulted here. Resolving it needs the
+        // touching triangle, and a query hit already carries the sub-shape it struck, so
+        // the collider-level material is the honest answer for a hit rather than a guess
+        // at which face of a mesh a shape cast grazed.
+        return rigidBody ? rigidBody->GetColliderMaterial(colliderIndex)
+                         : staticBody->GetColliderMaterial(colliderIndex);
+    }
+
     bool JoltScene::IsColliderSimulated(JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
     {
         const Physics::ColliderConfiguration* config = GetColliderConfigurationForSubShape(bodyId, subShapeId);

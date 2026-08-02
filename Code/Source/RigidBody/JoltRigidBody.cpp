@@ -4,7 +4,6 @@
 #include <Shape/JoltShape.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Material/JoltMaterial.h>
-#include <Material/JoltMaterial.h>
 #include <Material/JoltMaterialManager.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
@@ -194,6 +193,18 @@ namespace JoltPhysics
     void JoltRigidBody::SyncTransform()
     {
         // Transform sync is handled by Jolt's simulation
+    }
+
+    void JoltRigidBody::SetObjectLayerFrom(
+        const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId)
+    {
+        auto* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!bodyInterface || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+        bodyInterface->SetObjectLayer(
+            m_bodyId, AcquireObjectLayer(collisionLayer, collisionGroupId, /*isMoving*/ true));
     }
 
     size_t JoltRigidBody::GetColliderCount() const

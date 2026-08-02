@@ -171,6 +171,13 @@ namespace JoltPhysics
         const Physics::ColliderConfiguration* GetColliderConfigurationForSubShape(
             JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
 
+        //! The material a sub-shape resolves to, for callers that need its identity rather
+        //! than its friction and restitution - scene-query hits, which surface-effect
+        //! systems read to pick a footstep sound or an impact decal. Null when the body is
+        //! not one this scene tracks per collider.
+        AZStd::shared_ptr<Physics::Material> GetMaterialInstanceForSubShape(
+            JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
+
         //! Whether a sub-shape's collider takes part in simulation / in scene queries.
         //! Both default to true, so a body the scene does not track answers true and
         //! behaves exactly as it did before these flags were honored.

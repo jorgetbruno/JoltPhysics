@@ -1,5 +1,10 @@
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
+#include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltBoxColliderComponent.h>
+#include <AzFramework/Components/TransformComponent.h>
+#include <AzFramework/Physics/CollisionBus.h>
+#include <JoltTestWarningCatcher.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <Character/JoltCharacter.h>
@@ -329,6 +334,59 @@ namespace JoltPhysics
         // shoved apart by a contact between them.
         const float separation = state[0].m_position.GetDistance(state[1].m_position);
         EXPECT_LT(separation, 0.8f);
+    }
+
+    TEST_F(JoltCollisionFilteringTests, ChangingACollidersLayerThroughTheBusMovesTheLiveBody)
+    {
+        // Gameplay-driven filtering - phasing through enemies mid-dodge, dropping a corpse
+        // to a no-player layer - is scripted through CollisionFilteringRequestBus in PhysX
+        // projects. The gem had no handler at all, so every call reported success and
+        // changed nothing, which is the worst of both worlds: no effect and no warning.
+        auto entity = AZStd::make_unique<AZ::Entity>("FilteredCollider");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        entity->Init();
+        entity->Activate();
+
+        AZStd::string layerName;
+        Physics::CollisionFilteringRequestBus::EventResult(
+            layerName, entity->GetId(), &Physics::CollisionFilteringRequests::GetCollisionLayerName);
+        EXPECT_STREQ(layerName.c_str(), "Default") << "the collider should start on the default layer";
+
+        // Name a second layer in the gem's configuration, then move the collider onto it.
+        JoltSystemConfiguration config = m_system->GetJoltConfiguration();
+        config.m_collisionConfig.m_collisionLayers.SetName(1, "Phasing");
+        m_system->UpdateConfiguration(&config);
+
+        Physics::CollisionFilteringRequestBus::Event(
+            entity->GetId(), &Physics::CollisionFilteringRequests::SetCollisionLayer,
+            AZStd::string("Phasing"), AZ::Crc32());
+
+        Physics::CollisionFilteringRequestBus::EventResult(
+            layerName, entity->GetId(), &Physics::CollisionFilteringRequests::GetCollisionLayerName);
+        EXPECT_STREQ(layerName.c_str(), "Phasing") << "the collider's layer did not change";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltCollisionFilteringTests, AnUnknownLayerNameIsRefusedOutLoud)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("FilteredCollider");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->Init();
+        entity->Activate();
+
+        JoltWarningCatcher warnings;
+        Physics::CollisionFilteringRequestBus::Event(
+            entity->GetId(), &Physics::CollisionFilteringRequests::SetCollisionLayer,
+            AZStd::string("NoSuchLayer"), AZ::Crc32());
+
+        EXPECT_TRUE(warnings.ContainsWarningWith("no collision layer named"))
+            << "a misspelt layer name should say so rather than silently doing nothing";
+
+        entity->Deactivate();
     }
 
 } // namespace JoltPhysics

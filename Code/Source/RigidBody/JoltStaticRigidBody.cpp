@@ -167,6 +167,18 @@ namespace JoltPhysics
         }
     }
 
+    void JoltStaticRigidBody::SetObjectLayerFrom(
+        const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId)
+    {
+        auto* bodyInterface = m_scene ? m_scene->GetBodyInterface() : nullptr;
+        if (!bodyInterface || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+        bodyInterface->SetObjectLayer(
+            m_bodyId, AcquireObjectLayer(collisionLayer, collisionGroupId, /*isMoving*/ false));
+    }
+
     size_t JoltStaticRigidBody::GetColliderCount() const
     {
         return m_colliderMaterials.size();

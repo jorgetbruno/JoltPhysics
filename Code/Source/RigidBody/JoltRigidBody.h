@@ -53,6 +53,17 @@ namespace JoltPhysics
 
         //! Number of colliders the body was built from (compound sub-shape order).
         size_t GetColliderCount() const;
+
+        //! Moves this live body onto the object layer implied by the given collision layer
+        //! and group. Jolt supports changing a body's object layer in place (the call
+        //! updates the broadphase), so gameplay-driven filtering needs no rebuild.
+        //!
+        //! The values are passed in rather than read back from this body's configuration,
+        //! because the body holds scaled *clones* of the collider configurations the
+        //! components own - reading them here would see the authored values, not the
+        //! edited ones.
+        void SetObjectLayerFrom(
+            const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId);
         //! The material of the collider at the given index, read live so runtime material
         //! changes (Physics::Material::SetProperty, Physics::Shape::SetMaterial) apply to
         //! contacts of existing bodies. Null when the index is out of range.
