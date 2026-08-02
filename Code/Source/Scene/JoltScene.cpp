@@ -592,12 +592,19 @@ namespace JoltPhysics
 
         // Compound bodies: material of the collider the touching sub-shape belongs to.
         // Mutable compounds appear once shapes are attached at runtime (AddShape).
-        if (shape &&
-            (shape->GetSubType() == JPH::EShapeSubType::StaticCompound ||
-             shape->GetSubType() == JPH::EShapeSubType::MutableCompound))
+        //
+        // Unwrapped first, because a centre-of-mass offset wraps the whole body shape in a
+        // RotatedTranslatedShape: without this the compound reads as a decorator, misses
+        // both branches below and falls through to collider 0's material, so setting a
+        // COM offset quietly cost a multi-collider body its per-collider and per-face
+        // materials. Decorators forward sub-shape ids unchanged, so the id stays valid.
+        const JPH::Shape* compoundCandidate = UnwrapDecoratedShape(shape);
+        if (compoundCandidate &&
+            (compoundCandidate->GetSubType() == JPH::EShapeSubType::StaticCompound ||
+             compoundCandidate->GetSubType() == JPH::EShapeSubType::MutableCompound))
         {
             JPH::SubShapeID remainder;
-            const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
+            const auto* compoundShape = static_cast<const JPH::CompoundShape*>(compoundCandidate);
             const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
             // A single-collider body can still be a compound: a mesh collider baked as a
             // convex hull group stores its hulls as compound children, and those all
@@ -1483,19 +1490,52 @@ namespace JoltPhysics
 
     void JoltScene::SetJointCollisionEnabled(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB, bool enabled)
     {
-        AZStd::unique_lock lock(m_jointedBodyPairsMutex);
-        if (enabled)
         {
-            m_jointedBodyPairs.erase(MakeContactPairKey(bodyIdA, bodyIdB));
+            AZStd::unique_lock lock(m_jointedBodyPairsMutex);
+            const AZ::u64 key = MakeContactPairKey(bodyIdA, bodyIdB);
+            if (enabled)
+            {
+                // One joint's worth of suppression released. Others on the same pair keep
+                // it suppressed, which an uncounted set could not express.
+                if (auto it = m_jointedBodyPairs.find(key); it != m_jointedBodyPairs.end())
+                {
+                    if (--it->second <= 0)
+                    {
+                        m_jointedBodyPairs.erase(it);
+                    }
+                }
+            }
+            else
+            {
+                ++m_jointedBodyPairs[key];
+            }
+            m_jointedBodyPairCount.store(static_cast<int>(m_jointedBodyPairs.size()), AZStd::memory_order_relaxed);
         }
-        else
+
+        // Jolt caches body-pair results and skips OnContactValidate entirely while a pair
+        // stays within cache tolerance - including cached "no contact" results. Without
+        // invalidating, joining two bodies that are already touching leaves the old
+        // contact constraint live and fighting the new joint, and breaking a joint between
+        // two resting bodies leaves them passing through each other. Both look like solver
+        // instability rather than a filtering problem.
+        if (m_physicsSystem)
         {
-            m_jointedBodyPairs.insert(MakeContactPairKey(bodyIdA, bodyIdB));
+            JPH::BodyInterface& bodyInterface = m_physicsSystem->GetBodyInterface();
+            bodyInterface.InvalidateContactCache(bodyIdA);
+            bodyInterface.InvalidateContactCache(bodyIdB);
         }
     }
 
     bool JoltScene::AreBodiesJointed(JPH::BodyID bodyIdA, JPH::BodyID bodyIdB) const
     {
+        // The common case is a scene with no joints, asked about every candidate contact
+        // pair from every narrowphase worker; taking a shared lock and hashing to learn
+        // "no" costs cross-core traffic on a cache line for nothing.
+        if (m_jointedBodyPairCount.load(AZStd::memory_order_relaxed) == 0)
+        {
+            return false;
+        }
+
         AZStd::shared_lock lock(m_jointedBodyPairsMutex);
         return m_jointedBodyPairs.contains(MakeContactPairKey(bodyIdA, bodyIdB));
     }

@@ -533,6 +533,13 @@ feature, trust the topic sections below the milestones.**
 
 ## Transform sync
 
+- **Kinematic bodies moved through the bus sync back to their entity.**
+  `SetKinematicTarget` moves the physics body; the component used to skip kinematic
+  bodies when syncing, so a script- or C++-driven platform collided at its new pose while
+  its render mesh and every attached child stayed behind. Driving the entity transform
+  instead worked, which made the bus path look like user error. Entity-driven moves record
+  the pose as they apply it, so the two directions do not fight.
+
 - **A sleeping body whose pose has not changed does not write its entity transform.**
   Every rigid body component used to push `SetWorldTM` every frame regardless of whether
   the body had moved, so the per-frame cost scaled with how many bodies exist rather than

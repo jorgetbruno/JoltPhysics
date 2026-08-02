@@ -660,4 +660,79 @@ namespace JoltPhysics
         }
     }
 
+    TEST_F(JoltMaterialTests, PerColliderMaterialsSurviveACentreOfMassOffset)
+    {
+        // Setting a centre-of-mass offset wraps the whole body shape in a
+        // RotatedTranslatedShape. The material lookup tested that *wrapped* shape for a
+        // compound subtype, so an offset body read as a plain decorator, missed the
+        // compound branch and gave every contact collider 0's material - silently undoing
+        // per-collider and per-face materials for anyone who nudged a prop's balance
+        // point. Scene queries kept naming the right collider, so the two disagreed.
+        //
+        // The falling body is the compound: collider 0 is dead and rides high where it
+        // never touches, collider 1 is bouncy and is the one that lands. Reading collider
+        // 0 by mistake is the difference between a bounce and a thud.
+        auto floorCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        floorCollider->m_materialSlots.SetSlots({ "floor" });
+        floorCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
+        auto floorShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        floorShape->m_dimensions = AZ::Vector3(40.0f, 40.0f, 1.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration floorConfig;
+        floorConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(floorCollider, floorShape);
+        m_scene->AddSimulatedBody(&floorConfig);
+
+        auto deadCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        deadCollider->m_position = AZ::Vector3(0.0f, 0.0f, 3.0f); // never reaches the floor
+        deadCollider->m_materialSlots.SetSlots({ "dead" });
+        deadCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
+        auto deadShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        deadShape->m_dimensions = AZ::Vector3(0.5f, 0.5f, 0.5f);
+
+        auto bouncyCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        bouncyCollider->m_materialSlots.SetSlots({ "bouncy" });
+        bouncyCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.95f));
+        auto bouncyShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
+        bouncyShape->m_radius = 0.5f;
+
+        AzPhysics::RigidBodyConfiguration fallerConfig;
+        fallerConfig.m_position = AZ::Vector3(0.0f, 0.0f, 4.0f);
+        // The offset is what used to cost this body its per-collider materials.
+        fallerConfig.m_centerOfMassOffset = AZ::Vector3(0.0f, 0.0f, 0.25f);
+        fallerConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{
+            AzPhysics::ShapeColliderPair(bouncyCollider, bouncyShape),
+            AzPhysics::ShapeColliderPair(deadCollider, deadShape),
+        };
+        auto fallerHandle = m_scene->AddSimulatedBody(&fallerConfig);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        float lowestZ = 1000.0f;
+        float maxAfterBounce = 0.0f;
+        bool touched = false;
+        for (int i = 0; i < 300; ++i)
+        {
+            m_scene->StartSimulation(fixedDeltaTime);
+            m_scene->FinishSimulation();
+
+            const float z = m_scene->GetSimulatedBodyFromHandle(fallerHandle)->GetPosition().GetZ();
+            lowestZ = AZStd::min(lowestZ, z);
+            // The sphere's radius is 0.5, so anything near the floor counts as arrival -
+            // a good bounce turns around before it ever settles.
+            if (z < 1.0f)
+            {
+                touched = true;
+            }
+            else if (touched)
+            {
+                maxAfterBounce = AZStd::max(maxAfterBounce, z);
+            }
+        }
+
+        ASSERT_TRUE(touched) << "the body never reached the floor; lowest z was " << lowestZ;
+        EXPECT_GT(maxAfterBounce, 1.5f)
+            << "the touching collider's bouncy material did not reach the contact - it bounced to "
+            << maxAfterBounce;
+    }
+
 } // namespace JoltPhysics

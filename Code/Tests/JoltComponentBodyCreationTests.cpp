@@ -280,6 +280,64 @@ namespace JoltPhysics
         parent->Deactivate();
     }
 
+    TEST_F(JoltComponentBodyCreationTests, ScalingACompoundMovesItsChildrenOutWithIt)
+    {
+        // A child collider's geometry already carries the world scale (which includes its
+        // parent's), but its placement is authored in the parent's unscaled local space.
+        // Leaving that alone bunched every child towards the compound's origin while the
+        // render meshes moved out with the scale - collision and visuals disagreeing on a
+        // scaled crate stack, unfixable except by never scaling compounds.
+        //
+        // The mutable compound is used because it re-gathers when a child is reparented,
+        // which is how the test gets a gather to happen after everything is positioned.
+        auto childOffsetForScale = [](float parentScale)
+        {
+            auto parent = AZStd::make_unique<AZ::Entity>("ScaledCompoundParent");
+            parent->CreateComponent<AzFramework::TransformComponent>();
+            parent->CreateComponent<JoltMutableCompoundColliderComponent>();
+            parent->Init();
+            parent->Activate();
+            AZ::TransformBus::Event(
+                parent->GetId(), &AZ::TransformBus::Events::SetLocalUniformScale, parentScale);
+
+            auto child = AZStd::make_unique<AZ::Entity>("CompoundChild");
+            child->CreateComponent<AzFramework::TransformComponent>();
+            child->CreateComponent<JoltBoxColliderComponent>();
+            child->Init();
+            child->Activate();
+            AZ::TransformBus::Event(child->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+            AZ::TransformBus::Event(
+                child->GetId(), &AZ::TransformBus::Events::SetLocalTranslation, AZ::Vector3(2.0f, 0.0f, 0.0f));
+
+            // Reparent so the compound gathers again now the child is where it belongs.
+            AZ::TransformBus::Event(child->GetId(), &AZ::TransformBus::Events::SetParent, AZ::EntityId());
+            AZ::TransformBus::Event(child->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+
+            auto* compound = parent->FindComponent<JoltMutableCompoundColliderComponent>();
+            const AzPhysics::ShapeColliderPairList pairs =
+                compound != nullptr ? compound->GetShapeColliderPairs() : AzPhysics::ShapeColliderPairList{};
+
+            float offsetX = 0.0f;
+            if (pairs.size() == 1 && pairs[0].first != nullptr)
+            {
+                offsetX = pairs[0].first->m_position.GetX();
+            }
+            else
+            {
+                ADD_FAILURE() << "expected exactly one gathered child collider, got " << pairs.size();
+            }
+
+            child->Deactivate();
+            parent->Deactivate();
+            return offsetX;
+        };
+
+        // Unscaled, the child sits where it was authored...
+        EXPECT_NEAR(childOffsetForScale(1.0f), 2.0f, 0.01f);
+        // ...and tripling the compound has to take it out to where its render mesh went.
+        EXPECT_NEAR(childOffsetForScale(3.0f), 6.0f, 0.01f);
+    }
+
     TEST_F(JoltComponentBodyCreationTests, ScaledEntityBakesScaleIntoColliderPairs)
     {
         auto entity = AZStd::make_unique<AZ::Entity>("ScaledPairEntity");

@@ -386,8 +386,16 @@ namespace JoltPhysics
         //! Body pairs connected by a joint (normalized BodyID pair keys). Read on
         //! narrow-phase worker threads by the contact listener and written from the
         //! game thread by Add/RemoveJoint, so it is guarded by a shared mutex.
-        AZStd::unordered_set<AZ::u64> m_jointedBodyPairs;
+        //! Counted, not a set: two joints between the same pair of bodies are two reasons
+        //! to suppress their collision, and removing one of them must not re-enable it.
+        //! A harness of two distance joints, or a breakable joint with a backup, is
+        //! ordinary content.
+        AZStd::unordered_map<AZ::u64, int> m_jointedBodyPairs;
         mutable AZStd::shared_mutex m_jointedBodyPairsMutex;
+        //! Read before taking the lock: the narrowphase asks about every candidate pair,
+        //! on every worker thread, and most scenes have no joints at all. Relaxed because
+        //! it only decides whether to bother looking - the lock still orders the answer.
+        AZStd::atomic<int> m_jointedBodyPairCount{ 0 };
 
         AZStd::vector<AZStd::pair<AZ::Crc32, AzPhysics::Joint*>> m_joints;
         AZStd::vector<AzPhysics::Joint*> m_deferredDeletionsJoints;

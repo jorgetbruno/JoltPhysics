@@ -221,7 +221,7 @@ namespace JoltPhysics
         }
 
         AzPhysics::RigidBody* body = GetRigidBody();
-        if (body == nullptr || body->IsKinematic())
+        if (body == nullptr)
         {
             return;
         }
@@ -229,14 +229,18 @@ namespace JoltPhysics
         // Writing an entity transform is not cheap - SetWorldTM dispatches on the
         // transform notification bus, propagates to children and dirties entity bounds and
         // visibility - and every rigid body in the level used to pay it every frame,
-        // awake or not. That made the cost scale with how many bodies exist rather than
+        // moving or not. That made the cost scale with how many bodies exist rather than
         // how many are moving, which defeats the point of Jolt letting them sleep.
         //
-        // A pose comparison rather than IsAwake alone: a body can change pose while
-        // asleep - a restored snapshot, a teleport, a body put to sleep the same frame it
-        // was moved - and those still have to reach the entity.
+        // The gate is the pose itself rather than IsAwake, which covers three cases at
+        // once: a settled body writes nothing, a body that changes pose *while* asleep
+        // (a restored snapshot, a teleport) still reaches its entity, and a kinematic body
+        // moved through SetKinematicTarget does too. That last one used to be excluded
+        // outright, so a script- or C++-driven platform collided at its new pose while its
+        // render mesh and every attached child stayed behind. Entity-driven moves record
+        // the pose as they go (see OnTransformChanged), so this does not fight them.
         const AZ::Transform bodyTransform = body->GetTransform();
-        if (!body->IsAwake() && bodyTransform.IsClose(m_lastSyncedTransform))
+        if (bodyTransform.IsClose(m_lastSyncedTransform))
         {
             return;
         }
@@ -270,6 +274,11 @@ namespace JoltPhysics
             {
                 body->SetTransform(world);
             }
+
+            // The entity already holds this pose, so record it as synced: otherwise the
+            // next tick would see the body agreeing with a stale cache and write the same
+            // transform straight back.
+            m_lastSyncedTransform = world;
         }
     }
 

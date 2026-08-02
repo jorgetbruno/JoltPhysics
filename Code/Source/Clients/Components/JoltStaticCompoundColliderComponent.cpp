@@ -84,7 +84,18 @@ namespace JoltPhysics
                                 AZ::Transform childLocal = AZ::Transform::CreateIdentity();
                                 AZ::TransformBus::EventResult(childLocal, childId, &AZ::TransformBus::Events::GetLocalTM);
 
-                                colliderConfig->m_position = childLocal.GetTranslation() +
+                                // Scaling the compound entity has to move its children out
+                                // with it. The child's own geometry and offset already
+                                // carry the full world scale (which includes this
+                                // entity's), but its local translation is authored in
+                                // unscaled parent space - leaving it alone bunched every
+                                // child towards the parent origin while the render meshes
+                                // stayed where the scale put them.
+                                float parentScale = 1.0f;
+                                AZ::TransformBus::EventResult(
+                                    parentScale, GetEntityId(), &AZ::TransformBus::Events::GetWorldUniformScale);
+
+                                colliderConfig->m_position = childLocal.GetTranslation() * parentScale +
                                     childLocal.GetRotation().TransformVector(pair.first->m_position);
                                 colliderConfig->m_rotation = childLocal.GetRotation() * pair.first->m_rotation;
 
