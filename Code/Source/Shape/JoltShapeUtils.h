@@ -76,7 +76,20 @@ namespace JoltPhysics
         //! be attached/detached on a live body. A compound shape has its sub-shapes copied
         //! across in order (keeping sub-shape indices, and the per-collider material indices
         //! that follow them, valid); any other shape becomes sub-shape 0.
-        static JPH::Ref<JPH::MutableCompoundShape> MakeMutableCompound(const JPH::Shape* shape);
+        //!
+        //! \param createdColliderCount how many colliders the body was *created* with, which
+        //!        is what decides whether a compound's children get copied across or the
+        //!        whole compound becomes a single child. A compound means two different
+        //!        things here: several colliders on one body, or one collider whose own
+        //!        geometry is a group of hulls (a mesh baked per node, or a decomposition).
+        //!        Copying the children of the first keeps sub-shape index equal to collider
+        //!        index - which the per-contact material lookup and RemoveShape's arithmetic
+        //!        both rely on - while doing it to the second would break that equality by
+        //!        turning one collider into N sub-shapes. A MutableCompoundShape is always
+        //!        one this gem built (colliders first, then attached shapes), so its children
+        //!        are copied across whatever the count.
+        static JPH::Ref<JPH::MutableCompoundShape> MakeMutableCompound(
+            const JPH::Shape* shape, size_t createdColliderCount = 1);
 
         //! Maps a sub-shape id from a scene query or contact back to the collider index it
         //! came from, so a hit can be attributed to the collider that produced it.

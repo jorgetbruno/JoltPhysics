@@ -4,6 +4,7 @@
 
 #include <System/JoltSystem.h>
 #include <Scene/JoltScene.h>
+#include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 
@@ -132,6 +133,86 @@ namespace JoltPhysics
         AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
         ASSERT_EQ(hits.m_hits.size(), 1u);
         EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 9.5f, 0.05f);
+    }
+
+    TEST_F(JoltRigidBodyTests, AttachingAShapeLeavesConvexHullGeometryWhereItWas)
+    {
+        // Rebuilding a body's compound has to undo Jolt's sub-shape storage exactly:
+        // positions are kept relative to the compound's centre of mass AND offset by the
+        // child's own. Dropping the second term moves every child with a non-zero centre
+        // of mass - which is every convex hull, since hulls are centroid-relative - so a
+        // hull-based body silently detaches from its render mesh the first time anything
+        // attaches or detaches a shape. Boxes cannot catch this: their centre of mass is
+        // already the origin.
+        AZStd::vector<AZ::Vector3> points;
+        for (const float dx : { -0.5f, 0.5f })
+        {
+            for (const float dy : { -0.5f, 0.5f })
+            {
+                for (const float dz : { -0.5f, 0.5f })
+                {
+                    points.push_back(AZ::Vector3(4.0f + dx, dy, dz));
+                }
+            }
+        }
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackConvexMesh(points.data(), static_cast<AZ::u32>(points.size()));
+        cookedConfig->SetCookedMeshData(
+            blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_kinematic = true; // hold it still so only the geometry rebuild can move anything
+        config.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), cookedConfig);
+
+        auto* body = azdynamic_cast<AzPhysics::RigidBody*>(
+            m_scene->GetSimulatedBodyFromHandle(m_scene->AddSimulatedBody(&config)));
+        ASSERT_NE(body, nullptr);
+
+        // Ask the body itself where its geometry is, rather than reading bounds: a ray
+        // straight down through the hull's own column either hits it or it has moved.
+        auto rayDownAt = [](const AZ::Vector3& xy)
+        {
+            AzPhysics::RayCastRequest request;
+            request.m_start = AZ::Vector3(xy.GetX(), xy.GetY(), 5.0f);
+            request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+            request.m_distance = 20.0f;
+            return request;
+        };
+
+        auto hullRay = rayDownAt(AZ::Vector3(4.0f, 0.0f, 0.0f));
+        ASSERT_NE(body->RayCast(hullRay).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle)
+            << "the hull is not where it was authored before anything was attached";
+
+        Physics::ColliderConfiguration attachedCollider;
+        attachedCollider.m_position = AZ::Vector3(0.0f, 6.0f, 0.0f);
+        Physics::BoxShapeConfiguration attachedShapeConfig;
+        AZStd::shared_ptr<Physics::Shape> attachedShape =
+            JoltShapeUtils::CreateShape(attachedCollider, attachedShapeConfig);
+        ASSERT_NE(attachedShape, nullptr);
+        body->AddShape(attachedShape);
+
+        // The hull has not moved, and the attached box landed where it was asked to.
+        EXPECT_NE(body->RayCast(hullRay).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle)
+            << "attaching a shape displaced the hull by its centroid";
+        auto attachedRay = rayDownAt(AZ::Vector3(0.0f, 6.0f, 0.0f));
+        EXPECT_NE(body->RayCast(attachedRay).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // Detaching removes the attachment and leaves the hull untouched - a lossless
+        // round trip through the mutable-compound rebuild.
+        body->RemoveShape(attachedShape);
+        EXPECT_NE(body->RayCast(hullRay).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle)
+            << "detaching a shape displaced the hull by its centroid";
+        EXPECT_EQ(body->RayCast(attachedRay).m_bodyHandle, AzPhysics::InvalidSimulatedBodyHandle)
+            << "RemoveShape removed the wrong sub-shape";
+
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(cookedConfig->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            cookedConfig->SetCachedNativeMesh(nullptr);
+        }
     }
 
     TEST_F(JoltRigidBodyTests, KinematicTargetMovesKinematicBody)

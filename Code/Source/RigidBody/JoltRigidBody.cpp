@@ -820,7 +820,11 @@ namespace JoltPhysics
     {
         // A fresh copy every time: the live body still references the current shape, and
         // mutating a shape in use leaves the body's cached bounds and mass properties stale.
-        return JoltShapeUtils::MakeMutableCompound(m_baseShape);
+        //
+        // The collider count tells MakeMutableCompound whether a compound base is several
+        // colliders or one collider's own hull group; see its comment for why that matters.
+        const size_t createdColliderCount = m_colliderMaterials.size() - m_attachedShapes.size();
+        return JoltShapeUtils::MakeMutableCompound(m_baseShape, createdColliderCount);
     }
 
     void JoltRigidBody::ApplyBaseShapeToBody()

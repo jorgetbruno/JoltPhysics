@@ -336,8 +336,12 @@ namespace JoltPhysics
         // Copy the geometry into a fresh mutable compound (sub-shape order is preserved,
         // so the per-collider material indices stay valid) and append to it. A fresh copy
         // each time: the live body still references the current shape, and mutating a
-        // shape in use leaves the body's cached bounds stale.
-        JPH::Ref<JPH::MutableCompoundShape> compound = JoltShapeUtils::MakeMutableCompound(m_baseShape);
+        // shape in use leaves the body's cached bounds stale. The collider count tells
+        // MakeMutableCompound whether a compound base is several colliders or one
+        // collider's own hull group; see its comment.
+        const size_t createdColliderCount = m_colliderMaterials.size() - m_attachedShapes.size();
+        JPH::Ref<JPH::MutableCompoundShape> compound =
+            JoltShapeUtils::MakeMutableCompound(m_baseShape, createdColliderCount);
 
         const auto [localPosition, localRotation] = shape->GetLocalPose();
         compound->AddShape(Conversions::ToJolt(localPosition), Conversions::ToJolt(localRotation), nativeShape);

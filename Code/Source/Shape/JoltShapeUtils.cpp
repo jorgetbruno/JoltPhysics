@@ -583,7 +583,8 @@ namespace JoltPhysics
         }
     }
 
-    JPH::Ref<JPH::MutableCompoundShape> JoltShapeUtils::MakeMutableCompound(const JPH::Shape* shape)
+    JPH::Ref<JPH::MutableCompoundShape> JoltShapeUtils::MakeMutableCompound(
+        const JPH::Shape* shape, size_t createdColliderCount)
     {
         JPH::Ref<JPH::MutableCompoundShape> mutableCompound = new JPH::MutableCompoundShape();
         if (!shape)
@@ -592,18 +593,30 @@ namespace JoltPhysics
         }
 
         const JPH::EShapeSubType subType = shape->GetSubType();
-        if (subType == JPH::EShapeSubType::StaticCompound || subType == JPH::EShapeSubType::MutableCompound)
+        // A MutableCompound is one of ours from an earlier rebuild, so its children are
+        // already colliders-then-attachments and copying them across is always right. A
+        // StaticCompound came from creation and is ambiguous: children are colliders only
+        // when the body has more than one, otherwise they are one collider's own hulls.
+        const bool copyChildrenAcross = subType == JPH::EShapeSubType::MutableCompound ||
+            (subType == JPH::EShapeSubType::StaticCompound && createdColliderCount > 1);
+        if (copyChildrenAcross)
         {
             const auto* compound = static_cast<const JPH::CompoundShape*>(shape);
-            // Sub-shape positions are stored relative to the compound's center of mass,
-            // while AddShape takes them in the compound's local space; convert back by
-            // adding the source compound's center of mass.
+            // Undo exactly what Jolt does when it stores a sub-shape. SubShape::SetTransform
+            // keeps positionCOM = localPosition - compoundCOM + rotation * childCOM, so
+            // recovering the local position AddShape wants means adding the compound's centre
+            // of mass back AND subtracting the child's own rotated one. Dropping that second
+            // term shifts every child with a non-zero centre of mass by its own centroid -
+            // invisible for centred primitives, but convex hulls and nested compounds are
+            // centroid-relative, so a hull-based body silently detaches from its render mesh
+            // the first time anything adds or removes a shape.
             const JPH::Vec3 sourceCenterOfMass = compound->GetCenterOfMass();
             for (const JPH::CompoundShape::SubShape& subShape : compound->GetSubShapes())
             {
+                const JPH::Vec3 localPosition = subShape.GetPositionCOM() + sourceCenterOfMass -
+                    subShape.GetRotation() * subShape.mShape->GetCenterOfMass();
                 mutableCompound->AddShape(
-                    subShape.GetPositionCOM() + sourceCenterOfMass, subShape.GetRotation(), subShape.mShape,
-                    subShape.mUserData);
+                    localPosition, subShape.GetRotation(), subShape.mShape, subShape.mUserData);
             }
         }
         else
