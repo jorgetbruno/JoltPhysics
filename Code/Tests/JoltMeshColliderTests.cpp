@@ -549,7 +549,10 @@ namespace JoltPhysics
             // here this one builds no JoltSystem - so nothing would have installed this
             // module's allocation hooks and the first successful hull read would jump
             // through a null pointer. Exactly the trap JoltModuleGlobals.h exists for.
-            InstallJoltModuleGlobals();
+            //
+            // The hooks alone, not the full installer: decoding needs no factory, and
+            // creating one here would register types nothing tears down again.
+            InstallJoltAllocationHooks();
         }
 
         static AZStd::vector<AZ::u8> MakeHullGroupBlob()
