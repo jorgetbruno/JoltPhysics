@@ -48,7 +48,9 @@ outside it (see [The gem family](#the-gem-family)).
   ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
   trigger/sensor interaction, and gravity — it falls on its own, with a multiplier to
   turn that off for an animation-driven character and a writable falling velocity to
-  jump with
+  jump with. Collider components on the character's entity are attached to it, on a
+  kinematic body that follows the character rather than on the shape it walks with, so
+  hitboxes and weapon volumes work without changing how it moves
 - Ragdolls through O3DE's `Physics::Ragdoll` interface, authorable in the Animation
   Editor: the gem answers `AzPhysics::JointHelpersInterface` and
   `EditorJointHelpersInterface`, which its ragdoll joint tools run on

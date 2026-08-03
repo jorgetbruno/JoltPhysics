@@ -118,6 +118,10 @@ namespace JoltPhysics
     private:
         void CreateCharacter();
         void DestroyCharacter();
+
+        //! Shapes built from the collider components on this entity, to be carried by the
+        //! character as attachments rather than folded into the shape it moves with.
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> BuildAttachedColliderShapes() const;
         void TryCreateCharacter();
 
         //! Accumulates the scene's gravity into m_fallingVelocity and asks the character

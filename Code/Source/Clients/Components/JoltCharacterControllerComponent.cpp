@@ -13,6 +13,7 @@
 #include <AzFramework/Physics/SystemBus.h>
 
 #include <Character/JoltCharacter.h>
+#include <Clients/Components/JoltColliderComponentBase.h>
 #include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
@@ -251,6 +252,7 @@ namespace JoltPhysics
         JoltCharacterConfiguration joltConfig;
         static_cast<Physics::CharacterConfiguration&>(joltConfig) = m_characterConfig;
         joltConfig.m_rigidBodyCharacter = m_rigidBodyCharacter;
+        joltConfig.m_colliders = BuildAttachedColliderShapes();
 
         if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
         {
@@ -259,6 +261,50 @@ namespace JoltPhysics
                 m_bodyHandle = scene->AddSimulatedBody(&joltConfig);
             }
         }
+    }
+
+    AZStd::vector<AZStd::shared_ptr<Physics::Shape>> JoltCharacterControllerComponent::BuildAttachedColliderShapes() const
+    {
+        // Collider components on a character's entity used to do nothing at all: the
+        // character builds its own capsule and the rigid body components are the ones that
+        // gather colliders. PhysX gathers them here too, into the same configuration field,
+        // and they end up on a body that follows the character rather than on the shape it
+        // walks with - so a hitbox, a hurtbox or a weapon volume can sit on the character
+        // entity and be found by queries and sensors without changing how it moves.
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> shapes;
+
+        const AZ::Entity* entity = GetEntity();
+        if (entity == nullptr)
+        {
+            return shapes;
+        }
+
+        for (const AZ::Component* component : entity->GetComponents())
+        {
+            const auto* collider = azrtti_cast<const JoltColliderComponentBase*>(component);
+            if (collider == nullptr)
+            {
+                continue;
+            }
+
+            for (const AzPhysics::ShapeColliderPair& pair : collider->GetShapeColliderPairs())
+            {
+                if (!pair.first || !pair.second)
+                {
+                    continue;
+                }
+
+                AZStd::shared_ptr<Physics::Shape> shape;
+                Physics::SystemRequestBus::BroadcastResult(
+                    shape, &Physics::SystemRequests::CreateShape, *pair.first, *pair.second);
+                if (shape)
+                {
+                    shapes.push_back(AZStd::move(shape));
+                }
+            }
+        }
+
+        return shapes;
     }
 
     void JoltCharacterControllerComponent::DestroyCharacter()

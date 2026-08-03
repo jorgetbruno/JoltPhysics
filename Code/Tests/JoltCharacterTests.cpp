@@ -3,6 +3,8 @@
 #include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <Character/JoltCharacter.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <Shape/JoltShapeUtils.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <Scene/JoltScene.h>
@@ -133,6 +135,113 @@ namespace JoltPhysics
         AzPhysics::SceneHandle m_sceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
     };
+
+    //! A collider attached to a character: present in the scene for anything that looks,
+    //! but kept off the shape the character sweeps its movement against.
+    class JoltCharacterAttachmentTests : public JoltCharacterTests
+    {
+    protected:
+        //! A box shape of the given half-extents, offset from the character's origin.
+        AZStd::shared_ptr<Physics::Shape> MakeBoxShape(
+            const AZ::Vector3& dimensions, const AZ::Vector3& offset = AZ::Vector3::CreateZero())
+        {
+            Physics::ColliderConfiguration colliderConfiguration;
+            colliderConfiguration.m_position = offset;
+            Physics::BoxShapeConfiguration shapeConfiguration;
+            shapeConfiguration.m_dimensions = dimensions;
+            return JoltShapeUtils::CreateShape(colliderConfiguration, shapeConfiguration);
+        }
+
+        //! Overlaps the world at a point and reports whether anything is there.
+        bool AnythingOverlapsAt(const AZ::Vector3& position, float radius)
+        {
+            AzPhysics::OverlapRequest request;
+            request.m_pose = AZ::Transform::CreateTranslation(position);
+            auto sphere = AZStd::make_shared<Physics::SphereShapeConfiguration>(radius);
+            request.m_shapeConfiguration = sphere;
+            return !m_scene->QueryScene(&request).m_hits.empty();
+        }
+    };
+
+    TEST_F(JoltCharacterAttachmentTests, AnAttachedColliderIsInTheSceneAndFollowsTheCharacter)
+    {
+        // Attaching used to be refused outright, so a hitbox authored on a character
+        // entity simply did not exist as far as the rest of the scene was concerned.
+        auto handle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
+        auto* character = azdynamic_cast<JoltCharacter*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(character, nullptr);
+
+        // Well clear of the capsule (0.3 m radius, 1.8 m tall), so anything found out
+        // there is the attachment rather than the character itself.
+        const AZ::Vector3 attachmentOffset(2.0f, 0.0f, 1.0f);
+        EXPECT_FALSE(AnythingOverlapsAt(attachmentOffset, 0.1f)) << "something was already out there";
+
+        character->AttachShape(MakeBoxShape(AZ::Vector3(0.5f), attachmentOffset));
+        EXPECT_TRUE(AnythingOverlapsAt(attachmentOffset, 0.1f)) << "the attached collider is not in the scene";
+
+        // It goes where the character goes.
+        character->SetBasePosition(AZ::Vector3(5.0f, 0.0f, 0.0f));
+        EXPECT_FALSE(AnythingOverlapsAt(attachmentOffset, 0.1f)) << "the attachment stayed behind";
+        EXPECT_TRUE(AnythingOverlapsAt(attachmentOffset + AZ::Vector3(5.0f, 0.0f, 0.0f), 0.1f))
+            << "the attachment did not follow the character";
+    }
+
+    TEST_F(JoltCharacterAttachmentTests, AnAttachedColliderDoesNotBlockTheCharactersOwnMovement)
+    {
+        // The whole reason attachments live on a body of their own. Folded into the shape
+        // the character sweeps with, a collider reaching out in front of it would stop it
+        // walking through a gap its body fits through - and worse, a collider around the
+        // character would have it permanently stuck on itself.
+        auto handle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
+        auto* character = azdynamic_cast<JoltCharacter*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(character, nullptr);
+
+        // A metre-wide box centred on the character, which would swallow the capsule.
+        character->AttachShape(MakeBoxShape(AZ::Vector3(2.0f, 2.0f, 2.0f)));
+
+        const float startX = character->GetBasePosition().GetX();
+        for (int step = 0; step < 30; ++step)
+        {
+            character->Move(AZ::Vector3(0.05f, 0.0f, 0.0f), 1.0f / 60.0f);
+        }
+
+        EXPECT_GT(character->GetBasePosition().GetX(), startX + 1.0f)
+            << "the character was blocked by its own attachment";
+    }
+
+    TEST_F(JoltCharacterAttachmentTests, AttachedCollidersArriveFromTheConfigurationToo)
+    {
+        // The path a component setup takes: the character controller component gathers the
+        // collider components on its entity into the configuration, and they have to reach
+        // the scene the same way an explicitly attached one does.
+        Physics::CharacterConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_maximumSlopeAngle = 30.0f;
+        config.m_stepHeight = 0.5f;
+        config.m_shapeConfig = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+        config.m_colliders.push_back(MakeBoxShape(AZ::Vector3(0.5f), AZ::Vector3(2.0f, 0.0f, 1.0f)));
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        EXPECT_TRUE(AnythingOverlapsAt(AZ::Vector3(2.0f, 0.0f, 1.0f), 0.1f))
+            << "a collider from the configuration never reached the scene";
+    }
+
+    TEST_F(JoltCharacterAttachmentTests, RemovingTheCharacterTakesItsAttachmentsWithIt)
+    {
+        auto handle = CreateCharacter(AZ::Vector3::CreateZero());
+        auto* character = azdynamic_cast<JoltCharacter*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(character, nullptr);
+
+        const AZ::Vector3 attachmentOffset(2.0f, 0.0f, 1.0f);
+        character->AttachShape(MakeBoxShape(AZ::Vector3(0.5f), attachmentOffset));
+        ASSERT_TRUE(AnythingOverlapsAt(attachmentOffset, 0.1f));
+
+        m_scene->RemoveSimulatedBody(handle);
+        EXPECT_FALSE(AnythingOverlapsAt(attachmentOffset, 0.1f))
+            << "the attachment outlived the character it belonged to";
+    }
 
     TEST_F(JoltCharacterTests, FallsAndLandsOnGround)
     {

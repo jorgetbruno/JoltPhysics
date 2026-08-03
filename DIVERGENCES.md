@@ -373,6 +373,35 @@ feature, trust the topic sections below the milestones.**
   range to fit. It never moves the joint frames — it bounds the motion, it does not
   re-place the joint.
 
+## Character attachments
+
+- **`AttachShape` puts the collider on a body of its own**, not on the character's
+  shape. That shape is what the character sweeps its movement against, so folding an
+  attachment into it would have the character refuse gaps its body fits through — and a
+  collider wrapping the character would leave it permanently stuck on itself. PhysX
+  separates them the same way, on what it calls a shadow body.
+- **Collider components on a character's entity are attached automatically.** The
+  character controller component builds them into `CharacterConfiguration::m_colliders`,
+  which the character then attaches — matching what PhysX's component does with the
+  same field. Before this they did nothing at all: a character builds its own capsule,
+  and it is the rigid body components that gather sibling colliders.
+- **The attachment body is created on demand**, unlike PhysX's, which is created with
+  every character. A character with nothing attached is the common case and the body
+  costs a shape and a sync every step. It appears with the first attachment and goes
+  when the last one does.
+- **It is kinematic, on the character's own object layer.** Attachments are there to be
+  found by queries, to trip sensors and to be hit — not to hold the character up.
+  Kinematic also keeps the body from colliding with the character's own inner body,
+  which is kinematic too.
+- **It is driven, not teleported, while the character is moving** (`MoveKinematic`), so
+  it carries a velocity and pushes what it touches; an explicit `SetBasePosition` or
+  `SetRotation` teleports it instead, because that is what an explicit position set
+  means. The rigid-body backend teleports as well: its body has already moved by the
+  time `PostSimulation` runs, and driving the attachments at a pose it is standing on
+  would fight it.
+- **Several attachments become one static compound**, rebuilt in place on the existing
+  body rather than by replacing it, so anything holding the body id keeps it.
+
 ## Character gravity
 
 - **The character controller applies gravity itself**, and does so by default (a

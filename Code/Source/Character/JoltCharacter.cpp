@@ -1,4 +1,6 @@
 #include <Character/JoltCharacter.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
@@ -101,6 +103,7 @@ namespace JoltPhysics
                 m_scene->GetJoltPhysicsSystem());
             m_rigidBody->AddToPhysicsSystem();
             m_orientation = m_configuration.m_orientation;
+            AttachConfiguredColliders();
             return;
         }
 
@@ -123,10 +126,31 @@ namespace JoltPhysics
             m_scene->GetJoltPhysicsSystem());
 
         m_orientation = m_configuration.m_orientation;
+
+        AttachConfiguredColliders();
+    }
+
+    void JoltCharacter::AttachConfiguredColliders()
+    {
+        // The colliders the character was configured with - in a component setup these are
+        // the collider components sitting on the same entity, which the character
+        // controller component gathers for exactly this. Appended rather than assigned, so
+        // a shape attached before the character reached a scene is not lost.
+        if (m_configuration.m_colliders.empty())
+        {
+            RefreshAttachmentBody();
+            return;
+        }
+
+        m_attachedShapes.insert(
+            m_attachedShapes.end(), m_configuration.m_colliders.begin(), m_configuration.m_colliders.end());
+        RefreshAttachmentBody();
     }
 
     void JoltCharacter::RemoveFromScene()
     {
+        DestroyAttachmentBody();
+
         if (m_rigidBody)
         {
             m_rigidBody->RemoveFromPhysicsSystem();
@@ -142,6 +166,11 @@ namespace JoltPhysics
             // the velocity the solver actually produced this step.
             m_rigidBody->PostSimulation(0.05f);
             m_observedVelocity = Conversions::FromJolt(m_rigidBody->GetLinearVelocity());
+
+            // The rigid-body character moves during the step rather than in Move(), so
+            // this is where its attachments catch up. Teleported: the body has already
+            // arrived, and driving them at a pose it is standing on would fight it.
+            SyncAttachmentBody(0.0f);
         }
     }
 
@@ -206,12 +235,14 @@ namespace JoltPhysics
         if (m_rigidBody)
         {
             m_rigidBody->SetPosition(Conversions::ToJoltR(center));
+            SyncAttachmentBody(0.0f);
             return;
         }
         if (m_character)
         {
             m_character->SetPosition(Conversions::ToJoltR(center));
         }
+        SyncAttachmentBody(0.0f);
     }
 
     void JoltCharacter::SetRotation(const AZ::Quaternion& rotation)
@@ -220,12 +251,14 @@ namespace JoltPhysics
         if (m_rigidBody)
         {
             m_rigidBody->SetPositionAndRotation(m_rigidBody->GetPosition(), Conversions::ToJolt(rotation));
+            SyncAttachmentBody(0.0f);
             return;
         }
         if (m_character)
         {
             m_character->SetRotation(Conversions::ToJolt(rotation));
         }
+        SyncAttachmentBody(0.0f);
     }
 
     AZ::Vector3 JoltCharacter::GetCenterPosition() const
@@ -415,15 +448,171 @@ namespace JoltPhysics
             *GetJoltSystem()->GetJoltAllocator());
 
         m_observedVelocity = Conversions::FromJolt(m_character->GetLinearVelocity());
+
+        SyncAttachmentBody(deltaTime);
     }
 
-    void JoltCharacter::AttachShape([[maybe_unused]] AZStd::shared_ptr<Physics::Shape> shape)
+    void JoltCharacter::AttachShape(AZStd::shared_ptr<Physics::Shape> shape)
     {
-        // Jolt characters take a single shape at construction; adding one later would
-        // mean rebuilding the character around a compound shape.
-        AZ_WarningOnce("JoltPhysics", false,
-            "JoltCharacter::AttachShape is not supported%s (a Jolt character's shape is fixed at creation)",
-            Internal::NameClause(m_configuration.m_debugName).c_str());
+        if (!shape)
+        {
+            return;
+        }
+
+        m_attachedShapes.push_back(AZStd::move(shape));
+        RefreshAttachmentBody();
+    }
+
+    JPH::RefConst<JPH::Shape> JoltCharacter::BuildAttachmentShape() const
+    {
+        JPH::StaticCompoundShapeSettings compound;
+        AZ::u32 addedShapes = 0;
+
+        for (const AZStd::shared_ptr<Physics::Shape>& attached : m_attachedShapes)
+        {
+            const auto* nativeShape = attached ? static_cast<const JPH::Shape*>(attached->GetNativePointer()) : nullptr;
+            if (nativeShape == nullptr)
+            {
+                continue;
+            }
+
+            const auto [offset, rotation] = attached->GetLocalPose();
+            compound.AddShape(Conversions::ToJolt(offset), Conversions::ToJolt(rotation), nativeShape);
+            ++addedShapes;
+        }
+
+        if (addedShapes == 0)
+        {
+            return nullptr;
+        }
+
+        // Jolt rejects a compound with a single child at the origin, and it would be
+        // wasted indirection anyway.
+        if (addedShapes == 1)
+        {
+            const AZStd::shared_ptr<Physics::Shape>& only = m_attachedShapes.front();
+            const auto [offset, rotation] = only->GetLocalPose();
+            if (offset.IsZero() && rotation.IsIdentity())
+            {
+                return static_cast<const JPH::Shape*>(only->GetNativePointer());
+            }
+        }
+
+        const JPH::ShapeSettings::ShapeResult result = compound.Create();
+        if (result.HasError())
+        {
+            AZ_Warning("JoltPhysics", false,
+                "Could not build the attached colliders for character%s into one shape: %s",
+                Internal::NameClause(m_configuration.m_debugName).c_str(), result.GetError().c_str());
+            return nullptr;
+        }
+        return result.Get();
+    }
+
+    void JoltCharacter::RefreshAttachmentBody()
+    {
+        if (m_scene == nullptr)
+        {
+            // Attached before the character reached a scene; CreateInScene builds the body.
+            return;
+        }
+
+        JPH::BodyInterface* bodyInterface = m_scene->GetBodyInterface();
+        if (bodyInterface == nullptr)
+        {
+            return;
+        }
+
+        const JPH::RefConst<JPH::Shape> attachmentShape = BuildAttachmentShape();
+        if (attachmentShape == nullptr)
+        {
+            DestroyAttachmentBody();
+            return;
+        }
+
+        if (!m_attachmentBodyId.IsInvalid())
+        {
+            // Already there: re-shape it in place rather than churning a body id that
+            // other things may be holding on to.
+            bodyInterface->SetShape(m_attachmentBodyId, attachmentShape, /*updateMassProperties*/ false,
+                JPH::EActivation::Activate);
+            return;
+        }
+
+        const AZ::Transform transform = GetTransform();
+
+        // Kinematic, and on the character's own object layer: the attachments are there to
+        // be found by queries, to fire sensors and to be hit, not to hold the character up.
+        // Kinematic also keeps it from colliding with the character's own inner body,
+        // which is kinematic too.
+        JPH::BodyCreationSettings settings(
+            attachmentShape,
+            Conversions::ToJoltR(transform.GetTranslation()),
+            Conversions::ToJolt(transform.GetRotation()),
+            JPH::EMotionType::Kinematic,
+            m_objectLayer);
+        settings.mIsSensor = false;
+
+        JPH::Body* body = bodyInterface->CreateBody(settings);
+        if (body == nullptr)
+        {
+            AZ_Warning("JoltPhysics", false,
+                "Ran out of bodies attaching colliders to character%s.",
+                Internal::NameClause(m_configuration.m_debugName).c_str());
+            return;
+        }
+
+        m_attachmentBodyId = body->GetID();
+        bodyInterface->AddBody(m_attachmentBodyId, JPH::EActivation::Activate);
+    }
+
+    void JoltCharacter::DestroyAttachmentBody()
+    {
+        if (m_attachmentBodyId.IsInvalid())
+        {
+            return;
+        }
+
+        if (m_scene != nullptr)
+        {
+            if (JPH::BodyInterface* bodyInterface = m_scene->GetBodyInterface())
+            {
+                bodyInterface->RemoveBody(m_attachmentBodyId);
+                bodyInterface->DestroyBody(m_attachmentBodyId);
+            }
+        }
+        m_attachmentBodyId = JPH::BodyID();
+    }
+
+    void JoltCharacter::SyncAttachmentBody(float deltaTime)
+    {
+        if (m_attachmentBodyId.IsInvalid() || m_scene == nullptr)
+        {
+            return;
+        }
+
+        JPH::BodyInterface* bodyInterface = m_scene->GetBodyInterface();
+        if (bodyInterface == nullptr)
+        {
+            return;
+        }
+
+        const AZ::Transform transform = GetTransform();
+        const JPH::RVec3 position = Conversions::ToJoltR(transform.GetTranslation());
+        const JPH::Quat rotation = Conversions::ToJolt(transform.GetRotation());
+
+        if (deltaTime > 0.0f)
+        {
+            // Driven rather than teleported, so the body carries a velocity and can push
+            // what it touches - a shield or a swung weapon would otherwise pass through
+            // dynamic bodies without moving them.
+            bodyInterface->MoveKinematic(m_attachmentBodyId, position, rotation, deltaTime);
+        }
+        else
+        {
+            // An explicit position set is a teleport, and the attachments go with it.
+            bodyInterface->SetPositionAndRotation(m_attachmentBodyId, position, rotation, JPH::EActivation::Activate);
+        }
     }
 
     AZ::EntityId JoltCharacter::GetEntityId() const

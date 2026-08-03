@@ -6,8 +6,6 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
-- **Character controller gap**: `AttachShape` is a no-op — a Jolt character's shape is
-  fixed at creation.
 - **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
   mesh editor colliders create static bodies in the editor scene (see resolved
   entries); the compound colliders deliberately do not (their children are separate
@@ -77,6 +75,10 @@ deviations from PhysX behavior.
   gravity, tracks the falling velocity between frames, and sheds it on landing (see
   DIVERGENCES.md "Character gravity"). PhysX puts this in a separate example
   `CharacterGameplayComponent`; here it is on the controller.
+- **`AttachShape` works**, and collider components on a character's entity are gathered
+  into `CharacterConfiguration::m_colliders` and attached the same way — both end up on
+  a kinematic body that follows the character rather than on the shape it moves with
+  (see DIVERGENCES.md "Character attachments").
 
 - **`AzPhysics::SceneInterface`** is implemented (`JoltSceneInterface`), including
   scene-level trigger/collision events, so engine-wide consumers (e.g. the WhiteBox

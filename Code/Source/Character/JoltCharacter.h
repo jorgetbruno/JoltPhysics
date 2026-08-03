@@ -101,6 +101,18 @@ namespace JoltPhysics
         AZ::Crc32 GetNativeType() const override;
         void* GetNativePointer() const override;
 
+        //! Shapes attached to the character beyond its own, in the order they arrived.
+        //! Exposed so the component can tell whether anything is attached at all.
+        const AZStd::vector<AZStd::shared_ptr<Physics::Shape>>& GetAttachedShapes() const
+        {
+            return m_attachedShapes;
+        }
+
+        //! Keeps the attachment body under the character. Called after the character has
+        //! moved; deltaTime > 0 drives it there as a kinematic body (so it pushes what it
+        //! touches), and 0 teleports it, which is what an explicit position set means.
+        void SyncAttachmentBody(float deltaTime);
+
         //! Ground state passthroughs (used by the component and gameplay code).
         bool IsOnGround() const;
         AZ::Vector3 GetGroundNormal() const;
@@ -119,6 +131,20 @@ namespace JoltPhysics
         //! entity-facing position crosses this conversion.
         AZ::Vector3 BaseToCenter(const AZ::Vector3& basePosition) const;
 
+        //! Adds the colliders the configuration arrived with, once there is a scene to
+        //! put them in.
+        void AttachConfiguredColliders();
+
+        //! Rebuilds the attachment body from m_attachedShapes: creates it on the first
+        //! shape, re-shapes it on later ones, and removes it when the last one goes.
+        void RefreshAttachmentBody();
+
+        void DestroyAttachmentBody();
+
+        //! The attached shapes as one native shape - the shape itself when there is only
+        //! one at the origin, a static compound otherwise.
+        JPH::RefConst<JPH::Shape> BuildAttachmentShape() const;
+
         Physics::CharacterConfiguration m_configuration;
         bool m_rigidBodyCharacter = false;
 
@@ -132,6 +158,18 @@ namespace JoltPhysics
         //! character's collision layer would only ever affect its inner body.
         JPH::ObjectLayer m_objectLayer = 0;
         JoltScene* m_scene = nullptr;
+
+        //! Colliders attached to the character, and the kinematic body that carries them.
+        //!
+        //! They are deliberately not part of the character's own shape: that shape is what
+        //! the character sweeps its movement against, so folding a weapon or a hitbox into
+        //! it would have the character refuse to walk through gaps its body fits. PhysX
+        //! keeps them apart the same way, on what it calls a shadow body.
+        //!
+        //! Created on demand rather than always, unlike PhysX: a character with nothing
+        //! attached is the common case and it costs a body, a shape and a sync per step.
+        AZStd::vector<AZStd::shared_ptr<Physics::Shape>> m_attachedShapes;
+        JPH::BodyID m_attachmentBodyId;
 
         AZ::Quaternion m_orientation = AZ::Quaternion::CreateIdentity();
         AZ::Vector3 m_requestedVelocityForTick = AZ::Vector3::CreateZero();
