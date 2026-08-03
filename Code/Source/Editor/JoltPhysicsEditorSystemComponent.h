@@ -6,6 +6,8 @@
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
+#include <Editor/JoltEditorJointHelpers.h>
+
 namespace JoltPhysics
 {
     class JoltPhysicsEditorSystemComponent
@@ -49,6 +51,11 @@ namespace JoltPhysics
         //! The edit-mode physics scene ("EditorScene") handed out through
         //! EditorWorldBus; disabled while the game world runs during play-in-editor.
         AzPhysics::SceneHandle m_editorSceneHandle = AzPhysics::InvalidSceneHandle;
+
+        //! Answers AzPhysics::EditorJointHelpersInterface - the joint-limit auto-fit the
+        //! Animation Editor offers. Owned here because nothing else in a Jolt project
+        //! would register it.
+        AZStd::unique_ptr<JoltEditorJointHelpers> m_editorJointHelpers;
     };
 
 } // namespace JoltPhysics

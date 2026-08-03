@@ -19,6 +19,7 @@
 #include <Clients/DefaultWorldComponent.h>
 
 #include <ForceRegion/JoltWindProvider.h>
+#include <Joint/JoltJointHelpers.h>
 
 namespace JoltPhysics
 {
@@ -140,6 +141,11 @@ namespace JoltPhysics
         //! They live in the runtime component, not only in the builder, because games and the
         //! Asset Processor must be able to load .joltmesh product assets too.
         AZStd::vector<AZStd::unique_ptr<AZ::Data::AssetHandler>> m_assetHandlers;
+
+        //! Answers AzPhysics::JointHelpersInterface, which the Animation Editor's ragdoll
+        //! tools use to author joint limits. Owned here for the same reason as the wind
+        //! provider: in a Jolt project nothing else would supply it.
+        AZStd::unique_ptr<JoltJointHelpers> m_jointHelpers;
 
         //! Supplies Physics::WindRequests from wind-tagged force regions. Owned here
         //! because in a Jolt project nothing else would: AzFramework declares the

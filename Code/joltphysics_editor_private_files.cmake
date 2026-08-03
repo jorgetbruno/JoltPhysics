@@ -91,4 +91,6 @@ set(FILES
     Source/Editor/Components/EditorJoltSoftBodyComponent.h
     Source/Editor/Components/EditorJoltSwingTwistJointComponent.cpp
     Source/Editor/Components/EditorJoltSwingTwistJointComponent.h
+    Source/Editor/JoltEditorJointHelpers.cpp
+    Source/Editor/JoltEditorJointHelpers.h
 )

@@ -88,6 +88,11 @@ namespace JoltPhysics
                 "JoltPhysicsEditorSystemComponent: no physics system active; the editor scene was not created.");
         }
 
+        // The auto-fit behind the Animation Editor's ragdoll joint-limit widget. Editor
+        // only, as PhysX splits it: it serves an authoring gesture and has no runtime
+        // caller. Registration happens in the Registrar's constructor.
+        m_editorJointHelpers = AZStd::make_unique<JoltEditorJointHelpers>();
+
         Editor::RegisterPropertyTypes();
 
         // The collision layer/group dropdowns rebuild their entries from the live
@@ -116,6 +121,8 @@ namespace JoltPhysics
             joltSystem->RemoveScene(m_editorSceneHandle);
         }
         m_editorSceneHandle = AzPhysics::InvalidSceneHandle;
+
+        m_editorJointHelpers.reset();
 
         Physics::EditorWorldBus::Handler::BusDisconnect();
         m_onConfigurationChangedHandler.Disconnect();

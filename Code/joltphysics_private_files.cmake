@@ -60,6 +60,10 @@ set(FILES
     Source/Joint/JoltJoint.h
     Source/Joint/JoltJointConfiguration.cpp
     Source/Joint/JoltJointConfiguration.h
+    Source/Joint/JoltJointHelpers.cpp
+    Source/Joint/JoltJointHelpers.h
+    Source/Joint/JoltJointLimitMath.cpp
+    Source/Joint/JoltJointLimitMath.h
     Source/Vehicle/JoltVehicle.cpp
     Source/Vehicle/JoltVehicle.h
     Source/Vehicle/JoltVehicleConfiguration.cpp

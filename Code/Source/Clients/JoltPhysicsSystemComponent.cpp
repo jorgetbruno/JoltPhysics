@@ -15,6 +15,7 @@
 
 #include <Joint/JoltJointConfiguration.h>
 #include <Clients/Components/JoltMeshColliderComponent.h>
+#include <Joint/JoltJointHelpers.h>
 #include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
 #include <System/CollisionLayerFilters.h>
@@ -152,12 +153,20 @@ namespace JoltPhysics
         // Nothing else supplies wind in a Jolt project - the engine declares the interface
         // and PhysX, which this gem replaces, is the only backend that implements it.
         m_windProvider = AZStd::make_unique<JoltWindProvider>();
+
+        // The same story for joint helpers, and it is what the Animation Editor's ragdoll
+        // tools ask for: AzFramework's CharacterPhysicsDebugDraw and EMotionFX both reach
+        // for AZ::Interface<AzPhysics::JointHelpersInterface>, and only the PhysX gem
+        // registers it in the shipped engine. Without this a Jolt project could simulate a
+        // ragdoll it could not author. Registration happens in the Registrar's constructor.
+        m_jointHelpers = AZStd::make_unique<JoltJointHelpers>();
     }
 
     void JoltPhysicsSystemComponent::Deactivate()
     {
         AZ::Interface<Physics::System>::Unregister(this);
 
+        m_jointHelpers.reset();
         m_windProvider.reset();
 
         AZ::TickBus::Handler::BusDisconnect();
