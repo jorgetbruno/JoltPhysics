@@ -807,6 +807,19 @@ feature, trust the topic sections below the milestones.**
   The per-body dispatch that follows sends each event twice, once from each body's
   point of view with the contact normals flipped; the scene batch is signalled
   before that swapping happens rather than inheriting the doubling.
+- **A handler may add or remove scenes while the step is running.** Every one of
+  these handlers is dispatched from inside `FinishSimulation`, and gameplay reacts to
+  physics events by tearing down worlds — a minigame ending from a trigger, an async
+  raycast callback unloading a zone. `RemoveScene` used to destroy the scene in
+  place, deleting `this` under the call still running it. Scene removal is now
+  deferred exactly as body removal already was: the slot empties immediately, so the
+  scene is not stepped again, and the object is destroyed once `Simulate` has finished
+  walking the list. Its slot is handed back out only then. `Simulate` walks the list
+  by index and stops at the count it had on entry, so `AddScene`'s `push_back` may
+  reallocate underneath it and a scene added mid-step first simulates on the next
+  frame rather than half-way through the current one. Tearing down the whole physics
+  *system* from a handler remains unsupported — `Shutdown` disposes of the job system
+  the scene is standing on.
 
 ## Soft bodies
 

@@ -88,6 +88,23 @@ namespace JoltPhysics
         AzPhysics::SceneList m_sceneList;
         AZStd::queue<AzPhysics::SceneIndex> m_freeSceneSlots;
 
+        //! Destroys the scenes a handler removed mid-step and hands their slots back.
+        //! Called once Simulate has finished walking the list.
+        void FlushDeferredSceneRemovals();
+
+        //! True while Simulate is walking m_sceneList, which is when handler code runs
+        //! and may add or remove scenes.
+        bool m_simulating = false;
+
+        //! Scenes removed during a step: emptied out of their slots immediately so they
+        //! are not stepped again, destroyed once nothing is standing on them. The same
+        //! bargain JoltScene makes for bodies.
+        AZStd::vector<AZStd::unique_ptr<AzPhysics::Scene>> m_scenesPendingDeletion;
+
+        //! Their slots, held back until the step ends so a scene added by a later handler
+        //! cannot land in one the loop is still walking.
+        AZStd::vector<AzPhysics::SceneIndex> m_sceneSlotsPendingRelease;
+
         float m_accumulatedTime = 0.0f;
 
         enum class State : AZ::u8

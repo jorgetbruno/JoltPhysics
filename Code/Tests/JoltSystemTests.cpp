@@ -9,6 +9,7 @@
 
 #include <AzCore/std/smart_ptr/make_shared.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
+#include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 #include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 
@@ -129,6 +130,164 @@ namespace JoltPhysics
         EXPECT_LT(gainedInOneFrame, 1.5f) << "the dropped backlog was paid off on a later frame";
 
         system->RemoveScene(sceneHandle);
+        system->Shutdown();
+    }
+
+    TEST_F(JoltSystemTests, AHandlerCanTearDownItsOwnSceneMidStep)
+    {
+        // Gameplay reacts to physics events by tearing down worlds - a minigame ends from
+        // a trigger, a level transition fires from a contact, an async raycast callback
+        // unloads a zone. Every one of those handlers runs inside FinishSimulation, and
+        // RemoveScene used to destroy the scene in place: `this` deleted under the call
+        // that was still running, surfacing later as an unattributable crash. Bodies were
+        // already deferred for exactly this pattern; scenes were not.
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+
+        JoltSystemConfiguration config;
+        config.m_fixedTimestep = 0.1f;
+        // Room for several sub-steps in one call, so the removal lands part-way through
+        // the loop rather than on its last iteration.
+        config.m_maxTimestep = 1.0f;
+        system->Initialize(&config);
+
+        AzPhysics::SceneConfiguration doomedConfig;
+        doomedConfig.m_sceneName = "DoomedScene";
+        const AzPhysics::SceneHandle doomedHandle = system->AddScene(doomedConfig);
+        AzPhysics::Scene* doomedScene = system->GetScene(doomedHandle);
+        ASSERT_NE(doomedScene, nullptr);
+
+        // A second scene, to show the loop survives the removal rather than just stopping.
+        AzPhysics::SceneConfiguration survivorConfig;
+        survivorConfig.m_sceneName = "SurvivingScene";
+        const AzPhysics::SceneHandle survivorHandle = system->AddScene(survivorConfig);
+        AzPhysics::Scene* survivorScene = system->GetScene(survivorHandle);
+        ASSERT_NE(survivorScene, nullptr);
+
+        auto addFallingBox = [](AzPhysics::Scene* scene, float height)
+        {
+            AzPhysics::RigidBodyConfiguration bodyConfig;
+            bodyConfig.m_position = AZ::Vector3(0.0f, 0.0f, height);
+            bodyConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                AZStd::make_shared<Physics::ColliderConfiguration>(),
+                AZStd::make_shared<Physics::BoxShapeConfiguration>());
+            return azdynamic_cast<AzPhysics::RigidBody*>(
+                scene->GetSimulatedBodyFromHandle(scene->AddSimulatedBody(&bodyConfig)));
+        };
+
+        // A box resting on a static slab, so contacts are generated and the collision
+        // handler below actually runs.
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 2.0f);
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        doomedScene->AddSimulatedBody(&slabConfig);
+        ASSERT_NE(addFallingBox(doomedScene, 1.4f), nullptr);
+
+        auto* survivorBody = addFallingBox(survivorScene, 100.0f);
+        ASSERT_NE(survivorBody, nullptr);
+
+        int removals = 0;
+        AzPhysics::SceneEvents::OnSceneCollisionsEvent::Handler handler(
+            [&](AzPhysics::SceneHandle sceneHandle, [[maybe_unused]] const AzPhysics::CollisionEventList& events)
+            {
+                if (removals == 0)
+                {
+                    ++removals;
+                    system->RemoveScene(sceneHandle);
+                }
+            });
+        doomedScene->RegisterSceneCollisionEventHandler(handler);
+
+        // Ten sub-steps in one call: the removal lands on the first, and the nine that
+        // follow have to cope with the emptied slot.
+        system->Simulate(1.0f);
+
+        ASSERT_EQ(removals, 1) << "the handler never fired, so nothing was under test";
+        EXPECT_EQ(system->GetScene(doomedHandle), nullptr) << "the removal did not take effect";
+
+        // The other scene kept stepping through and past the removal.
+        EXPECT_LT(survivorBody->GetLinearVelocity().GetZ(), -1.0f);
+
+        // The freed slot is handed out only after the step, and it is handed out.
+        AzPhysics::SceneConfiguration replacementConfig;
+        replacementConfig.m_sceneName = "ReplacementScene";
+        const AzPhysics::SceneHandle replacementHandle = system->AddScene(replacementConfig);
+        EXPECT_NE(system->GetScene(replacementHandle), nullptr);
+
+        system->Shutdown();
+    }
+
+    TEST_F(JoltSystemTests, AHandlerCanAddASceneMidStepWithoutMovingTheOneBeingStepped)
+    {
+        // AddScene's push_back can reallocate the vector Simulate is walking, which a
+        // range-for would not survive. The new scene also must not start stepping
+        // half-way through the frame it was created in.
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        auto system = AZStd::make_unique<JoltSystem>(AZStd::move(registryManager));
+
+        JoltSystemConfiguration config;
+        config.m_fixedTimestep = 0.1f;
+        config.m_maxTimestep = 1.0f;
+        system->Initialize(&config);
+
+        AzPhysics::SceneConfiguration sceneConfig;
+        sceneConfig.m_sceneName = "SpawningScene";
+        const AzPhysics::SceneHandle sceneHandle = system->AddScene(sceneConfig);
+        AzPhysics::Scene* scene = system->GetScene(sceneHandle);
+        ASSERT_NE(scene, nullptr);
+
+        auto collider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 2.0f);
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(collider, slabShape);
+        scene->AddSimulatedBody(&slabConfig);
+
+        AzPhysics::RigidBodyConfiguration boxConfig;
+        boxConfig.m_position = AZ::Vector3(0.0f, 0.0f, 1.4f);
+        boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+            AZStd::make_shared<Physics::ColliderConfiguration>(),
+            AZStd::make_shared<Physics::BoxShapeConfiguration>());
+        scene->AddSimulatedBody(&boxConfig);
+
+        AzPhysics::SceneHandle spawnedHandle = AzPhysics::InvalidSceneHandle;
+        AzPhysics::RigidBody* spawnedBody = nullptr;
+        AzPhysics::SceneEvents::OnSceneCollisionsEvent::Handler handler(
+            [&]([[maybe_unused]] AzPhysics::SceneHandle eventSceneHandle,
+                [[maybe_unused]] const AzPhysics::CollisionEventList& events)
+            {
+                if (spawnedHandle != AzPhysics::InvalidSceneHandle)
+                {
+                    return;
+                }
+                AzPhysics::SceneConfiguration spawnedConfig;
+                spawnedConfig.m_sceneName = "SpawnedScene";
+                spawnedHandle = system->AddScene(spawnedConfig);
+
+                AzPhysics::RigidBodyConfiguration fallingConfig;
+                fallingConfig.m_position = AZ::Vector3(0.0f, 0.0f, 100.0f);
+                fallingConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                    AZStd::make_shared<Physics::ColliderConfiguration>(),
+                    AZStd::make_shared<Physics::BoxShapeConfiguration>());
+                AzPhysics::Scene* spawned = system->GetScene(spawnedHandle);
+                spawnedBody = azdynamic_cast<AzPhysics::RigidBody*>(
+                    spawned->GetSimulatedBodyFromHandle(spawned->AddSimulatedBody(&fallingConfig)));
+            });
+        scene->RegisterSceneCollisionEventHandler(handler);
+
+        system->Simulate(1.0f);
+
+        ASSERT_NE(spawnedHandle, AzPhysics::InvalidSceneHandle) << "the handler never fired";
+        ASSERT_NE(spawnedBody, nullptr);
+        EXPECT_EQ(spawnedBody->GetLinearVelocity().GetZ(), 0.0f)
+            << "a scene added mid-step was stepped in the frame it was created in";
+
+        // And it does step from the next call on.
+        system->Simulate(0.5f);
+        EXPECT_LT(spawnedBody->GetLinearVelocity().GetZ(), -1.0f);
+
         system->Shutdown();
     }
 

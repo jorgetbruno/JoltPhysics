@@ -148,6 +148,12 @@ namespace JoltPhysics
 
         RemoveAllScenes();
 
+        // Both are already empty unless Shutdown was called from inside a step, which is
+        // not survivable anyway (the job system a scene is mid-step on goes away below);
+        // clearing them keeps a scene from outliving the allocator that made it.
+        m_scenesPendingDeletion.clear();
+        m_sceneSlotsPendingRelease.clear();
+
         m_sceneInterface.Shutdown();
 
         if (m_materialManager)
@@ -186,10 +192,25 @@ namespace JoltPhysics
             m_accumulatedTime = maxAccumulatedTime;
         }
 
+        // Every scene's FinishSimulation dispatches handler code - collision and trigger
+        // handlers, async query callbacks, joint-break handlers - and a handler is
+        // entitled to react by tearing down a world: a trigger that ends a minigame, a
+        // raycast callback that unloads a zone. From here to the flush below, removing a
+        // scene empties its slot but does not destroy it.
+        m_simulating = true;
+
+        // The count at entry, so a scene a handler adds first steps next frame rather
+        // than half-way through this one.
+        const size_t sceneCountAtEntry = m_sceneList.size();
+
         while (m_accumulatedTime >= fixedDeltaTime)
         {
-            for (const auto& scene : m_sceneList)
+            // Indices rather than a range-for: AddScene's push_back can reallocate the
+            // vector this loop is walking, and RemoveAllScenes can empty it, either of
+            // which leaves an iterator pointing at freed memory.
+            for (size_t index = 0; index < sceneCountAtEntry && index < m_sceneList.size(); ++index)
             {
+                AzPhysics::Scene* scene = m_sceneList[index].get();
                 if (scene && scene->IsEnabled())
                 {
                     scene->StartSimulation(fixedDeltaTime);
@@ -198,6 +219,23 @@ namespace JoltPhysics
             }
             m_accumulatedTime -= fixedDeltaTime;
         }
+
+        m_simulating = false;
+        FlushDeferredSceneRemovals();
+    }
+
+    void JoltSystem::FlushDeferredSceneRemovals()
+    {
+        // Slots come back only now, so a scene added during the step cannot land in one
+        // the loop above is still walking.
+        for (const AzPhysics::SceneIndex index : m_sceneSlotsPendingRelease)
+        {
+            m_freeSceneSlots.push(index);
+        }
+        m_sceneSlotsPendingRelease.clear();
+
+        // The destruction the removal asked for, now that nothing is standing on it.
+        m_scenesPendingDeletion.clear();
     }
 
     AzPhysics::SceneHandle JoltSystem::AddScene(const AzPhysics::SceneConfiguration& config)
@@ -301,11 +339,25 @@ namespace JoltPhysics
         }
 
         const auto index = AZStd::get<AzPhysics::SceneIndex>(handle);
-        if (index < m_sceneList.size() && m_sceneList[index])
+        if (index >= m_sceneList.size() || !m_sceneList[index])
         {
-            m_sceneList[index].reset();
-            m_freeSceneSlots.push(index);
+            return;
         }
+
+        if (m_simulating)
+        {
+            // Called from a physics handler, mid-step. Bodies are already deferred for
+            // exactly this pattern (JoltScene's deferred deletions); scenes were not, so
+            // removing the scene being stepped deleted `this` under FinishSimulation.
+            // Emptying the slot is enough to stop it being stepped again this frame - the
+            // object itself outlives the step.
+            m_scenesPendingDeletion.push_back(AZStd::move(m_sceneList[index]));
+            m_sceneSlotsPendingRelease.push_back(index);
+            return;
+        }
+
+        m_sceneList[index].reset();
+        m_freeSceneSlots.push(index);
     }
 
     void JoltSystem::RemoveScenes(const AzPhysics::SceneHandleList& handles)
@@ -318,6 +370,23 @@ namespace JoltPhysics
 
     void JoltSystem::RemoveAllScenes()
     {
+        if (m_simulating)
+        {
+            // Same deferral as RemoveScene, one slot at a time rather than clearing the
+            // list: the loop in Simulate is indexing into it. The list keeps its length
+            // and the slots come back at the flush, so it does not shrink the way the
+            // immediate path does - every scene is still gone, which is what was asked.
+            for (size_t index = 0; index < m_sceneList.size(); ++index)
+            {
+                if (m_sceneList[index])
+                {
+                    m_scenesPendingDeletion.push_back(AZStd::move(m_sceneList[index]));
+                    m_sceneSlotsPendingRelease.push_back(static_cast<AzPhysics::SceneIndex>(index));
+                }
+            }
+            return;
+        }
+
         m_sceneList.clear();
 
         while (!m_freeSceneSlots.empty())
