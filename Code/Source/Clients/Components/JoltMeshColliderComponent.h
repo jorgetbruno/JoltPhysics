@@ -6,7 +6,7 @@
 
 #include <AzFramework/Physics/ShapeConfiguration.h>
 
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 
 namespace JoltPhysics
 {
@@ -23,6 +23,10 @@ namespace JoltPhysics
     //! the shape (mirrors PhysX's Utils::GetColliderShapeConfigsFromAsset). Callers
     //! pass entityScale * assetScale; the editor passes only nonUniformScale * assetScale
     //! because its draw transform already applies the entity's uniform scale.
+    //!
+    //! Reachable from another module through JoltPhysicsSystemRequests, which forwards
+    //! here - see the note in JoltPhysics/Pipeline/JoltMeshAsset.h about why the public
+    //! surface dispatches rather than links.
     AzPhysics::ShapeColliderPairList ExpandJoltMeshAssetColliderShapes(
         const Pipeline::JoltMeshAssetData& assetData,
         const Physics::ColliderConfiguration& colliderConfiguration,

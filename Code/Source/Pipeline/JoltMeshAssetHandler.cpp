@@ -1,4 +1,4 @@
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
 
 #include <AzCore/Asset/AssetManagerBus.h>

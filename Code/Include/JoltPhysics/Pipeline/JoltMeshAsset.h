@@ -4,11 +4,36 @@
 #include <AzCore/Asset/AssetTypeInfoBus.h>
 #include <AzCore/std/limits.h>
 #include <AzCore/std/optional.h>
+#include <AzFramework/Physics/Common/PhysicsTypes.h>
 #include <AzFramework/Physics/Material/PhysicsMaterialSlots.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
+
+//! @file
+//! The .joltmesh asset type: what the Scene Builder produces from a source mesh, and
+//! what a Jolt Mesh Collider references.
+//!
+//! Public because the gem family's contract is that a sibling gem reaches the backend
+//! through these headers with no changes to this gem. A gem that wants cooked collision
+//! geometry - the shared, deduplicated, Asset-Processor-built kind rather than something
+//! it cooks again itself - must at minimum be able to name the asset type in order to
+//! load it.
+//!
+//! Naming and reading it is all this header offers, and deliberately: JoltPhysics.API is
+//! an INTERFACE target with no library behind it, so anything out-of-line here would
+//! declare a symbol a consumer could not link. Turning a loaded asset into collider
+//! shapes therefore lives on JoltPhysicsSystemRequestBus
+//! (GetColliderShapesFromMeshAsset / ApplyMaterialSlotsFromMeshAsset), which is how every
+//! other backend call crosses a module boundary in this family. The members declared
+//! below that are not inline - Reflect, CreateMeshAsset, SetData - belong to the asset
+//! handler's side of that line and are not for a consumer to call.
+//!
+//! From a ShapeColliderPairList the rest is engine API: Physics::SystemRequestBus's
+//! CreateShape builds each one (this gem answers that bus), and Physics::Shape's
+//! GetNativePointer hands back the JPH::Shape underneath for a caller working in Jolt's
+//! own terms.
 
 namespace JoltPhysics
 {

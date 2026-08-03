@@ -5,4 +5,5 @@ set(FILES
     Include/JoltPhysics/JoltCharacterGameplayBus.h
     Include/JoltPhysics/Configuration/JoltConfiguration.h
     Include/JoltPhysics/JoltSoftBodyBus.h
+    Include/JoltPhysics/Pipeline/JoltMeshAsset.h
 )

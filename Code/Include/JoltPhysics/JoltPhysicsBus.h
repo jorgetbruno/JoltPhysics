@@ -12,6 +12,7 @@
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
+#include <AzFramework/Physics/Material/PhysicsMaterialSlots.h>
 
 #include <JoltPhysics/JoltVehicleConfiguration.h>
 
@@ -22,6 +23,15 @@ namespace JPH
 
 namespace JoltPhysics
 {
+    namespace Pipeline
+    {
+        // Declared, not included: the asset header is public
+        // (JoltPhysics/Pipeline/JoltMeshAsset.h) and a caller of the mesh-asset methods
+        // below has it anyway, while everyone else - every gem that includes this bus for
+        // object layers or state snapshots - should not pay for the asset system.
+        class JoltMeshAssetData;
+    }
+
     class JoltPhysicsRequests
     {
     public:
@@ -246,6 +256,38 @@ namespace JoltPhysics
         //! bodies to float - cannot work this out itself, because only this gem knows which
         //! collision layer and group each object layer stands for.
         virtual bool ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask) = 0;
+
+        //! Expands a loaded .joltmesh asset into one collider/shape pair per asset shape,
+        //! which is how the Jolt Mesh Collider itself turns an asset into geometry: each
+        //! pair starts from colliderConfiguration, then takes the shape's own material
+        //! slot and any per-shape overrides the Scene Builder stored in the asset
+        //! (collision layer, offset, tag). One pair per shape rather than a single
+        //! asset-wide one is what lets a rigid body compound them into one body with each
+        //! shape at its own offset.
+        //!
+        //! overallScale is baked into both the shape configuration and the collider
+        //! offset - native Jolt shapes carry no entity transform, so scale has to live in
+        //! the shape. Pass entityScale * the asset's own scale.
+        //!
+        //! Here rather than as a free function beside the asset type because
+        //! JoltPhysics.API is INTERFACE-only: a consuming gem has nothing to link, so
+        //! anything out-of-line has to be dispatched. Load the asset with
+        //! AZ::Data::Asset<Pipeline::JoltMeshAsset> (JoltPhysics/Pipeline/JoltMeshAsset.h),
+        //! pass its m_assetData here, and build each returned pair with the engine's
+        //! Physics::SystemRequestBus::CreateShape.
+        virtual AzPhysics::ShapeColliderPairList GetColliderShapesFromMeshAsset(
+            const Pipeline::JoltMeshAssetData& assetData,
+            const Physics::ColliderConfiguration& colliderConfiguration,
+            const AZ::Vector3& overallScale) = 0;
+
+        //! Copies a .joltmesh asset's material slots into a slot list. With
+        //! useMaterialsFromAsset the slots and their assigned materials are taken
+        //! wholesale; without it only the slot names are copied, keeping whatever
+        //! materials the caller had assigned.
+        virtual void ApplyMaterialSlotsFromMeshAsset(
+            const Pipeline::JoltMeshAssetData& assetData,
+            bool useMaterialsFromAsset,
+            Physics::MaterialSlots& materialSlots) = 0;
     };
 
     using JoltPhysicsSystemRequestBus = AZ::EBus<JoltPhysicsSystemRequests>;

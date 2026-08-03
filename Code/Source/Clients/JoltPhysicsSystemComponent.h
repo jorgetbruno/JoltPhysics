@@ -115,6 +115,14 @@ namespace JoltPhysics
             const AzPhysics::CollisionGroups::Id& collisionGroupId,
             bool isMoving) override;
         bool ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask) override;
+        AzPhysics::ShapeColliderPairList GetColliderShapesFromMeshAsset(
+            const Pipeline::JoltMeshAssetData& assetData,
+            const Physics::ColliderConfiguration& colliderConfiguration,
+            const AZ::Vector3& overallScale) override;
+        void ApplyMaterialSlotsFromMeshAsset(
+            const Pipeline::JoltMeshAssetData& assetData,
+            bool useMaterialsFromAsset,
+            Physics::MaterialSlots& materialSlots) override;
 
     private:
         void EnablePhysics();

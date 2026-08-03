@@ -9,7 +9,7 @@
 
 #include <Clients/Components/JoltMeshColliderComponent.h>
 #include <Configuration/JoltSettingsRegistryManager.h>
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Scene/JoltScene.h>
 #include <Shape/JoltMeshUtils.h>
 #include <Shape/JoltShapeUtils.h>

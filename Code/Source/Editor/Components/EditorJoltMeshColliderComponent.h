@@ -11,7 +11,7 @@
 
 #include <AtomLyIntegration/CommonFeatures/Mesh/MeshComponentBus.h>
 
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 
 namespace JoltPhysics
 {

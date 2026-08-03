@@ -20,7 +20,6 @@ set(FILES
     Source/Clients/Components/JoltMeshColliderComponent.cpp
     Source/Clients/Components/JoltMeshColliderComponent.h
     Source/Pipeline/JoltMeshAsset.cpp
-    Source/Pipeline/JoltMeshAsset.h
     Source/Pipeline/JoltMeshAssetHandler.cpp
     Source/Pipeline/JoltMeshAssetHandler.h
     Source/ForceRegion/JoltForceRegionForces.h

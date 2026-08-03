@@ -22,7 +22,7 @@
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 
 #include <JoltPhysics/JoltSoftBodyBus.h>
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 
 namespace JPH
 {

@@ -1,4 +1,4 @@
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 
 #include <AzCore/Math/Transform.h>
 #include <AzCore/Serialization/SerializeContext.h>

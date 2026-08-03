@@ -3,6 +3,7 @@ set(FILES
     Tests/JoltPhysicsTestEnvironment.h
     Tests/JoltTestWarningCatcher.h
     Tests/JoltSystemTests.cpp
+    Tests/JoltPublicApiSurfaceTests.cpp
     Tests/JoltSettingsRegistryTests.cpp
     Tests/JoltSolverSettingsTests.cpp
     Tests/JoltInternalEdgeRemovalTests.cpp

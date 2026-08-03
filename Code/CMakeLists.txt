@@ -149,6 +149,14 @@ set_source_files_properties(
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE
 )
 
+# What this test asserts is its own include list - that the exported headers stand up
+# without anything from Source/. Lumped in with its neighbours it would inherit their
+# includes and stop proving anything.
+set_source_files_properties(
+    Tests/JoltPublicApiSurfaceTests.cpp
+    PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE
+)
+
 ly_add_source_properties(
     SOURCES
         Source/JoltPhysicsModule.cpp

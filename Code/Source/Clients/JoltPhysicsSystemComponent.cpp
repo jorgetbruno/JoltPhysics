@@ -14,7 +14,8 @@
 #include <ISystem.h>
 
 #include <Joint/JoltJointConfiguration.h>
-#include <Pipeline/JoltMeshAsset.h>
+#include <Clients/Components/JoltMeshColliderComponent.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
 #include <System/CollisionLayerFilters.h>
 #include <System/JoltSystem.h>
@@ -606,6 +607,23 @@ namespace JoltPhysics
     bool JoltPhysicsSystemComponent::ObjectLayerMatchesQueryMask(AZ::u32 objectLayer, AZ::u64 collisionGroupMask)
     {
         return JoltPhysics::ObjectLayerMatchesQueryMask(static_cast<JPH::ObjectLayer>(objectLayer), collisionGroupMask);
+    }
+
+    AzPhysics::ShapeColliderPairList JoltPhysicsSystemComponent::GetColliderShapesFromMeshAsset(
+        const Pipeline::JoltMeshAssetData& assetData,
+        const Physics::ColliderConfiguration& colliderConfiguration,
+        const AZ::Vector3& overallScale)
+    {
+        // The same call the Jolt Mesh Collider makes, so an extension gem's shapes come
+        // out of an asset identically to a collider component's - including the per-shape
+        // overrides and material slots the Scene Builder wrote into it.
+        return ExpandJoltMeshAssetColliderShapes(assetData, colliderConfiguration, overallScale);
+    }
+
+    void JoltPhysicsSystemComponent::ApplyMaterialSlotsFromMeshAsset(
+        const Pipeline::JoltMeshAssetData& assetData, bool useMaterialsFromAsset, Physics::MaterialSlots& materialSlots)
+    {
+        ApplyJoltMeshAssetMaterialSlots(assetData, useMaterialsFromAsset, materialSlots);
     }
 
     void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)

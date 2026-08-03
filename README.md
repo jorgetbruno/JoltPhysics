@@ -130,6 +130,15 @@ provides and this gem does not wrap, live in sibling gems that reach the backend
 back a `JPH::PhysicsSystem*` for a scene, or null when the scene belongs to another
 backend, so an extension gem does no harm in a project not running Jolt.
 
+Cooked collision geometry crosses the same line. `JoltPhysics/Pipeline/JoltMeshAsset.h`
+is public, so a sibling gem can load an `AZ::Data::Asset<Pipeline::JoltMeshAsset>` — the
+`.joltmesh` product the Asset Processor already built and deduplicated — instead of
+cooking its own; `GetColliderShapesFromMeshAsset` on the same bus expands one into
+collider/shape pairs exactly as the Jolt Mesh Collider does, and the engine's
+`Physics::SystemRequestBus::CreateShape` turns each into a shape. The expansion is on the
+bus rather than beside the asset type because `JoltPhysics.API` is an INTERFACE target:
+there is no library to link, so anything not inline has to be dispatched.
+
 ### Writing an extension gem: install the Jolt globals
 
 **Jolt is statically linked into every module that uses it, so each one owns a private

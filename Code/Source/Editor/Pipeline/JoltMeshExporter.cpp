@@ -3,7 +3,7 @@
 #include <Editor/EditorJoltConvexDecomposition.h>
 #include <Editor/Pipeline/JoltMeshGroup.h>
 #include <Editor/Pipeline/JoltPrimitiveShapeFitter.h>
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Shape/JoltMeshUtils.h>
 
 #include <AzCore/Component/ComponentApplicationBus.h>

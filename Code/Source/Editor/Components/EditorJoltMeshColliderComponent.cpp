@@ -18,7 +18,7 @@
 
 #include <AzCore/Asset/AssetSerializer.h>
 
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>

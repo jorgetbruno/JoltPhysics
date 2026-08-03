@@ -18,7 +18,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
 
-#include <Pipeline/JoltMeshAsset.h>
+#include <JoltPhysics/Pipeline/JoltMeshAsset.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
 #include <Shape/JoltMeshUtils.h>
 
