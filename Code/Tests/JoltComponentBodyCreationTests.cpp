@@ -697,6 +697,178 @@ namespace JoltPhysics
         entity->Deactivate();
     }
 
+    //! Geometry handed to a soft body at runtime. The gem that does this (JoltCloth) reads
+    //! a character's cloth mesh, welds it, and then has to map simulated particles back
+    //! onto render vertices - so what it needs from this bus is not just that the surface
+    //! simulates but that the particles come back in the order it sent them.
+    class JoltSoftBodyCustomGeometryTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        //! A soft body with no geometry yet, which is what one looks like for the frame or
+        //! two before whatever feeds it is ready.
+        AZStd::unique_ptr<AZ::Entity> CreateEmptyCustomBody(const AZ::Vector3& position)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("CustomSoftBody");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* softBody = entity->CreateComponent<JoltSoftBodyComponent>();
+
+            JoltSoftBodySettings& settings = softBody->GetSettings();
+            settings.m_shape = JoltSoftBodyShape::Custom;
+            settings.m_mass = 1.0f;
+            settings.m_allowSleeping = false;
+            settings.m_updatePosition = false;
+
+            entity->Init();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTM, AZ::Transform::CreateTranslation(position));
+            entity->Activate();
+            return entity;
+        }
+
+        //! A flat grid of quads in the XY plane, every position distinct - what a welded
+        //! render mesh looks like by the time a caller has finished with it.
+        static void MakeGrid(
+            AZ::u32 sideVertices, AZStd::vector<AZ::Vector3>& outVertices, AZStd::vector<AZ::u32>& outIndices)
+        {
+            for (AZ::u32 y = 0; y < sideVertices; ++y)
+            {
+                for (AZ::u32 x = 0; x < sideVertices; ++x)
+                {
+                    outVertices.push_back(
+                        AZ::Vector3(aznumeric_cast<float>(x) * 0.25f, aznumeric_cast<float>(y) * 0.25f, 0.0f));
+                }
+            }
+            for (AZ::u32 y = 0; y + 1 < sideVertices; ++y)
+            {
+                for (AZ::u32 x = 0; x + 1 < sideVertices; ++x)
+                {
+                    const AZ::u32 a = y * sideVertices + x;
+                    const AZ::u32 b = a + 1;
+                    const AZ::u32 c = a + sideVertices;
+                    const AZ::u32 d = c + 1;
+                    outIndices.insert(outIndices.end(), { a, b, d });
+                    outIndices.insert(outIndices.end(), { a, d, c });
+                }
+            }
+        }
+    };
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, GeometryWithUniquePositionsKeepsItsCountAndItsOrder)
+    {
+        // The invariant JoltCloth is built on. It welds the render mesh itself - it has to,
+        // because it needs the render-vertex-to-particle map for writing simulation back -
+        // and then treats its own vertex indices as particle indices. If welding here
+        // reordered or merged anything, every skin weight and every written-back vertex
+        // would land on the wrong particle, and the cloth would look scrambled rather than
+        // wrong in any way that points at this.
+        const AZ::Vector3 bodyPosition(3.0f, -1.0f, 6.0f);
+        auto entity = CreateEmptyCustomBody(bodyPosition);
+        const AZ::EntityId entityId = entity->GetId();
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeGrid(4, vertices, indices);
+
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZ::u32 vertexCount = 0;
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        ASSERT_EQ(vertexCount, vertices.size());
+
+        for (AZ::u32 index = 0; index < vertexCount; ++index)
+        {
+            AZ::Vector3 particle = AZ::Vector3::CreateZero();
+            JoltSoftBodyRequestBus::EventResult(
+                particle, entityId, &JoltSoftBodyRequests::GetVertexPosition, index);
+            // Supplied geometry is entity-local, so the entity transform places it.
+            EXPECT_TRUE(particle.IsClose(bodyPosition + vertices[index], 1e-3f))
+                << "particle " << index << " is not where vertex " << index << " was sent";
+        }
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, VerticesSharingAPositionSimulateAsOneParticle)
+    {
+        // A render mesh splits vertices along every normal and UV seam. Simulated as they
+        // arrive, the sheet would come apart at each seam, because constraints only connect
+        // vertices that share a face.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        // Two triangles that meet along an edge, with that edge duplicated - the seam.
+        const AZStd::vector<AZ::Vector3> vertices = {
+            AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(1.0f, 0.0f, 0.0f), AZ::Vector3(0.0f, 1.0f, 0.0f),
+            AZ::Vector3(1.0f, 0.0f, 0.0f), AZ::Vector3(0.0f, 1.0f, 0.0f), AZ::Vector3(1.0f, 1.0f, 0.0f),
+        };
+        const AZStd::vector<AZ::u32> indices = { 0, 1, 2, 3, 5, 4 };
+
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZ::u32 vertexCount = 0;
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, 4u) << "the duplicated seam vertices did not weld";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, SuppliedGeometryIsSimulatedAndNotJustStored)
+    {
+        auto entity = CreateEmptyCustomBody(AZ::Vector3(0.0f, 0.0f, 10.0f));
+        const AZ::EntityId entityId = entity->GetId();
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeGrid(4, vertices, indices);
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZ::Aabb before = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(before, entityId, &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(before.IsValid());
+
+        SimulateSeconds(1.0f);
+
+        AZ::Aabb after = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(after, entityId, &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(after.IsValid());
+        // Nothing is pinned, so a second of gravity should have taken it several metres.
+        EXPECT_LT(after.GetCenter().GetZ(), before.GetCenter().GetZ() - 1.0f);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, ABodyWaitingForItsGeometryIsEmptyRatherThanBroken)
+    {
+        // A Custom body activates before whatever feeds it has anything to feed - an actor
+        // asset and a physics scene do not become ready in a fixed order. That gap must
+        // read as "no particles yet", not as a failed component.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        AZ::u32 vertexCount = 1;
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, 0u);
+
+        SimulateSeconds(0.1f);
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeGrid(3, vertices, indices);
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, vertices.size());
+
+        // And handing back nothing empties it again rather than leaving the old surface.
+        JoltSoftBodyRequestBus::Event(
+            entityId, &JoltSoftBodyRequests::SetCustomGeometry, AZStd::vector<AZ::Vector3>(),
+            AZStd::vector<AZ::u32>());
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, 0u);
+
+        entity->Deactivate();
+    }
+
     //! Soft body skinning as it is reached from outside this gem - through the bus,
     //! in world space. The sibling gem that drives it (JoltCloth) has an actor's pose and
     //! nothing else, so this is the contract that matters.

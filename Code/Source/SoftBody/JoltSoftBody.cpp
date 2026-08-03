@@ -718,6 +718,35 @@ namespace JoltPhysics
         return FromJolt(body.GetCenterOfMassTransform().Multiply3x3(vertices[index].mVelocity));
     }
 
+    void JoltSoftBody::SetCustomGeometry(
+        const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        m_customVertices = vertices;
+        m_customIndices = indices;
+
+        // Handing over geometry is what selects the shape - a caller with a mesh should not
+        // also have to remember to change a drop-down for it to be used, and a Custom body
+        // whose geometry was cleared has nothing to fall back to anyway.
+        m_settings.m_shape = JoltSoftBodyShape::Custom;
+
+        // The particle layout is the geometry, so new geometry means a new body - and
+        // usually there is no body yet to replace. A Custom body has nothing to build from
+        // until this call, so unlike every other rebuild here, this one has to run when the
+        // body is missing rather than only when it exists.
+        if (m_physicsSystem)
+        {
+            DestroyBody();
+            CreateBody();
+        }
+    }
+
+    bool JoltSoftBody::HasCustomGeometry() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return !m_customVertices.empty() && !m_customIndices.empty();
+    }
+
     void JoltSoftBody::SetSkinningData(
         const AZStd::vector<AZ::Transform>& jointInvBinds,
         const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices)
@@ -984,29 +1013,50 @@ namespace JoltPhysics
 
         JPH::Ref<JPH::SoftBodySharedSettings> settings = new JPH::SoftBodySharedSettings();
 
-        if (m_settings.m_shape == JoltSoftBodyShape::Mesh)
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh || m_settings.m_shape == JoltSoftBodyShape::Custom)
         {
-            const Physics::CookedMeshShapeConfiguration* meshConfiguration =
-                FindTriangleMeshConfiguration(m_settings.m_meshAsset.Get());
-            if (!meshConfiguration)
-            {
-                AZ_Warning("JoltPhysics", false,
-                    "Soft body mesh asset is missing, not loaded, or carries no triangle mesh; no body is built.");
-                return nullptr;
-            }
-
+            // Both shapes are a triangle soup someone else produced; only where it comes
+            // from differs. Neither honours m_size or the pinning presets - a supplied
+            // surface has no canonical corners or top edge, so pin its particles at
+            // runtime instead.
             AZStd::vector<AZ::Vector3> rawVertices;
             AZStd::vector<AZ::u32> rawIndices;
-            if (!JoltMeshUtils::UnpackTriangleMesh(meshConfiguration->GetCookedMeshData(), rawVertices, rawIndices))
+
+            if (m_settings.m_shape == JoltSoftBodyShape::Mesh)
             {
-                AZ_Warning("JoltPhysics", false, "Soft body mesh asset holds a malformed cooked blob; no body is built.");
-                return nullptr;
+                const Physics::CookedMeshShapeConfiguration* meshConfiguration =
+                    FindTriangleMeshConfiguration(m_settings.m_meshAsset.Get());
+                if (!meshConfiguration)
+                {
+                    AZ_Warning("JoltPhysics", false,
+                        "Soft body mesh asset is missing, not loaded, or carries no triangle mesh; no body is built.");
+                    return nullptr;
+                }
+
+                if (!JoltMeshUtils::UnpackTriangleMesh(meshConfiguration->GetCookedMeshData(), rawVertices, rawIndices))
+                {
+                    AZ_Warning("JoltPhysics", false,
+                        "Soft body mesh asset holds a malformed cooked blob; no body is built.");
+                    return nullptr;
+                }
+            }
+            else
+            {
+                if (m_customVertices.empty() || m_customIndices.empty())
+                {
+                    // Not a warning: a Custom body exists before the thing that feeds it
+                    // has anything to feed, and that gap is a frame or two on every load.
+                    return nullptr;
+                }
+                rawVertices = m_customVertices;
+                rawIndices = m_customIndices;
             }
 
             // Weld before building: the seams a render mesh splits on must simulate as
-            // single particles or the sheet tears along every one of them. The vertices
-            // are entity-local as cooked; m_size and the pinning presets do not apply
-            // (pin mesh particles at runtime instead).
+            // single particles or the sheet tears along every one of them. Geometry whose
+            // positions are already unique passes through unchanged, in order, which is
+            // what lets a caller that welded the mesh itself use its own vertex indices as
+            // particle indices.
             AZStd::vector<AZ::Vector3> weldedVertices;
             AZStd::vector<AZ::u32> weldedIndices;
             WeldVertices(rawVertices, rawIndices, weldedVertices, weldedIndices);

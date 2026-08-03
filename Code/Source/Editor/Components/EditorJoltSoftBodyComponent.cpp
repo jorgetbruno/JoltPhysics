@@ -182,9 +182,11 @@ namespace JoltPhysics
             return;
         }
 
-        // The rest-shape preview is generated from the procedural settings; a mesh's
-        // rest shape is its render mesh, which the viewport already shows.
-        if (m_settings.m_shape == JoltSoftBodyShape::Mesh)
+        // The rest-shape preview is generated from the procedural settings. A mesh's rest
+        // shape is its render mesh, which the viewport already shows, and geometry supplied
+        // at runtime does not exist until the level runs - drawing a guess for either would
+        // be showing a shape the game will not use.
+        if (m_settings.m_shape == JoltSoftBodyShape::Mesh || m_settings.m_shape == JoltSoftBodyShape::Custom)
         {
             return;
         }

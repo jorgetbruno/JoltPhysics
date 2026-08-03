@@ -1035,14 +1035,30 @@ feature, trust the topic sections below the milestones.**
   `m_backstopDistance` and `m_backstopRadius` are Jolt's three skinned-constraint fields,
   and they line up one for one with what O3DE already asks cloth authors for (motion
   constraints, backstop offset, backstop radius).
+- **A soft body's geometry can be supplied at runtime.** `SetCustomGeometry` takes
+  triangles in entity-local space and switches the shape to `Custom`, which is how a
+  caller that already has a mesh — a character's cloth mesh, geometry built at runtime —
+  simulates that surface instead of one of the generated shapes. PhysX has no equivalent:
+  its cloth comes from an asset and only from an asset.
+
+  Vertices sharing a position are welded into one particle, because a render mesh splits
+  vertices along every normal and UV seam and an unwelded sheet tears along each one. The
+  contract that matters to a caller is the other half of that: **geometry whose positions
+  are already unique keeps its vertex count and its order**, so anything that welded the
+  mesh itself — which anything mapping simulation back onto render vertices has to — can
+  treat particle indices and its own vertex indices as the same number. That is pinned by
+  test, not by convention.
+
+  This is also the one rebuild here that runs when there is *no* body: a `Custom` body has
+  nothing to build from until the geometry arrives, so it exists as an empty body first.
 - **Skinning wraps Jolt's skinned constraints, not a render pipeline.**
   `SetSkinningData` (inverse bind transforms + per-particle joint weights and max
   drift) bakes `Skinned` constraints into the shared settings, and
   `UpdateSkinnedJoints` feeds the animated pose (joint transforms in the soft
   body's local frame) to `SkinVertices` each frame; `SetSkinConstraintsEnabled`
-  toggles the constraints live. This is the seam an actor/Atom integration drives
-  — there is still no render-mesh output, and the Cube shape cannot be skinned
-  because Jolt pre-optimises its constraint layout.
+  toggles the constraints live. This is the seam JoltCloth drives — there is no
+  render-mesh output *in this gem* and there should not be, and the Cube shape cannot be
+  skinned because Jolt pre-optimises its constraint layout.
 - **Collision layer and group are live settings, not baked ones.** Jolt can move a
   body between object layers with `BodyInterface::SetObjectLayer`, so changing
   either re-resolves the object layer and moves the existing body rather than

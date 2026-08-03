@@ -20,6 +20,7 @@ namespace JoltPhysics
         Cube = 1, //!< A solid grid with volume constraints. Wobbles and keeps its bulk.
         Balloon = 2, //!< A closed grid driven by internal pressure. Inflates and bounces.
         Mesh = 3, //!< The triangle surface of a .joltmesh asset, welded and simulated as cloth.
+        Custom = 4, //!< Triangles handed over at runtime through SetCustomGeometry.
     };
 
     //! How a cloth is held up. A cloth with nothing pinned simply falls.
@@ -51,6 +52,11 @@ namespace JoltPhysics
         //! Blend weight; the weights of a vertex are normalized when the body is built.
         float m_weight = 1.0f;
     };
+
+    //! How many joints Jolt lets pull on one skinned particle. Influences past this are
+    //! dropped when the body is built, so a caller that ranks its own weights should cut
+    //! them here rather than let the backend choose which to lose.
+    static constexpr AZ::u32 MaxSoftBodySkinInfluences = 4;
 
     //! Ties one particle to the skinned position its joints compute.
     //!
@@ -164,6 +170,30 @@ namespace JoltPhysics
         //! out-of-range index.
         virtual bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity) = 0;
         virtual AZ::Vector3 GetVertexVelocity(AZ::u32 index) const = 0;
+
+        //! @name Geometry
+        //! @{
+
+        //! Replaces the body's geometry with the given triangles and switches the shape to
+        //! Custom, which is how a caller that already has a mesh - a character's cloth
+        //! mesh, geometry built at runtime - simulates that surface rather than one of the
+        //! generated shapes. Rebuilds the body. Passing empty geometry clears it, leaving a
+        //! Custom body with nothing to build.
+        //!
+        //! Positions are **entity-local**, the same space the Mesh shape's cooked vertices
+        //! are in, because that is the space a model's vertex buffer is already in. The
+        //! entity transform places the result.
+        //!
+        //! Vertices that share a position are welded into one particle, since a render mesh
+        //! splits vertices along every normal and UV seam and a sheet simulated unwelded
+        //! tears along each one. Geometry whose positions are already unique keeps its
+        //! vertex count **and its order**, so a caller that welded the mesh itself - which
+        //! anything mapping simulation back onto render vertices has to - can treat
+        //! particle indices and its own vertex indices as the same thing.
+        virtual void SetCustomGeometry(
+            const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices) = 0;
+
+        //! @}
 
         //! @name Skinning
         //!

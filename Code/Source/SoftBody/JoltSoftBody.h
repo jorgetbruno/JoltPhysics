@@ -225,6 +225,14 @@ namespace JoltPhysics
         bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity);
         AZ::Vector3 GetVertexVelocity(AZ::u32 index) const;
 
+        //! Baked: replaces the geometry and switches the shape to Custom. Positions are
+        //! entity-local, the same space the Mesh shape's cooked vertices are in. Rebuilds
+        //! the body; empty geometry clears it. Shared positions weld into one particle, so
+        //! already-unique geometry keeps its vertex count and order.
+        void SetCustomGeometry(
+            const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices);
+        bool HasCustomGeometry() const;
+
         //! Baked: ties particles to an animated skeleton through Jolt's skinned
         //! constraints. jointInvBinds holds each joint's inverse bind transform in the
         //! soft body's local frame (it takes a particle's rest position to joint-local
@@ -318,6 +326,13 @@ namespace JoltPhysics
         //! The inverse mass a free particle carries in the current build, so unpinning a
         //! particle at runtime restores the same share instead of a guess.
         float m_perVertexInvMass = 1.0f;
+
+        //! Geometry for the Custom shape, entity-local. Not part of the settings: it comes
+        //! from a live mesh rather than from anything an author serialises, and copying it
+        //! through every GetSettings/SetSettings round trip would cost a megabyte a call on
+        //! a real character.
+        AZStd::vector<AZ::Vector3> m_customVertices;
+        AZStd::vector<AZ::u32> m_customIndices;
 
         //! Skinning data, baked into the shared settings on every rebuild.
         AZStd::vector<AZ::Transform> m_jointInvBinds;

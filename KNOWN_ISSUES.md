@@ -14,12 +14,14 @@ deviations from PhysX behavior.
 - **Vehicle gaps**: O3DE 26.05 has no AzPhysics vehicle interfaces (the PhysXVehicle
   gem is not part of this engine), so vehicles are exposed only through this gem's own
   component/bus.
-- **Soft body gaps**: no render-mesh or Atom output — drawing is debug-draw plus the
-  bus's bulk vertex/triangle reads for script- or C++-driven rendering. An actor's
-  skeleton now drives the skinning (the **JoltCloth** sibling gem), but the weights are
-  bound by proximity rather than authored: carrying skin influences and per-particle
-  cloth data through the asset pipeline, the way NVIDIA Cloth's FBX Cloth modifier does,
-  is the remaining piece.
+- **Soft body gaps**: this gem still draws nothing itself — debug-draw plus the bus's
+  bulk vertex/triangle reads are all it offers, which is correct for a gem that depends on
+  no renderer. A character's cloth is now simulated, skinned and drawn by the **JoltCloth**
+  sibling gem, which reads the actor's cloth mesh (weights and painted `CLOTH_DATA` alike),
+  hands the geometry back through `SetCustomGeometry`, and writes the simulation into the
+  render mesh. What is left here is anything that is *not* a character: a soft body built
+  from a `.joltmesh` or a procedural shape has no render mesh to write into, so drawing one
+  still means reading its vertices and drawing them yourself.
 
 - **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
   spline component to follow), and force regions have no editor viewport preview of the

@@ -37,8 +37,11 @@ namespace JoltPhysics
 
     AZ::Crc32 JoltSoftBodySettings::GetProceduralShapeVisibility() const
     {
-        return m_shape == JoltSoftBodyShape::Mesh ? AZ::Edit::PropertyVisibility::Hide
-                                                  : AZ::Edit::PropertyVisibility::Show;
+        // Neither shape generates anything: one takes its surface from an asset and the
+        //  other is handed geometry at runtime, so extents and resolution mean nothing.
+        return (m_shape == JoltSoftBodyShape::Mesh || m_shape == JoltSoftBodyShape::Custom)
+            ? AZ::Edit::PropertyVisibility::Hide
+            : AZ::Edit::PropertyVisibility::Show;
     }
 
     AZ::Crc32 JoltSoftBodySettings::GetMeshShapeVisibility() const
@@ -175,6 +178,9 @@ namespace JoltPhysics
                         ->EnumAttribute(JoltSoftBodyShape::Cube, "Cube")
                         ->EnumAttribute(JoltSoftBodyShape::Balloon, "Balloon")
                         ->EnumAttribute(JoltSoftBodyShape::Mesh, "Mesh")
+                        // Selectable so the choice is visible on an entity that is driven
+                        // this way; the geometry itself arrives from another component.
+                        ->EnumAttribute(JoltSoftBodyShape::Custom, "Supplied at runtime")
                         ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::EntireTree)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_meshAsset,
                         "Mesh asset", "The .joltmesh asset whose first triangle mesh becomes the simulated surface "
@@ -422,6 +428,18 @@ namespace JoltPhysics
         configuration.m_debugName = GetEntity() ? GetEntity()->GetName() : AZStd::string();
 
         m_softBodyHandle = sceneInterface->AddSimulatedBody(m_attachedSceneHandle, &configuration);
+
+        // Geometry supplied at runtime is not part of the configuration, so a body rebuilt
+        // for any other reason - re-enabled, moved, an edited setting - would come back
+        // with nothing to build. Skinning is deliberately not restored here: that data is
+        // taken against a pose, and replaying a stale one would be worse than rebinding.
+        if (m_settings.m_shape == JoltSoftBodyShape::Custom && !m_customVertices.empty())
+        {
+            if (auto* softBody = GetSoftBody())
+            {
+                softBody->SetCustomGeometry(m_customVertices, m_customIndices);
+            }
+        }
     }
 
     void JoltSoftBodyComponent::DestroySoftBody()
@@ -613,6 +631,21 @@ namespace JoltPhysics
     {
         auto* softBody = GetSoftBody();
         return softBody && softBody->IsVertexPinned(index);
+    }
+
+    void JoltSoftBodyComponent::SetCustomGeometry(
+        const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices)
+    {
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetCustomGeometry(vertices, indices);
+        }
+
+        // Kept on the component too, so a body rebuilt from the settings later - disabled
+        // and re-enabled, moved - comes back with the same geometry instead of empty.
+        m_settings.m_shape = JoltSoftBodyShape::Custom;
+        m_customVertices = vertices;
+        m_customIndices = indices;
     }
 
     void JoltSoftBodyComponent::SetSkinningData(

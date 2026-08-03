@@ -82,6 +82,8 @@ namespace JoltPhysics
         bool IsVertexPinned(AZ::u32 index) const override;
         bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity) override;
         AZ::Vector3 GetVertexVelocity(AZ::u32 index) const override;
+        void SetCustomGeometry(
+            const AZStd::vector<AZ::Vector3>& vertices, const AZStd::vector<AZ::u32>& indices) override;
         void SetSkinningData(
             const AZStd::vector<AZ::Transform>& jointBindTransforms,
             const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices) override;
@@ -92,6 +94,11 @@ namespace JoltPhysics
     private:
         JoltSoftBodySettings m_settings;
         bool m_visible = true;
+
+        //! Geometry handed over through the bus, kept so a rebuilt body can be given it
+        //! again. Not serialised - it comes from a live mesh, not from an author.
+        AZStd::vector<AZ::Vector3> m_customVertices;
+        AZStd::vector<AZ::u32> m_customIndices;
 
         //! The scene owns the body; this component only holds its handle. Null whenever
         //! the component is disabled or its scene has gone away.
