@@ -30,13 +30,10 @@ deviations from PhysX behavior.
   spline component to follow), and force regions have no editor viewport preview of the
   forces they apply.
 
-- **No shape-collider equivalent.** PhysX ships `ShapeColliderComponent`, which drives a
-  collider from an LmbrCentral shape component (Box, Capsule, Sphere, Cylinder, Quad and
-  **Polygon Prism**). Box-like cases can be re-authored with this gem's own primitive
-  colliders, but a Polygon Prism has no representation at all - a migrating team must
-  re-model each extruded blocker, kill volume or water region as a mesh asset. The
-  decomposition machinery already here (VHACD, hull groups) is the natural path to an
-  extruded-prism collider when it is wanted.
+- **The shape collider does not wrap Quad**, and a **concave** Polygon Prism becomes its
+  convex hull rather than its true outline. Box, Sphere, Capsule, Cylinder and convex
+  prisms are handled; a concave prism needs the decomposition path the baked mesh collider
+  already uses, which is an editor-time bake rather than the live read this does.
 
 - **One joint per entity.** `JoltJointService` is declared incompatible with itself and
   the joint bus is addressed by entity id; see the joint-bus entry in DIVERGENCES.md for

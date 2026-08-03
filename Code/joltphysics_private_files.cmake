@@ -29,6 +29,8 @@ set(FILES
     Source/ForceRegion/JoltForceRegionComponent.cpp
     Source/ForceRegion/JoltWindProvider.h
     Source/ForceRegion/JoltWindProvider.cpp
+    Source/Clients/Components/JoltShapeColliderComponent.h
+    Source/Clients/Components/JoltShapeColliderComponent.cpp
     Source/Clients/Components/JoltRigidBodyComponent.cpp
     Source/Clients/Components/JoltRigidBodyComponent.h
     Source/Clients/Components/JoltStaticRigidBodyComponent.cpp

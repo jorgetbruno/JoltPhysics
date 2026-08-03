@@ -1,3 +1,4 @@
+#include <Editor/Components/EditorJoltShapeColliderComponent.h>
 #include <Editor/EditorComponentDescriptors.h>
 #include <Editor/JoltPhysicsEditorSystemComponent.h>
 #include <Editor/Components/EditorJoltBoxColliderComponent.h>
@@ -42,6 +43,7 @@ namespace JoltPhysics
         // that cooks .joltmesh products during the scene compilation job.
         descriptors.push_back(Pipeline::JoltMeshBehavior::CreateDescriptor());
         descriptors.push_back(Pipeline::JoltMeshExporter::CreateDescriptor());
+        descriptors.push_back(EditorJoltShapeColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltStaticRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltHeightfieldColliderComponent::CreateDescriptor());

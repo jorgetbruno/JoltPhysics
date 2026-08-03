@@ -1,3 +1,4 @@
+#include <Clients/Components/JoltShapeColliderComponent.h>
 #include <ForceRegion/JoltForceRegionComponent.h>
 #include <Clients/ComponentDescriptors.h>
 #include <Clients/JoltPhysicsSystemComponent.h>
@@ -29,6 +30,7 @@ namespace JoltPhysics
         descriptors.push_back(JoltCylinderColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltBakedMeshColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltMeshColliderComponent::CreateDescriptor());
+        descriptors.push_back(JoltShapeColliderComponent::CreateDescriptor());
         descriptors.push_back(JoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(JoltForceRegionComponent::CreateDescriptor());
         descriptors.push_back(JoltStaticRigidBodyComponent::CreateDescriptor());

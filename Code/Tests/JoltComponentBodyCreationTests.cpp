@@ -1,3 +1,8 @@
+#include <Shape/JoltShapeUtils.h>
+#include <Clients/Components/JoltShapeColliderComponent.h>
+#include <LmbrCentral/Shape/ShapeComponentBus.h>
+#include <LmbrCentral/Shape/PolygonPrismShapeComponentBus.h>
+#include <AzCore/Math/PolygonPrism.h>
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -695,6 +700,144 @@ namespace JoltPhysics
         EXPECT_TRUE(warnings.ContainsWarningWith("less than twice its radius"));
 
         entity->Deactivate();
+    }
+
+    // A collider whose geometry comes from an LmbrCentral shape component. Polygon Prism
+    // is the case that matters: box-like shapes can be re-authored with this gem's own
+    // primitives, but an extruded prism - the stock O3DE way to draw a kill volume or a
+    // level blocker - had no representation in this backend at all.
+    class JoltShapeColliderTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        //! Stands in for an LmbrCentral polygon prism shape component.
+        class MockPolygonPrismShape
+            : public LmbrCentral::ShapeComponentRequestsBus::Handler
+            , public LmbrCentral::PolygonPrismShapeComponentRequestBus::Handler
+        {
+        public:
+            MockPolygonPrismShape(AZ::EntityId entityId, const AZStd::vector<AZ::Vector2>& footprint, float height)
+                : m_prism(AZStd::make_shared<AZ::PolygonPrism>())
+            {
+                m_prism->SetHeight(height);
+                for (const AZ::Vector2& vertex : footprint)
+                {
+                    m_prism->m_vertexContainer.AddVertex(vertex);
+                }
+                LmbrCentral::ShapeComponentRequestsBus::Handler::BusConnect(entityId);
+                LmbrCentral::PolygonPrismShapeComponentRequestBus::Handler::BusConnect(entityId);
+            }
+
+            ~MockPolygonPrismShape() override
+            {
+                LmbrCentral::PolygonPrismShapeComponentRequestBus::Handler::BusDisconnect();
+                LmbrCentral::ShapeComponentRequestsBus::Handler::BusDisconnect();
+            }
+
+            AZ::Crc32 GetShapeType() const override
+            {
+                return AZ_CRC_CE("PolygonPrism");
+            }
+            AZ::Aabb GetEncompassingAabb() const override
+            {
+                return AZ::Aabb::CreateNull();
+            }
+            void GetTransformAndLocalBounds(AZ::Transform& transform, AZ::Aabb& bounds) const override
+            {
+                transform = AZ::Transform::CreateIdentity();
+                bounds = AZ::Aabb::CreateNull();
+            }
+            bool IsPointInside([[maybe_unused]] const AZ::Vector3& point) const override
+            {
+                return false;
+            }
+            float DistanceSquaredFromPoint([[maybe_unused]] const AZ::Vector3& point) const override
+            {
+                return 0.0f;
+            }
+
+            AZ::PolygonPrismPtr GetPolygonPrism() override
+            {
+                return m_prism;
+            }
+            void SetHeight(float height) override
+            {
+                m_prism->SetHeight(height);
+            }
+            bool GetVertex([[maybe_unused]] size_t index, AZ::Vector2& vertex) const override
+            {
+                vertex = AZ::Vector2::CreateZero();
+                return false;
+            }
+            void AddVertex([[maybe_unused]] const AZ::Vector2& vertex) override {}
+            bool UpdateVertex([[maybe_unused]] size_t index, [[maybe_unused]] const AZ::Vector2& vertex) override
+            {
+                return false;
+            }
+            bool InsertVertex([[maybe_unused]] size_t index, [[maybe_unused]] const AZ::Vector2& vertex) override
+            {
+                return false;
+            }
+            bool RemoveVertex([[maybe_unused]] size_t index) override
+            {
+                return false;
+            }
+            void SetVertices([[maybe_unused]] const AZStd::vector<AZ::Vector2>& vertices) override {}
+            void ClearVertices() override {}
+            size_t Size() const override
+            {
+                return m_prism->m_vertexContainer.Size();
+            }
+            bool Empty() const override
+            {
+                return m_prism->m_vertexContainer.Empty();
+            }
+
+            AZ::PolygonPrismPtr m_prism;
+        };
+    };
+
+    TEST_F(JoltShapeColliderTests, APolygonPrismBecomesCollisionGeometry)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("PrismCollider");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltShapeColliderComponent>();
+        entity->Init();
+
+        // A 2x2 square footprint, extruded 3 m up.
+        const AZStd::vector<AZ::Vector2> footprint = {
+            AZ::Vector2(-1.0f, -1.0f), AZ::Vector2(1.0f, -1.0f), AZ::Vector2(1.0f, 1.0f), AZ::Vector2(-1.0f, 1.0f)
+        };
+        MockPolygonPrismShape shape(entity->GetId(), footprint, 3.0f);
+
+        // Not activated: the component requires ShapeService, which only a real shape
+        // component provides, and the conversion under test reads the shape buses the mock
+        // answers rather than anything activation sets up.
+        auto* collider = entity->FindComponent<JoltShapeColliderComponent>();
+        ASSERT_NE(collider, nullptr);
+
+        const AzPhysics::ShapeColliderPair pair = collider->GetShapeColliderPair();
+        ASSERT_NE(pair.second, nullptr) << "the prism produced no shape configuration";
+        EXPECT_EQ(pair.second->GetShapeType(), Physics::ShapeType::CookedMesh);
+
+        // The cooked hull has to be the extruded solid, not the flat outline.
+        const JPH::RefConst<JPH::Shape> nativeShape = JoltShapeUtils::CreateJoltShapeFromConfig(*pair.second);
+        ASSERT_NE(nativeShape, nullptr);
+        const JPH::AABox bounds = nativeShape->GetLocalBounds();
+        EXPECT_NEAR(bounds.GetSize().GetX(), 2.0f, 0.05f);
+        EXPECT_NEAR(bounds.GetSize().GetY(), 2.0f, 0.05f);
+        EXPECT_NEAR(bounds.GetSize().GetZ(), 3.0f, 0.05f) << "the prism was not extruded";
+
+        // Creating a shape from a cooked configuration caches the native shape on it with
+        // a reference; in production JoltPhysicsSystemComponent::ReleaseNativeMeshObject
+        // balances that, so the test does it here.
+        if (auto* cooked = azdynamic_cast<Physics::CookedMeshShapeConfiguration*>(pair.second.get()))
+        {
+            if (auto* cachedMesh = static_cast<JPH::Shape*>(cooked->GetCachedNativeMesh()))
+            {
+                cachedMesh->Release();
+                cooked->SetCachedNativeMesh(nullptr);
+            }
+        }
     }
 
 } // namespace JoltPhysics

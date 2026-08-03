@@ -641,6 +641,24 @@ feature, trust the topic sections below the milestones.**
 - Both flags read the *live* collider configuration, so changing one applies to
   bodies that already exist.
 
+## Shape collider
+
+- **`JoltShapeColliderComponent` takes its geometry from the LmbrCentral shape component
+  on the same entity**, mirroring PhysX's `ShapeColliderComponent`. That is the stock O3DE
+  workflow for extruded blockers, kill volumes and trigger regions - draw a Polygon Prism,
+  add a collider - and without it those entities had no representation in this backend at
+  all: the primitives can be re-authored by hand, a prism cannot.
+- **A polygon prism becomes the convex hull of its extruded outline.** The outline at both
+  heights is handed to Jolt as a point cloud, which is exact for a convex prism and the
+  hull of a concave one. PhysX decomposes concave prisms; doing that here means an
+  editor-time bake rather than the live read this component does, so it is recorded in
+  KNOWN_ISSUES instead of half-done.
+- **Quad is not wrapped**, having no volume for Jolt to collide with.
+- **No manipulators of its own.** The shape component already owns the handles that resize
+  it, and a second set would give an author two ways to change one thing.
+- The geometry is rebuilt when the shape reports a change, so resizing the shape resizes
+  the collider - in the viewport and in the edit-mode body both.
+
 ## Runtime collision filtering
 
 - **`Physics::CollisionFilteringRequestBus` is implemented on the collider components**,
