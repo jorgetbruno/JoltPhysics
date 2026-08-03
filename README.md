@@ -129,6 +129,7 @@ provides and this gem does not wrap, live in sibling gems that reach the backend
 |---|---|---|
 | **JoltBuoyancy** | `Jolt Water Volume` — boxes of water that float, sink and drift rigid bodies | no |
 | **JoltHair** | Jolt's GPU strand solver on Atom's DX12 device, rendered as GPU ribbons | **yes** |
+| **JoltCloth** | Binds soft bodies to an animated EMotion FX skeleton, so cloth follows a character | via EMotion FX |
 | ~~JoltSoftBody~~ | migrated *into* this gem; the tree survives only for its history | — |
 
 `JoltPhysicsSystemRequests::GetNativePhysicsSystem` is what makes this work: it hands

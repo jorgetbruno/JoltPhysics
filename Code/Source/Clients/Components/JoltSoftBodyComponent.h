@@ -82,6 +82,12 @@ namespace JoltPhysics
         bool IsVertexPinned(AZ::u32 index) const override;
         bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity) override;
         AZ::Vector3 GetVertexVelocity(AZ::u32 index) const override;
+        void SetSkinningData(
+            const AZStd::vector<AZ::Transform>& jointBindTransforms,
+            const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices) override;
+        bool HasSkinningData() const override;
+        bool UpdateSkinnedJoints(const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll) override;
+        void SetSkinConstraintsEnabled(bool enabled) override;
 
     private:
         JoltSoftBodySettings m_settings;

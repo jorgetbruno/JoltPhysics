@@ -1,6 +1,8 @@
 #pragma once
 
 #include <AzCore/Component/ComponentBus.h>
+#include <AzCore/Math/Transform.h>
+#include <AzCore/std/limits.h>
 #include <AzCore/Math/Aabb.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/std/containers/vector.h>
@@ -37,6 +39,43 @@ namespace JoltPhysics
         None = 0, //!< No tethers; stiffness comes from compliance and iterations alone.
         EuclideanDistance = 1, //!< Tether length is the straight-line rest distance.
         GeodesicDistance = 2, //!< Tether length follows the edges, so a draped sheet keeps its slack.
+    };
+
+    //! One joint's pull on a skinned soft body particle.
+    struct JoltSoftBodySkinInfluence
+    {
+        AZ_TYPE_INFO(JoltSoftBodySkinInfluence, "{6C2E9A17-4B85-4D3F-9E01-7A5C8B0D2F64}");
+
+        //! Index into the inverse-bind / joint-transform arrays.
+        AZ::u32 m_jointIndex = 0;
+        //! Blend weight; the weights of a vertex are normalized when the body is built.
+        float m_weight = 1.0f;
+    };
+
+    //! Ties one particle to the skinned position its joints compute.
+    //!
+    //! The three distances are Jolt's skinned-constraint fields, and they line up with
+    //! how O3DE already asks cloth authors to think: the max distance is a motion
+    //! constraint (a sphere around the skinned position the particle may move within),
+    //! and the backstop is a sphere behind the vertex that it is pushed out of, which
+    //! stands in for the volume of the body underneath.
+    struct JoltSoftBodySkinnedVertex
+    {
+        AZ_TYPE_INFO(JoltSoftBodySkinnedVertex, "{0D8A5F31-2C74-4E96-B1A8-3F60C7D9E425}");
+
+        //! Index into the soft body's particle array.
+        AZ::u32 m_vertexIndex = 0;
+        //! Up to four joint influences; more are ignored.
+        AZStd::vector<JoltSoftBodySkinInfluence> m_influences;
+        //! How far simulation may drift from the skinned position. 0 hard-skins the
+        //! particle; FLT_MAX turns the constraint off for it.
+        float m_maxDistance = 0.1f;
+        //! Where the backstop sphere starts, behind the particle along the surface
+        //! normal. Disabled when it is at or beyond m_maxDistance, which is the default.
+        float m_backstopDistance = AZStd::numeric_limits<float>::max();
+        //! Radius of that sphere. Large values approximate a plane, which is Jolt's own
+        //! default and what a flat surface behind the cloth wants.
+        float m_backstopRadius = 40.0f;
     };
 
     //! Runtime control of a soft body. Every setting that Jolt can change on a live body
@@ -125,6 +164,44 @@ namespace JoltPhysics
         //! out-of-range index.
         virtual bool SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity) = 0;
         virtual AZ::Vector3 GetVertexVelocity(AZ::u32 index) const = 0;
+
+        //! @name Skinning
+        //!
+        //! Ties particles to an animated skeleton through Jolt's skinned constraints.
+        //! Public because the thing that drives it cannot live in this gem: an actor's
+        //! pose comes from EMotionFX, which depends on Atom, and this gem depends on no
+        //! renderer. The JoltCloth sibling gem is what calls these.
+        //!
+        //! Not reflected to script. SetSkinningData rebuilds the body, and
+        //! UpdateSkinnedJoints wants the whole skeleton every frame - neither is a
+        //! per-frame scripting surface, and both would be a foot-gun as one.
+        //! @{
+
+        //! Baked: jointBindTransforms holds where each joint sat, **in world space**, at
+        //! the moment the binding was computed; skinnedVertices lists which particles are
+        //! skinned and how. Rebuilds the body. Not supported for the Cube shape, whose
+        //! layout Jolt pre-optimises. Passing empty data clears the skinning.
+        virtual void SetSkinningData(
+            const AZStd::vector<AZ::Transform>& jointBindTransforms,
+            const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices) = 0;
+        virtual bool HasSkinningData() const = 0;
+
+        //! Per-frame: recomputes the skinned target positions from the current joint
+        //! transforms, **in world space**, in the same order as the bind transforms.
+        //! hardSkinAll snaps every skinned particle exactly onto its target, which is how
+        //! a soft body is reset onto a newly-posed skeleton.
+        //!
+        //! World space on purpose. Jolt wants these relative to the body's centre of
+        //! mass, and a caller that converted into the body's *position* instead - the
+        //! obvious mistake - would get cloth that hangs at an offset rather than anything
+        //! that reads as a bug. The conversion happens on this side of the bus.
+        virtual bool UpdateSkinnedJoints(
+            const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll) = 0;
+
+        //! Live: turns the skinned constraints on or off without losing the data.
+        virtual void SetSkinConstraintsEnabled(bool enabled) = 0;
+
+        //! @}
     };
 
     using JoltSoftBodyRequestBus = AZ::EBus<JoltSoftBodyRequests>;

@@ -773,6 +773,10 @@ namespace JoltPhysics
             JPH::SoftBodySharedSettings::Skinned skinned;
             skinned.mVertex = skinnedVertex.m_vertexIndex;
             skinned.mMaxDistance = AZ::GetMax(skinnedVertex.m_maxDistance, 0.0f);
+            // Jolt disables the backstop when its distance reaches the max distance, so
+            // the default (max float) leaves it off without needing a flag of its own.
+            skinned.mBackStopDistance = AZ::GetMax(skinnedVertex.m_backstopDistance, 0.0f);
+            skinned.mBackStopRadius = AZ::GetMax(skinnedVertex.m_backstopRadius, 0.0f);
 
             AZ::u32 weightCount = 0;
             for (const JoltSoftBodySkinInfluence& influence : skinnedVertex.m_influences)
@@ -843,6 +847,26 @@ namespace JoltPhysics
 
         m_physicsSystem->GetBodyInterface().ActivateBody(m_bodyId);
         return true;
+    }
+
+    AZ::Transform JoltSoftBody::GetSkinningFrame() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return AZ::Transform::CreateIdentity();
+        }
+
+        JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded())
+        {
+            return AZ::Transform::CreateIdentity();
+        }
+
+        const JPH::RMat44 centerOfMass = bodyLock.GetBody().GetCenterOfMassTransform();
+        return AZ::Transform::CreateFromQuaternionAndTranslation(
+            Conversions::FromJolt(centerOfMass.GetQuaternion()),
+            Conversions::FromJolt(centerOfMass.GetTranslation()));
     }
 
     void JoltSoftBody::SetSkinConstraintsEnabled(bool enabled)

@@ -15,11 +15,11 @@ deviations from PhysX behavior.
   gem is not part of this engine), so vehicles are exposed only through this gem's own
   component/bus.
 - **Soft body gaps**: no render-mesh or Atom output — drawing is debug-draw plus the
-  bus's bulk vertex/triangle reads for script- or C++-driven rendering. The skinned
-  constraints, inverse binds and per-frame `SkinVertices` are wrapped
-  (`SetSkinningData`/`UpdateSkinnedJoints`, C++-only), but nothing feeds them from an
-  actor's skeleton yet — that integration is the remaining piece of the skinning
-  story.
+  bus's bulk vertex/triangle reads for script- or C++-driven rendering. An actor's
+  skeleton now drives the skinning (the **JoltCloth** sibling gem), but the weights are
+  bound by proximity rather than authored: carrying skin influences and per-particle
+  cloth data through the asset pipeline, the way NVIDIA Cloth's FBX Cloth modifier does,
+  is the remaining piece.
 
 - **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
   spline component to follow), and force regions have no editor viewport preview of the

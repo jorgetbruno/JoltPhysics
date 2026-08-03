@@ -12,6 +12,8 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <JoltPhysics/JoltSoftBodyBus.h>
+#include <Clients/Components/JoltSoftBodyComponent.h>
 #include <JoltPhysics/JoltCharacterGameplayBus.h>
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
@@ -691,6 +693,139 @@ namespace JoltPhysics
         JoltCharacterGameplayRequestBus::EventResult(
             onGround, entity->GetId(), &JoltCharacterGameplayRequests::IsOnGround);
         EXPECT_TRUE(onGround);
+
+        entity->Deactivate();
+    }
+
+    //! Soft body skinning as it is reached from outside this gem - through the bus,
+    //! in world space. The sibling gem that drives it (JoltCloth) has an actor's pose and
+    //! nothing else, so this is the contract that matters.
+    class JoltSoftBodySkinningBusTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        //! A free-hanging cloth on an entity, at the given world position.
+        AZStd::unique_ptr<AZ::Entity> CreateCloth(const AZ::Vector3& position)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("SkinnedCloth");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* softBody = entity->CreateComponent<JoltSoftBodyComponent>();
+
+            JoltSoftBodySettings& settings = softBody->GetSettings();
+            settings.m_shape = JoltSoftBodyShape::Cloth;
+            settings.m_pinning = JoltSoftBodyPinning::None;
+            settings.m_size = AZ::Vector3(1.0f, 1.0f, 1.0f);
+            settings.m_resolution = 4;
+            settings.m_mass = 1.0f;
+            settings.m_allowSleeping = false;
+            // The body must not chase its own frame while the joints move it.
+            settings.m_updatePosition = false;
+
+            entity->Init();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTM, AZ::Transform::CreateTranslation(position));
+            entity->Activate();
+            return entity;
+        }
+
+        static AZ::Vector3 ClothCentre(const AZ::EntityId& entityId)
+        {
+            AZ::Aabb bounds = AZ::Aabb::CreateNull();
+            JoltSoftBodyRequestBus::EventResult(bounds, entityId, &JoltSoftBodyRequests::GetWorldBounds);
+            return bounds.IsValid() ? bounds.GetCenter() : AZ::Vector3::CreateZero();
+        }
+
+        //! Every particle tied to one joint, allowed a little drift.
+        static AZStd::vector<JoltSoftBodySkinnedVertex> SkinAllToOneJoint(const AZ::EntityId& entityId)
+        {
+            AZ::u32 vertexCount = 0;
+            JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+
+            AZStd::vector<JoltSoftBodySkinnedVertex> skinnedVertices;
+            skinnedVertices.reserve(vertexCount);
+            for (AZ::u32 index = 0; index < vertexCount; ++index)
+            {
+                JoltSoftBodySkinnedVertex vertex;
+                vertex.m_vertexIndex = index;
+                vertex.m_influences.push_back({ 0, 1.0f });
+                vertex.m_maxDistance = 0.05f;
+                skinnedVertices.push_back(vertex);
+            }
+            return skinnedVertices;
+        }
+    };
+
+    TEST_F(JoltSoftBodySkinningBusTests, JointsGivenInWorldSpaceMoveTheClothToWhereTheyActuallyAre)
+    {
+        // The body deliberately does not sit at the origin. Jolt wants joint matrices
+        // relative to the body's centre of mass, so a caller handing over world transforms
+        // without that conversion would move the cloth by the body's own offset on top of
+        // the joint's - which is why the conversion is on this side of the bus rather than
+        // left to whoever calls it.
+        const AZ::Vector3 clothPosition(5.0f, 0.0f, 2.0f);
+        auto entity = CreateCloth(clothPosition);
+        const AZ::EntityId entityId = entity->GetId();
+
+        const AZ::Vector3 startCentre = ClothCentre(entityId);
+        ASSERT_TRUE(startCentre.IsClose(clothPosition, 0.5f)) << "the cloth was not built where it was placed";
+
+        // Bound at the pose it is in: one joint sitting on the cloth, in world space.
+        const AZ::Transform bindPose = AZ::Transform::CreateTranslation(startCentre);
+        JoltSoftBodyRequestBus::Event(
+            entityId, &JoltSoftBodyRequests::SetSkinningData, AZStd::vector<AZ::Transform>{ bindPose },
+            SkinAllToOneJoint(entityId));
+
+        bool hasSkinning = false;
+        JoltSoftBodyRequestBus::EventResult(hasSkinning, entityId, &JoltSoftBodyRequests::HasSkinningData);
+        ASSERT_TRUE(hasSkinning);
+
+        // Move the joint two metres along x, in world space, and let it settle.
+        const AZ::Transform movedJoint = AZ::Transform::CreateTranslation(startCentre + AZ::Vector3(2.0f, 0.0f, 0.0f));
+        bool updated = false;
+        JoltSoftBodyRequestBus::EventResult(
+            updated, entityId, &JoltSoftBodyRequests::UpdateSkinnedJoints, AZStd::vector<AZ::Transform>{ movedJoint },
+            /*hardSkinAll*/ true);
+        ASSERT_TRUE(updated);
+
+        for (int step = 0; step < 60; ++step)
+        {
+            JoltSoftBodyRequestBus::Event(
+                entityId, &JoltSoftBodyRequests::UpdateSkinnedJoints, AZStd::vector<AZ::Transform>{ movedJoint },
+                /*hardSkinAll*/ false);
+            SimulateSeconds(1.0f / 60.0f);
+        }
+
+        // Two metres from where it started, not seven: the body's own offset must not be
+        // applied twice.
+        const AZ::Vector3 endCentre = ClothCentre(entityId);
+        EXPECT_NEAR(endCentre.GetX(), startCentre.GetX() + 2.0f, 0.3f);
+        EXPECT_NEAR(endCentre.GetZ(), startCentre.GetZ(), 0.3f);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodySkinningBusTests, SkinnedClothHangsWhereTheSkeletonPutsItInsteadOfFalling)
+    {
+        // Nothing is pinned, so without the constraints holding it to the joint this
+        // sheet is in free fall.
+        auto entity = CreateCloth(AZ::Vector3(0.0f, 0.0f, 3.0f));
+        const AZ::EntityId entityId = entity->GetId();
+
+        const AZ::Vector3 startCentre = ClothCentre(entityId);
+        const AZ::Transform bindPose = AZ::Transform::CreateTranslation(startCentre);
+        JoltSoftBodyRequestBus::Event(
+            entityId, &JoltSoftBodyRequests::SetSkinningData, AZStd::vector<AZ::Transform>{ bindPose },
+            SkinAllToOneJoint(entityId));
+
+        for (int step = 0; step < 120; ++step)
+        {
+            JoltSoftBodyRequestBus::Event(
+                entityId, &JoltSoftBodyRequests::UpdateSkinnedJoints, AZStd::vector<AZ::Transform>{ bindPose },
+                /*hardSkinAll*/ step == 0);
+            SimulateSeconds(1.0f / 60.0f);
+        }
+
+        // Two seconds of gravity would have taken it about 20 m down.
+        EXPECT_NEAR(ClothCentre(entityId).GetZ(), startCentre.GetZ(), 0.3f);
 
         entity->Deactivate();
     }

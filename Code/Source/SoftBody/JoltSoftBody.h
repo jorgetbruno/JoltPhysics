@@ -111,29 +111,6 @@ namespace JoltPhysics
         AzPhysics::CollisionGroups::Id m_collisionGroupId;
     };
 
-    //! One joint's pull on a skinned soft body particle.
-    struct JoltSoftBodySkinInfluence
-    {
-        //! Index into the inverse-bind / joint-transform arrays.
-        AZ::u32 m_jointIndex = 0;
-        //! Blend weight; the weights of a vertex are normalized when the body is built.
-        float m_weight = 1.0f;
-    };
-
-    //! Ties one particle to the skinned position its joints compute. Jolt clamps the
-    //! simulated particle to within m_maxDistance of that position, which is what keeps
-    //! simulated cloth attached to an animated character.
-    struct JoltSoftBodySkinnedVertex
-    {
-        //! Index into the soft body's particle array.
-        AZ::u32 m_vertexIndex = 0;
-        //! Up to four joint influences; more are ignored.
-        AZStd::vector<JoltSoftBodySkinInfluence> m_influences;
-        //! How far simulation may drift from the skinned position. 0 hard-skins the
-        //! particle; FLT_MAX turns the constraint off for it.
-        float m_maxDistance = 0.1f;
-    };
-
     //! What JoltScene::AddSimulatedBody needs to build a soft body: the settings plus the
     //! world placement, since a soft body's particles are generated in world space at
     //! creation rather than following an entity transform afterwards.
@@ -265,6 +242,12 @@ namespace JoltPhysics
         //! inverse binds. hardSkinAll snaps every skinned particle exactly onto its
         //! target, which is how a soft body is reset onto a newly-posed skeleton.
         bool UpdateSkinnedJoints(const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll = false);
+
+        //! The frame Jolt does its skinning maths in: the body's centre-of-mass
+        //! transform. Joint transforms handed to UpdateSkinnedJoints and the bind
+        //! transforms behind SetSkinningData are relative to this, so anything working in
+        //! world space has to divide it out first. Identity for a detached body.
+        AZ::Transform GetSkinningFrame() const;
 
         //! Live: turns the skinned constraints on or off without losing the data.
         void SetSkinConstraintsEnabled(bool enabled);

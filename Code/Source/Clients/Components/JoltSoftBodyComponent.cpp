@@ -615,6 +615,69 @@ namespace JoltPhysics
         return softBody && softBody->IsVertexPinned(index);
     }
 
+    void JoltSoftBodyComponent::SetSkinningData(
+        const AZStd::vector<AZ::Transform>& jointBindTransforms,
+        const AZStd::vector<JoltSoftBodySkinnedVertex>& skinnedVertices)
+    {
+        auto* softBody = GetSoftBody();
+        if (softBody == nullptr)
+        {
+            return;
+        }
+
+        // The bus works in world space and the body works in its own frame. Converting
+        // here rather than asking every caller to is deliberate: the frame is the body's
+        // centre of mass, not its position, and a caller that got that subtly wrong would
+        // see cloth hanging at an angle rather than anything that looks like a bug.
+        const AZ::Transform toBodyFrame = softBody->GetSkinningFrame().GetInverse();
+
+        AZStd::vector<AZ::Transform> jointInvBinds;
+        jointInvBinds.reserve(jointBindTransforms.size());
+        for (const AZ::Transform& bindTransform : jointBindTransforms)
+        {
+            // Each particle's rest position is taken into its joint's space, which is what
+            // the constraint reconstructs the skinned position from.
+            jointInvBinds.push_back((toBodyFrame * bindTransform).GetInverse());
+        }
+
+        softBody->SetSkinningData(jointInvBinds, skinnedVertices);
+    }
+
+    bool JoltSoftBodyComponent::HasSkinningData() const
+    {
+        auto* softBody = GetSoftBody();
+        return softBody && softBody->HasSkinningData();
+    }
+
+    bool JoltSoftBodyComponent::UpdateSkinnedJoints(
+        const AZStd::vector<AZ::Transform>& jointTransforms, bool hardSkinAll)
+    {
+        auto* softBody = GetSoftBody();
+        if (softBody == nullptr)
+        {
+            return false;
+        }
+
+        const AZ::Transform toBodyFrame = softBody->GetSkinningFrame().GetInverse();
+
+        AZStd::vector<AZ::Transform> jointsInBodyFrame;
+        jointsInBodyFrame.reserve(jointTransforms.size());
+        for (const AZ::Transform& jointTransform : jointTransforms)
+        {
+            jointsInBodyFrame.push_back(toBodyFrame * jointTransform);
+        }
+
+        return softBody->UpdateSkinnedJoints(jointsInBodyFrame, hardSkinAll);
+    }
+
+    void JoltSoftBodyComponent::SetSkinConstraintsEnabled(bool enabled)
+    {
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetSkinConstraintsEnabled(enabled);
+        }
+    }
+
     bool JoltSoftBodyComponent::SetVertexVelocity(AZ::u32 index, const AZ::Vector3& velocity)
     {
         auto* softBody = GetSoftBody();

@@ -1020,6 +1020,21 @@ feature, trust the topic sections below the milestones.**
   same group id, different sub-groups, and a `GroupFilterTable` that vetoes chosen
   pairs — how a cape is stopped from colliding with the character wearing it. The
   coarse layer/group pair on the settings remains the script/editor surface.
+- **Skinning is on the public bus, in world space.** `SetSkinningData` takes the joint
+  bind transforms and `UpdateSkinnedJoints` the current pose, both in world space, and
+  the component converts into the frame Jolt actually wants — the body's centre of mass,
+  which is not its position. That conversion is deliberately on this side of the bus: the
+  caller lives in another gem, and one that converted into the body's position instead
+  would get cloth hanging at an offset rather than anything that reads as a bug. Neither
+  is reflected to script — one rebuilds the body and the other wants the whole skeleton
+  every frame.
+- **The skinning driver is a separate gem.** A pose comes from EMotion FX, EMotion FX
+  declares a dependency on `Atom_RPI`, and this gem depends on no renderer — so the
+  actor half lives in **JoltCloth**, which reaches both sides through buses.
+- **Per-particle backstop is exposed**, not just the motion constraint: `m_maxDistance`,
+  `m_backstopDistance` and `m_backstopRadius` are Jolt's three skinned-constraint fields,
+  and they line up one for one with what O3DE already asks cloth authors for (motion
+  constraints, backstop offset, backstop radius).
 - **Skinning wraps Jolt's skinned constraints, not a render pipeline.**
   `SetSkinningData` (inverse bind transforms + per-particle joint weights and max
   drift) bakes `Skinned` constraints into the shared settings, and
