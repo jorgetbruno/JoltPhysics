@@ -138,14 +138,15 @@ namespace JoltPhysics
                 ->Field("Normal", &JoltSoftBodyParticleContact::m_normal)
                 ;
 
-            // Versions 3 to 5 only add fields; older data loads with the new fields at
-            // their defaults, so no converter is needed.
+            // Versions 3 and 4 only add fields, so older data loads with them at their
+            // defaults. Version 5 briefly carried an Offset, added to place a cape on an
+            // actor whose cloth was forced to share its entity; version 6 drops it, because
+            // the cloth can now be a child entity and a transform already does that job.
             serializeContext->Class<JoltSoftBodySettings>()
-                ->Version(5)
+                ->Version(6)
                 ->Field("Shape", &JoltSoftBodySettings::m_shape)
                 ->Field("MeshAsset", &JoltSoftBodySettings::m_meshAsset)
                 ->Field("Pinning", &JoltSoftBodySettings::m_pinning)
-                ->Field("Offset", &JoltSoftBodySettings::m_offset)
                 ->Field("Size", &JoltSoftBodySettings::m_size)
                 ->Field("Resolution", &JoltSoftBodySettings::m_resolution)
                 ->Field("Mass", &JoltSoftBodySettings::m_mass)
@@ -207,9 +208,6 @@ namespace JoltPhysics
                         ->EnumAttribute(JoltSoftBodyPinning::Corners, "Corners")
                         ->EnumAttribute(JoltSoftBodyPinning::TopEdge, "Top edge")
                         ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetClothOnlyVisibility)
-                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_offset,
-                        "Offset", "Where the body sits relative to this entity, in the entity's own space. "
-                        "A cape belongs at an actor's shoulders, and an actor's origin is at its feet.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_size,
                         "Size", "Extents in metres. Cloth uses X and Y; Cube and Balloon use X alone.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)

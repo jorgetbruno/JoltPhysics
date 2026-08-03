@@ -419,7 +419,6 @@ namespace JoltPhysics
         // pressure every frame must not rebuild the body.
         const bool needsRebuild = settings.m_shape != m_settings.m_shape || settings.m_pinning != m_settings.m_pinning ||
             settings.m_meshAsset.GetId() != m_settings.m_meshAsset.GetId() ||
-            !settings.m_offset.IsClose(m_settings.m_offset) ||
             !settings.m_size.IsClose(m_settings.m_size) || settings.m_resolution != m_settings.m_resolution ||
             !AZ::IsClose(settings.m_mass, m_settings.m_mass) || !AZ::IsClose(settings.m_compliance, m_settings.m_compliance) ||
             settings.m_lraType != m_settings.m_lraType ||
@@ -1406,16 +1405,14 @@ namespace JoltPhysics
         //
         // Safe after constraint generation: constraints store rest *lengths*, which a
         // rotation does not change.
-        // The authored offset rides along in the same pass, in the entity's own space, so
-        // it turns with the entity the way anything worn or mounted has to.
         const AZ::Quaternion bodyRotation = m_worldTransform.GetRotation();
-        if (!bodyRotation.IsIdentity() || !m_settings.m_offset.IsZero())
+        if (!bodyRotation.IsIdentity())
         {
             for (JPH::SoftBodySharedSettings::Vertex& vertex : sharedSettings->mVertices)
             {
-                const AZ::Vector3 placed = bodyRotation.TransformVector(
-                    AZ::Vector3(vertex.mPosition.x, vertex.mPosition.y, vertex.mPosition.z) + m_settings.m_offset);
-                vertex.mPosition = JPH::Float3(placed.GetX(), placed.GetY(), placed.GetZ());
+                const AZ::Vector3 rotated = bodyRotation.TransformVector(
+                    AZ::Vector3(vertex.mPosition.x, vertex.mPosition.y, vertex.mPosition.z));
+                vertex.mPosition = JPH::Float3(rotated.GetX(), rotated.GetY(), rotated.GetZ());
             }
         }
 

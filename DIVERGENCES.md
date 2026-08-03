@@ -1051,14 +1051,6 @@ feature, trust the topic sections below the milestones.**
 
   This is also the one rebuild here that runs when there is *no* body: a `Custom` body has
   nothing to build from until the geometry arrives, so it exists as an empty body first.
-- **A soft body can sit off its entity's origin.** PhysX cloth is a mesh and carries its
-  own placement; a generated one is centred on its entity, which is wrong for anything
-  worn - a cape belongs at an actor's shoulders and an actor's origin is between its feet.
-  Moving the cloth onto an entity of its own is not available either, because the gem that
-  binds cloth to a skeleton needs the cloth and the actor together. `Offset` is in the
-  entity's own space, so what is worn turns with the wearer, and it is baked into the rest
-  positions in the same pass as the rotation - which keeps it consistent with the skinned
-  constraints, for the reason the entry below spells out.
 - **Cloth can be fastened to things that move.** `JoltSoftBodyAttachmentComponent` welds
   particles near one or more target entities and feeds those targets' transforms to the
   skinning path every step, so a sail follows a boat's yard, a banner two poles, a tarp a
