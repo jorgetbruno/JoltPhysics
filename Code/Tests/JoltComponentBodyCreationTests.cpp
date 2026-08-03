@@ -1206,6 +1206,56 @@ namespace JoltPhysics
         yard->Deactivate();
     }
 
+    TEST_F(JoltSoftBodyAttachmentTests, AClothParentedToSomethingElseStillStandsUp)
+    {
+        // Cloth hung off a vehicle is authored as a child of it, so the rotation that
+        // stands the sheet up is a *local* one and has to compose through the parent. This
+        // was filed as a bug on the strength of a demo measurement - worth a test either
+        // way, since the demo could only ever say "something in this scene is wrong".
+        auto parent = AZStd::make_unique<AZ::Entity>("Boat");
+        parent->CreateComponent<AzFramework::TransformComponent>();
+        parent->Init();
+        parent->Activate();
+        AZ::TransformBus::Event(
+            parent->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, -2.0f, 2.4f)));
+
+        auto child = AZStd::make_unique<AZ::Entity>("Sail");
+        auto* childTransform = child->CreateComponent<AzFramework::TransformComponent>();
+        childTransform->SetParent(parent->GetId());
+        auto* softBody = child->CreateComponent<JoltSoftBodyComponent>();
+
+        JoltSoftBodySettings& settings = softBody->GetSettings();
+        settings.m_shape = JoltSoftBodyShape::Cloth;
+        settings.m_pinning = JoltSoftBodyPinning::TopEdge;
+        settings.m_size = AZ::Vector3(2.0f, 2.0f, 1.0f);
+        settings.m_resolution = 6;
+
+        child->Init();
+        // Local: a quarter turn about x, offset up and leeward - exactly how a sail is
+        // authored against a hull.
+        AZ::TransformBus::Event(
+            child->GetId(), &AZ::TransformBus::Events::SetLocalTM,
+            AZ::Transform::CreateFromQuaternionAndTranslation(
+                AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi), AZ::Vector3(0.0f, 0.3f, 2.2f)));
+        child->Activate();
+
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(bounds, child->GetId(), &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(bounds.IsValid());
+
+        // Standing, and standing where the parent puts it.
+        const AZ::Vector3 extents = bounds.GetExtents();
+        EXPECT_NEAR(extents.GetX(), 2.0f, 0.1f);
+        EXPECT_NEAR(extents.GetZ(), 2.0f, 0.1f) << "the parented cloth is lying flat";
+        EXPECT_LT(extents.GetY(), 0.1f);
+        EXPECT_TRUE(bounds.GetCenter().IsClose(AZ::Vector3(0.0f, -1.7f, 4.6f), 0.1f))
+            << "the parented cloth was not built where its parent puts it";
+
+        child->Deactivate();
+        parent->Deactivate();
+    }
+
     TEST_F(JoltSoftBodyAttachmentTests, TurningATargetSwingsTheClothRoundWithIt)
     {
         // Trimming a sail is turning the spar it is bent to, so an attachment has to carry

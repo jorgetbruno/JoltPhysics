@@ -23,15 +23,6 @@ deviations from PhysX behavior.
   from a `.joltmesh` or a procedural shape has no render mesh to write into, so drawing one
   still means reading its vertices and drawing them yourself.
 
-- **A soft body on a prefab *child* entity loses its rotation.** Its translation composes
-  through the parent but its rotation does not, so a cloth authored upright as a child of
-  a vehicle is built lying flat. Measured in the sail demo: the same sail builds 3.79 m
-  tall as a top-level entity and 0.14 m tall parented to the boat. Not yet diagnosed
-  further - the gem applies entity rotation correctly when it is set directly, which a
-  test pins, so the loss is somewhere in how a spawned child's world transform is composed
-  by the time the body is built. Work around it by keeping rigged cloth top-level and
-  letting its attachment do the following.
-
 - **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
   spline component to follow), there is no editor force-region component (the runtime one
   composes on editor entities because the editor colliders provide `JoltColliderService`,
