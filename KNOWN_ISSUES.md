@@ -24,7 +24,10 @@ deviations from PhysX behavior.
   still means reading its vertices and drawing them yourself.
 
 - **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
-  spline component to follow), and force regions have no editor viewport preview of the
+  spline component to follow), there is no editor force-region component (the runtime one
+  composes on editor entities because the editor colliders provide `JoltColliderService`,
+  which is how the sail demo level authors its wind), and force regions have no editor
+  viewport preview of the
   forces they apply.
 
 - **The shape collider does not wrap Quad**, and a **concave** Polygon Prism becomes its

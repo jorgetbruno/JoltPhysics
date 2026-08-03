@@ -83,6 +83,11 @@ namespace JoltPhysics
         float m_pressure = 0.0f;
         //! Live: per-body gravity multiplier.
         float m_gravityFactor = 1.0f;
+        //! Live: how strongly the scene's wind pushes on this body's faces. 1 is a plain
+        //! aerodynamic response, 0 opts out. On by default because a cloth that ignores
+        //! the level's wind regions while everything else respects them reads as broken -
+        //! and with no wind regions authored, the wind is zero and this costs nothing.
+        float m_windInfluence = 1.0f;
         //! Live: surface friction when sliding over other bodies. A soft body has no
         //! per-shape physics material, so this stands in for the material's friction.
         float m_friction = 0.2f;
@@ -195,6 +200,18 @@ namespace JoltPhysics
         //! a baked field rebuilds the body in place, keeping it in the same scene.
         void SetSettings(const JoltSoftBodySettings& settings);
         JoltSoftBodySettings GetSettings() const;
+
+        //! Pushes the scene's wind onto the body's faces for one fixed step.
+        //!
+        //! Called from the scene's simulation-start event, which is the one moment that is
+        //! both per-step (wind is a force, so it scales with time actually simulated, not
+        //! with render frames) and outside the solver (this takes a body write lock).
+        //! Samples Physics::WindRequests over the body's bounds; each face takes a pressure
+        //! along its normal proportional to the squared normal component of the relative
+        //! wind, which is what fills a sail face-on and lets it luff edge-on.
+        void ApplyWind(float deltaTime);
+
+        void SetWindInfluence(float influence);
 
         void SetPressure(float pressure);
         void SetLinearDamping(float damping);

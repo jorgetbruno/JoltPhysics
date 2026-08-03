@@ -1051,6 +1051,24 @@ feature, trust the topic sections below the milestones.**
 
   This is also the one rebuild here that runs when there is *no* body: a `Custom` body has
   nothing to build from until the geometry arrives, so it exists as an empty body first.
+- **Soft bodies feel the scene's wind.** Every soft body samples
+  `Physics::WindRequests` over its bounds once per fixed step and takes a per-face
+  pressure along the face normal, quadratic in the normal component of the *relative*
+  wind - so a sail fills face-on, luffs edge-on, and stops accelerating once it moves
+  with the wind. That is the same authored wind the force regions publish (a region
+  tagged `global_wind`/`wind` with a world-space force), so one entity pushes the rigid
+  bodies and blows the cloth. NvCloth does its wind inside the cloth solver; PhysX soft
+  bodies get nothing. `Wind influence` is live and script-visible - easing it down is
+  how gameplay reefs a sail - and pinned particles ignore wind by construction (zero
+  inverse mass). Wind keeps its body awake, deliberately: a flag that sleeps mid-air the
+  instant it settles reads as frozen, not as calm.
+- **The scene signals its simulation start/finish events.** AzPhysics' base scene owns
+  the events and hands out registration, but only the backend knows when a step happens,
+  so signalling is the backend's job - and this gem forgot it. Registration succeeded and
+  handlers simply never ran: the buoyancy gem's finish handler (waking bodies, water
+  enter/exit events) and the soft bodies' wind both registered against events nothing
+  signalled, and only the wind test caught it. Start fires before the Jolt update with
+  the fixed step's delta; finish fires after the step is fully flushed, matching PhysX.
 - **Particle positions can be read into a buffer the caller keeps.** `GetVertexPositions`
   returns by value, which is right for a script or a one-off read and wrong sixty times a
   second: a character's cloth mesh is tens of thousands of particles, so polling it that

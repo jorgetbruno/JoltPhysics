@@ -6,6 +6,7 @@
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/std/containers/vector.h>
 
+#include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
 #include <SoftBody/JoltSoftBody.h>
@@ -61,6 +62,8 @@ namespace JoltPhysics
         float GetLinearDamping() const override;
         void SetGravityFactor(float factor) override;
         float GetGravityFactor() const override;
+        void SetWindInfluence(float influence) override;
+        float GetWindInfluence() const override;
         void SetNumIterations(AZ::u32 iterations) override;
         AZ::u32 GetNumIterations() const override;
         void SetFriction(float friction) override;
@@ -108,6 +111,11 @@ namespace JoltPhysics
         void DestroySoftBody();
 
         AzPhysics::SimulatedBodyHandle m_softBodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
+
+        //! Blows the scene's wind onto the body once per fixed step. A scene event rather
+        //! than a tick: wind is a force, so it must scale with time actually simulated,
+        //! and a render frame can carry zero or several fixed steps.
+        AzPhysics::SceneEvents::OnSceneSimulationStartHandler m_sceneStartHandler;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
         bool m_enabled = true;
 

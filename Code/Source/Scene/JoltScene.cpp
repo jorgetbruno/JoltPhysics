@@ -200,6 +200,14 @@ namespace JoltPhysics
             }
         }
 
+        // The base class owns these events and hands out handler registration, but only
+        // the backend knows when a step actually happens - so signalling is this class's
+        // job, and PhysX's scene does the same. Forgetting it is silent: registration
+        // succeeds, handlers simply never run. That is exactly what happened here - the
+        // buoyancy gem's finish handler and the soft bodies' wind both registered against
+        // events nothing signalled, and only a wind test caught it.
+        m_sceneSimulationStartEvent.Signal(m_sceneHandle, deltaTime);
+
         ++m_simulationStep;
         m_physicsSystem->Update(deltaTime, m_collisionSteps, m_tempAllocator, m_jobSystem);
     }
@@ -238,6 +246,10 @@ namespace JoltPhysics
 
         FlushQueuedEvents();
         ClearDeferredDeletions();
+
+        // Last, so a handler sees the step fully flushed - collision events dispatched,
+        // deferred deletions gone - which is the state PhysX's finish event fires in.
+        m_sceneSimulationFinishEvent.Signal(m_sceneHandle, m_currentDeltaTime);
     }
 
     void JoltScene::ProcessJointBreaking()

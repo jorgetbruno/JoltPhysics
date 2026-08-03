@@ -1,5 +1,6 @@
 #include <SoftBody/JoltSoftBody.h>
 
+#include <AzCore/Debug/Profiler.h>
 #include <AzCore/Math/MathUtils.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/containers/unordered_map.h>
@@ -9,6 +10,7 @@
 
 #include <AzFramework/Physics/PhysicsSystem.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Physics/WindBus.h>
 
 #include <Scene/JoltScene.h>
 #include <Shape/JoltMeshUtils.h>
@@ -478,6 +480,111 @@ namespace JoltPhysics
         AZStd::lock_guard lock(m_mutex);
         m_settings.m_gravityFactor = factor;
         ApplyLiveSettings();
+    }
+
+    void JoltSoftBody::SetWindInfluence(float influence)
+    {
+        AZStd::lock_guard lock(m_mutex);
+        // Not pushed anywhere: wind is this gem's own force, not a Jolt body property,
+        // so the value is simply read the next time ApplyWind runs.
+        m_settings.m_windInfluence = AZ::GetMax(influence, 0.0f);
+    }
+
+    void JoltSoftBody::ApplyWind(float deltaTime)
+    {
+        {
+            AZStd::lock_guard lock(m_mutex);
+            if (!m_physicsSystem || m_bodyId.IsInvalid() || m_settings.m_windInfluence <= 0.0f)
+            {
+                return;
+            }
+        }
+
+        auto* windRequests = AZ::Interface<Physics::WindRequests>::Get();
+        if (windRequests == nullptr)
+        {
+            return;
+        }
+
+        // Sampled over the bounds rather than at the position: a sail spans space, and the
+        // Aabb overload is how a local wind region that covers half of it still counts.
+        const AZ::Aabb bounds = GetAabb();
+        if (!bounds.IsValid())
+        {
+            return;
+        }
+
+        const AZ::Vector3 wind = windRequests->GetWind(bounds);
+        if (wind.IsClose(AZ::Vector3::CreateZero()))
+        {
+            // Still air is free. The cost of skipping drag-in-still-air is that a cloth
+            // waved through a windless level feels no air resistance beyond its own
+            // damping, which is what the damping setting is for.
+            return;
+        }
+
+        AZ_PROFILE_FUNCTION(Physics);
+
+        AZStd::lock_guard lock(m_mutex);
+        {
+            JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+            if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+            {
+                return;
+            }
+
+            JPH::Body& body = bodyLock.GetBody();
+            auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            auto& vertices = motionProperties->GetVertices();
+
+            // Particles live in the body's centre-of-mass frame, so the wind comes into
+            // that frame once rather than every vertex going out to world.
+            const JPH::Vec3 windLocal =
+                body.GetRotation().Conjugated() * Conversions::ToJolt(wind);
+
+            // Pressure = 1/2 rho v^2 with sea-level air. The magnitude matters less than
+            // the shape - quadratic in the *relative* normal speed, so a sail already
+            // moving with the wind stops accelerating instead of running away.
+            constexpr float airDensity = 1.2f;
+            const float pressureScale = 0.5f * airDensity * m_settings.m_windInfluence;
+
+            for (const JPH::SoftBodySharedSettings::Face& face : motionProperties->GetFaces())
+            {
+                JPH::SoftBodyVertex& v0 = vertices[face.mVertex[0]];
+                JPH::SoftBodyVertex& v1 = vertices[face.mVertex[1]];
+                JPH::SoftBodyVertex& v2 = vertices[face.mVertex[2]];
+
+                // Length is twice the face area, direction is the face normal.
+                const JPH::Vec3 areaNormal =
+                    0.5f * (v1.mPosition - v0.mPosition).Cross(v2.mPosition - v0.mPosition);
+                const float area = areaNormal.Length();
+                if (area < 1.0e-8f)
+                {
+                    continue;
+                }
+                const JPH::Vec3 normal = areaNormal / area;
+
+                const JPH::Vec3 relativeWind =
+                    windLocal - (v0.mVelocity + v1.mVelocity + v2.mVelocity) / 3.0f;
+                const float normalSpeed = relativeWind.Dot(normal);
+
+                // Signed square keeps both sides of the cloth pressed leeward, whichever
+                // way the triangle happens to wind.
+                const JPH::Vec3 faceImpulse = normal *
+                    (pressureScale * normalSpeed * AZ::GetAbs(normalSpeed) * area * deltaTime / 3.0f);
+
+                for (JPH::SoftBodyVertex* vertex : { &v0, &v1, &v2 })
+                {
+                    // Zero inverse mass is a pinned particle; the wind blows past it.
+                    vertex->mVelocity += faceImpulse * vertex->mInvMass;
+                }
+            }
+        }
+
+        // Wind is a continuous force: a body it acts on must not sleep through it, or a
+        // flag freezes mid-air the moment it settles for an instant. Outside the body
+        // lock, since ActivateBody takes its own.
+        m_physicsSystem->GetBodyInterface().ActivateBody(m_bodyId);
     }
 
     void JoltSoftBody::SetNumIterations(AZ::u32 iterations)

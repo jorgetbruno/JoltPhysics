@@ -106,6 +106,13 @@ namespace JoltPhysics
         virtual void SetGravityFactor(float factor) = 0;
         virtual float GetGravityFactor() const = 0;
 
+        //! How strongly the scene's wind (wind-tagged force regions) pushes on this body's
+        //! faces. 1 is a plain aerodynamic response; 0 opts out. Live and script-visible on
+        //! purpose: easing this down is how gameplay reefs a sail without touching the
+        //! wind itself.
+        virtual void SetWindInfluence(float influence) = 0;
+        virtual float GetWindInfluence() const = 0;
+
         //! Solver iterations per step. Higher is stiffer and more expensive.
         virtual void SetNumIterations(AZ::u32 iterations) = 0;
         virtual AZ::u32 GetNumIterations() const = 0;

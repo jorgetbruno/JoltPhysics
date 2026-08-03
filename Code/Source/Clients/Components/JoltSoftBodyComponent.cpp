@@ -83,12 +83,18 @@ namespace JoltPhysics
 
                 behaviorContext->EBus<JoltSoftBodyRequestBus>("JoltSoftBodyRequestBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // Common, not the default Launcher scope: the default hides the bus
+                    // from editor python, and both automation (the sail demo test) and
+                    // anyone scripting the demo in the editor need to reach cloth.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Event("SetPressure", &JoltSoftBodyRequests::SetPressure)
                     ->Event("GetPressure", &JoltSoftBodyRequests::GetPressure)
                     ->Event("SetLinearDamping", &JoltSoftBodyRequests::SetLinearDamping)
                     ->Event("GetLinearDamping", &JoltSoftBodyRequests::GetLinearDamping)
                     ->Event("SetGravityFactor", &JoltSoftBodyRequests::SetGravityFactor)
                     ->Event("GetGravityFactor", &JoltSoftBodyRequests::GetGravityFactor)
+                    ->Event("SetWindInfluence", &JoltSoftBodyRequests::SetWindInfluence)
+                    ->Event("GetWindInfluence", &JoltSoftBodyRequests::GetWindInfluence)
                     ->Event("SetNumIterations", &JoltSoftBodyRequests::SetNumIterations)
                     ->Event("GetNumIterations", &JoltSoftBodyRequests::GetNumIterations)
                     ->Event("SetFriction", &JoltSoftBodyRequests::SetFriction)
@@ -143,6 +149,7 @@ namespace JoltPhysics
                 ->Field("LinearDamping", &JoltSoftBodySettings::m_linearDamping)
                 ->Field("Pressure", &JoltSoftBodySettings::m_pressure)
                 ->Field("GravityFactor", &JoltSoftBodySettings::m_gravityFactor)
+                ->Field("WindInfluence", &JoltSoftBodySettings::m_windInfluence)
                 ->Field("Friction", &JoltSoftBodySettings::m_friction)
                 ->Field("Restitution", &JoltSoftBodySettings::m_restitution)
                 ->Field("VertexRadius", &JoltSoftBodySettings::m_vertexRadius)
@@ -234,6 +241,10 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::Visibility, &JoltSoftBodySettings::GetClosedShapeVisibility)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_gravityFactor,
                         "Gravity factor", "Multiplier on gravity for this body alone. 0 makes it hang in the air.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_windInfluence,
+                        "Wind influence", "How strongly the scene's wind (wind-tagged force regions) pushes on "
+                        "this body. 1 is a plain aerodynamic response, 0 opts out.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltSoftBodySettings::m_friction,
                         "Friction", "Surface friction when sliding over other bodies. A soft body has no physics "
                         "material, so this plays that role.")
@@ -441,10 +452,27 @@ namespace JoltPhysics
                 softBody->SetCustomGeometry(m_customVertices, m_customIndices);
             }
         }
+
+        // Wind, once per fixed step. Registered here rather than in Activate because the
+        // scene handle is only certainly valid once a body has been added to it.
+        if (!m_sceneStartHandler.IsConnected())
+        {
+            m_sceneStartHandler = AzPhysics::SceneEvents::OnSceneSimulationStartHandler(
+                [this]([[maybe_unused]] AzPhysics::SceneHandle sceneHandle, float fixedDeltaTime)
+                {
+                    if (auto* softBody = GetSoftBody())
+                    {
+                        softBody->ApplyWind(fixedDeltaTime);
+                    }
+                });
+            sceneInterface->RegisterSceneSimulationStartHandler(m_attachedSceneHandle, m_sceneStartHandler);
+        }
     }
 
     void JoltSoftBodyComponent::DestroySoftBody()
     {
+        m_sceneStartHandler.Disconnect();
+
         if (auto* sceneInterface = AZ::Interface<AzPhysics::SceneInterface>::Get();
             sceneInterface && m_softBodyHandle != AzPhysics::InvalidSimulatedBodyHandle)
         {
@@ -479,6 +507,20 @@ namespace JoltPhysics
     float JoltSoftBodyComponent::GetLinearDamping() const
     {
         return m_settings.m_linearDamping;
+    }
+
+    void JoltSoftBodyComponent::SetWindInfluence(float influence)
+    {
+        m_settings.m_windInfluence = AZ::GetMax(influence, 0.0f);
+        if (auto* softBody = GetSoftBody())
+        {
+            softBody->SetWindInfluence(influence);
+        }
+    }
+
+    float JoltSoftBodyComponent::GetWindInfluence() const
+    {
+        return m_settings.m_windInfluence;
     }
 
     void JoltSoftBodyComponent::SetGravityFactor(float factor)

@@ -34,6 +34,7 @@
 #include <AzFramework/Components/TransformComponent.h>
 #include <AzCore/Interface/Interface.h>
 #include <AzFramework/Physics/SystemBus.h>
+#include <AzFramework/Physics/WindBus.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
@@ -1001,6 +1002,101 @@ namespace JoltPhysics
             return skinnedVertices;
         }
     };
+
+    //! Wind acting on cloth. The force-region tests cover how regions become a wind
+    //! vector; this covers the other half - a wind vector reaching the interface must
+    //! move a soft body - so the provider here is a stub, not the region plumbing.
+    class JoltSoftBodyWindTests : public JoltSoftBodySkinningBusTests
+    {
+    protected:
+        //! Constant wind everywhere, standing in for the wind provider the test
+        //! environment does not create.
+        class ScopedTestWind final : public AZ::Interface<Physics::WindRequests>::Registrar
+        {
+        public:
+            AZ::Vector3 m_wind = AZ::Vector3::CreateZero();
+
+            AZ::Vector3 GetGlobalWind() const override
+            {
+                return m_wind;
+            }
+            AZ::Vector3 GetWind([[maybe_unused]] const AZ::Vector3& worldPosition) const override
+            {
+                return m_wind;
+            }
+            AZ::Vector3 GetWind([[maybe_unused]] const AZ::Aabb& aabb) const override
+            {
+                return m_wind;
+            }
+        };
+
+        //! A free cloth with gravity off, so any motion is the wind's doing.
+        AZStd::unique_ptr<AZ::Entity> CreateFloatingCloth(const AZ::Vector3& position)
+        {
+            auto entity = CreateCloth(position);
+            JoltSoftBodyRequestBus::Event(entity->GetId(), &JoltSoftBodyRequests::SetGravityFactor, 0.0f);
+            return entity;
+        }
+    };
+
+    TEST_F(JoltSoftBodyWindTests, WindCarriesAClothDownwindAndNoInfluenceOptsOut)
+    {
+        ScopedTestWind wind;
+        // Along the cloth's face normal - the sheets are built in their local XY plane.
+        // A wind along the plane instead would be the edge-on case, whose answer is
+        // legitimately "no force"; the directional test below pins that.
+        wind.m_wind = AZ::Vector3(0.0f, 0.0f, 5.0f);
+
+        // Two identical cloths in the same wind; one has opted out. The pair is the test:
+        // the difference between them can only be ApplyWind, not solver drift.
+        auto blown = CreateFloatingCloth(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto optedOut = CreateFloatingCloth(AZ::Vector3(0.0f, 20.0f, 5.0f));
+        JoltSoftBodyRequestBus::Event(optedOut->GetId(), &JoltSoftBodyRequests::SetWindInfluence, 0.0f);
+
+        const AZ::Vector3 blownStart = ClothCentre(blown->GetId());
+        const AZ::Vector3 optedOutStart = ClothCentre(optedOut->GetId());
+
+        SimulateSeconds(1.0f);
+
+        EXPECT_GT(ClothCentre(blown->GetId()).GetZ() - blownStart.GetZ(), 0.5f)
+            << "the wind did not move the cloth";
+        EXPECT_NEAR(ClothCentre(optedOut->GetId()).GetZ(), optedOutStart.GetZ(), 0.05f)
+            << "a cloth with zero wind influence was still blown";
+
+        blown->Deactivate();
+        optedOut->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyWindTests, AClothFaceOnToTheWindCatchesFarMoreThanOneEdgeOn)
+    {
+        // The property that makes a sail gameplay rather than decoration: trim it across
+        // the wind and it fills, feather it into the wind and it luffs. The cloth is
+        // built in its entity's local XY plane, so its faces look along Z.
+        ScopedTestWind wind;
+
+        auto faceOn = CreateFloatingCloth(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto edgeOn = CreateFloatingCloth(AZ::Vector3(0.0f, 20.0f, 5.0f));
+
+        const float faceOnStartZ = ClothCentre(faceOn->GetId()).GetZ();
+        const float edgeOnStartX = ClothCentre(edgeOn->GetId()).GetX();
+
+        // Blow along the first cloth's normal and along the second one's plane. One wind
+        // vector cannot do both, so run them one at a time.
+        wind.m_wind = AZ::Vector3(0.0f, 0.0f, 4.0f);
+        SimulateSeconds(0.5f);
+        const float faceOnDrift = ClothCentre(faceOn->GetId()).GetZ() - faceOnStartZ;
+
+        wind.m_wind = AZ::Vector3(4.0f, 0.0f, 0.0f);
+        SimulateSeconds(0.5f);
+        const float edgeOnDrift = ClothCentre(edgeOn->GetId()).GetX() - edgeOnStartX;
+
+        EXPECT_GT(faceOnDrift, 0.2f);
+        EXPECT_GT(faceOnDrift, 3.0f * AZ::GetMax(edgeOnDrift, 0.0f))
+            << "an edge-on cloth caught nearly as much wind as a face-on one";
+
+        faceOn->Deactivate();
+        edgeOn->Deactivate();
+    }
 
     TEST_F(JoltSoftBodySkinningBusTests, JointsGivenInWorldSpaceMoveTheClothToWhereTheyActuallyAre)
     {
