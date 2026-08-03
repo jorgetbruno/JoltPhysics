@@ -46,8 +46,12 @@ outside it (see [The gem family](#the-gem-family)).
 **Articulated and specialised bodies**
 - Character controller (`JoltCharacterControllerComponent` over `JPH::CharacterVirtual`):
   ground detection, slope limits, step offset, stick-to-floor, pushing dynamic bodies,
-  trigger/sensor interaction
-- Ragdolls through O3DE's `Physics::Ragdoll` interface
+  trigger/sensor interaction, and gravity — it falls on its own, with a multiplier to
+  turn that off for an animation-driven character and a writable falling velocity to
+  jump with
+- Ragdolls through O3DE's `Physics::Ragdoll` interface, authorable in the Animation
+  Editor: the gem answers `AzPhysics::JointHelpersInterface` and
+  `EditorJointHelpersInterface`, which its ragdoll joint tools run on
 - Soft bodies (`JoltSoftBodyComponent`): procedural cloth, cube and balloon plus
   mesh-sourced bodies from `.joltmesh` assets, simulated as real bodies the rest of
   the scene collides with, with runtime per-particle pinning/velocity, opt-in LRA
@@ -87,7 +91,7 @@ outside it (see [The gem family](#the-gem-family)).
   ScriptCanvas can drive a vehicle (`JoltVehicleRequestBus`), tune and read a soft body
   (`JoltSoftBodyRequestBus`), drive and query a joint motor (`JoltJointRequestBus`, with
   a `JoltJointNotificationBus` handler for a joint breaking) and ask a character whether
-  it is grounded (`JoltCharacterGameplayRequestBus`).
+  it is grounded, or make it jump (`JoltCharacterGameplayRequestBus`).
 - **`Physics::RigidBodyRequestBus` is reflected by this gem** — velocities, impulses,
   mass, damping, sleep, kinematic and gravity control on any Jolt body. AzFramework
   declares that bus but leaves the script binding to a backend, and in 26.05 the only
@@ -109,7 +113,6 @@ Jolt capabilities this gem does not expose; see the *Jolt features not wrapped* 
 of [DIVERGENCES.md](DIVERGENCES.md) for the full list and the reasoning:
 
 - Path and pulley constraints (path additionally needs spline authoring)
-- `AzPhysics::JointHelpersInterface` (joint auto-configuration)
 - Soft bodies from mesh assets — geometry is procedural, and cloth pinning is preset-based
 - PhysX-*named* compatibility components; everything is `Jolt`-prefixed on purpose, so
   an incomplete backend cannot silently hijack PhysX-authored levels

@@ -12,6 +12,8 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <JoltPhysics/JoltCharacterGameplayBus.h>
+#include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
 #include <Clients/Components/JoltMeshColliderComponent.h>
@@ -562,6 +564,135 @@ namespace JoltPhysics
             entity->Deactivate();
             ReleaseCachedNativeMesh(collider->GetShapeConfiguration());
         }
+    }
+
+    //! The character controller falling under its own steam. Jolt gives a character no
+    //! gravity of its own - it is driven entirely by requested velocity - so until this
+    //! existed every project wrote the same accumulate-and-apply loop by hand, and the
+    //! ones that did not had characters that hung in the air.
+    class JoltCharacterGravityTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        //! Floor with its top surface at z = 0.
+        void AddFloor()
+        {
+            auto collider = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto shape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+            shape->m_dimensions = AZ::Vector3(20.0f, 20.0f, 1.0f);
+            AzPhysics::StaticRigidBodyConfiguration floorConfig;
+            floorConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+            floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(collider, shape);
+            m_scene->AddSimulatedBody(&floorConfig);
+        }
+
+        //! A character standing at the given height. Its transform is its base - the feet -
+        //! which is the convention the rest of O3DE uses.
+        AZStd::unique_ptr<AZ::Entity> CreateCharacterEntity(float height)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("GravityCharacter");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            entity->CreateComponent<JoltCharacterControllerComponent>();
+            entity->Init();
+            entity->Activate();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+                AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, height)));
+            return entity;
+        }
+
+        static float BaseHeightOf(const AZ::Entity& entity)
+        {
+            AZ::Vector3 position = AZ::Vector3::CreateZero();
+            AZ::TransformBus::EventResult(position, entity.GetId(), &AZ::TransformBus::Events::GetWorldTranslation);
+            return position.GetZ();
+        }
+    };
+
+    TEST_F(JoltCharacterGravityTests, ACharacterFallsAndLandsWithNobodyDrivingIt)
+    {
+        AddFloor();
+        auto entity = CreateCharacterEntity(3.0f);
+
+        SimulateSeconds(3.0f);
+
+        // Its feet end up on the floor, and it stays there rather than sinking through or
+        // jittering on the spot.
+        const float landed = BaseHeightOf(*entity);
+        EXPECT_NEAR(landed, 0.0f, 0.1f) << "the character did not land on the floor";
+
+        SimulateSeconds(1.0f);
+        EXPECT_NEAR(BaseHeightOf(*entity), landed, 0.01f) << "the character did not settle";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltCharacterGravityTests, GravityOffLeavesAnAnimationDrivenCharacterWhereItIs)
+    {
+        AddFloor();
+        auto entity = CreateCharacterEntity(3.0f);
+
+        JoltCharacterGameplayRequestBus::Event(
+            entity->GetId(), &JoltCharacterGameplayRequests::SetGravityMultiplier, 0.0f);
+
+        SimulateSeconds(2.0f);
+
+        // Nothing else is driving it, so it must hang exactly where it was put: a
+        // character whose vertical motion comes from animation has to be left alone.
+        EXPECT_NEAR(BaseHeightOf(*entity), 3.0f, 0.01f);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltCharacterGravityTests, AJumpSurvivesTheFrameItStartsOn)
+    {
+        // The frame a jump starts on is a frame the character is still touching the
+        // floor. Shedding all of the accumulated velocity on contact - rather than only
+        // the part pulling downwards - would eat the jump before it moved anything.
+        AddFloor();
+        auto entity = CreateCharacterEntity(0.0f);
+        SimulateSeconds(0.5f); // settle onto the floor
+
+        const float standing = BaseHeightOf(*entity);
+        JoltCharacterGameplayRequestBus::Event(
+            entity->GetId(), &JoltCharacterGameplayRequests::SetFallingVelocity, AZ::Vector3(0.0f, 0.0f, 5.0f));
+
+        float peak = standing;
+        for (int i = 0; i < 30; ++i)
+        {
+            SimulateSeconds(1.0f / 60.0f);
+            peak = AZ::GetMax(peak, BaseHeightOf(*entity));
+        }
+        EXPECT_GT(peak, standing + 0.5f) << "the jump never left the ground";
+
+        // And gravity takes it back down again rather than leaving it up there.
+        SimulateSeconds(3.0f);
+        EXPECT_NEAR(BaseHeightOf(*entity), standing, 0.1f);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltCharacterGravityTests, TheFallingVelocityIsReadableAndDoesNotGrowWhileStanding)
+    {
+        AddFloor();
+        auto entity = CreateCharacterEntity(0.0f);
+        SimulateSeconds(2.0f);
+
+        AZ::Vector3 fallingVelocity = AZ::Vector3::CreateZero();
+        JoltCharacterGameplayRequestBus::EventResult(
+            fallingVelocity, entity->GetId(), &JoltCharacterGameplayRequests::GetFallingVelocity);
+
+        // One tick of gravity, not two seconds of it: standing on the floor sheds what
+        // has built up, or a character that had been idle would launch itself the moment
+        // it stepped off a ledge.
+        EXPECT_LT(fallingVelocity.GetLength(), 1.0f)
+            << "the falling velocity kept accumulating while the character stood still";
+
+        bool onGround = false;
+        JoltCharacterGameplayRequestBus::EventResult(
+            onGround, entity->GetId(), &JoltCharacterGameplayRequests::IsOnGround);
+        EXPECT_TRUE(onGround);
+
+        entity->Deactivate();
     }
 
     TEST_F(JoltComponentBodyCreationTests, AnAssetMeshColliderGivesGeometryToEitherKindOfBody)

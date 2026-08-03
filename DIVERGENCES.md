@@ -310,6 +310,74 @@ feature, trust the topic sections below the milestones.**
   with a car-sized engine wheelies, loses front contact and falls over, so the engine
   needs sizing for the vehicle too.
 
+## Joint helpers (ragdoll authoring)
+
+- **`AzPhysics::JointHelpersInterface` and `EditorJointHelpersInterface` are
+  implemented here**, registered by the system components the way PhysX registers its
+  own. They are what the Animation Editor's ragdoll tools run on: AzFramework's
+  `CharacterPhysicsDebugDraw::RenderJointLimit` and EMotionFX's joint-limit widget,
+  manipulators and optimiser all resolve `AZ::Interface<AzPhysics::JointHelpersInterface>`,
+  and in the shipped engine only the PhysX gem answers it. Without them a Jolt project
+  could simulate a ragdoll it had no way to author.
+- **Four joint types are offered for authoring**, because `AzPhysics::JointType` names
+  exactly four: D6, fixed, ball and hinge. The gem also has prismatic, distance, cone,
+  swing-twist, gear and rack-and-pinion joints, but there is no way for a caller to ask
+  for them through this interface, so `GetSupportedJointTypeId` returns nothing for them
+  rather than guessing a substitute.
+- **The joint frame is built by rotating X onto the requested axis.** X is the twist
+  axis for Jolt's swing-twist and 6-DOF constraints and for this gem's joint components,
+  so "centre the limit on this axis" is a rotation of X onto it. Both bodies are given
+  the same frame in their own space, which makes the pose the frame was computed from
+  the joint's rest pose — zero swing, zero twist — so a ragdoll does not start life
+  pushing against its own limits.
+- **Limits are fitted as the tightest that admit every example pose, plus a margin**,
+  with swing symmetric (a cone cannot express anything else) and twist free to be
+  asymmetric. With no examples the defaults are returned untouched: nothing observed is
+  not the same as nothing allowed, and a zero-width limit would weld the bone solid.
+- **A hinge fit takes the twist range and drops the off-axis swing.** Widening a hinge
+  to admit motion it will never permit would describe a joint that does not exist.
+- **Swing angles are tilts towards an axis, not rotations about one.** The two name
+  opposite axes — a rotation about Y leans X towards Z — and the gem's viewport cone was
+  already drawn as a displacement towards Y for its Y half-angle, so the measurement
+  matches the drawing. Nothing here silently re-reads what the constraints do with those
+  angles; that mapping is `JoltJoint`'s and is untouched.
+- **The twist arc reports validity per line segment**, and is swept over the limits
+  *widened to include where the joint currently is*, so an over-rotated bone draws an
+  overrun that the caller renders in the error colour. A segment counts as allowed when
+  its midpoint is inside the limits, so one straddling a limit is not reported as fully
+  valid.
+- **The swing cone is a solid, not an outline**: an apex at the joint origin fanning out
+  through concentric rings to an elliptical rim, so it shades as a volume.
+- **The limit auto-fit only applies to the 6-DOF limit** and refuses anything else
+  rather than reshaping it, since that is the only limit with both a cone and a twist
+  range to fit. It never moves the joint frames — it bounds the motion, it does not
+  re-place the joint.
+
+## Character gravity
+
+- **The character controller applies gravity itself**, and does so by default (a
+  `Gravity multiplier` of 1). Jolt's character has gravity of its own which this gem
+  disables on purpose — the character is driven entirely by requested velocity — so
+  before this every project wrote the same accumulate-and-apply loop, and the ones that
+  did not had characters that hung in the air. Set the multiplier to 0 for an
+  animation-driven character.
+- **It lives on the controller, not on a separate component.** PhysX ships a
+  `CharacterGameplayComponent` a project opts into; here the controller already owns the
+  velocity contract this adds to, and Jolt's character reports its own ground state, so
+  there was not a second component's worth of work left to justify one. The surface is
+  on `JoltCharacterGameplayRequestBus` beside `IsOnGround`: get/set the gravity
+  multiplier and the falling velocity.
+- **The falling velocity is writable, and that is how a jump works** — set an upward
+  velocity and gravity eats it away. It also covers handing control back after an
+  animation has moved the character: set the velocity the animation ended on, or the
+  character resumes falling from a standstill.
+- **Landing sheds only the part of the velocity pulling into the ground.** Zeroing all
+  of it would eat a jump on the frame it starts, which is a frame the character is still
+  touching the floor.
+- **Gravity is applied per tick, as a velocity request**, not through Jolt's own
+  character gravity. Requested velocities are what the scene applies and clears each
+  step, so gravity arrives the same way everything else does and cannot fight it.
+
 ## Joint bus addressing
 
 - **An entity may carry several joints**, and the joint buses are addressed by

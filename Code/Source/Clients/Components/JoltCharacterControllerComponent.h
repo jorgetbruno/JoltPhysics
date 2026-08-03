@@ -62,6 +62,7 @@ namespace JoltPhysics
         float GetRadius() const { return m_radius; }
         bool& GetRigidBodyCharacter() { return m_rigidBodyCharacter; }
         bool GetRigidBodyCharacter() const { return m_rigidBodyCharacter; }
+        float& GetGravityMultiplierValue() { return m_gravityMultiplier; }
 
     protected:
         // AZ::Component
@@ -100,6 +101,10 @@ namespace JoltPhysics
         // JoltCharacterGameplayRequestBus
         bool IsOnGround() const override;
         AZ::Vector3 GetGroundNormal() const override;
+        float GetGravityMultiplier() const override;
+        void SetGravityMultiplier(float gravityMultiplier) override;
+        AZ::Vector3 GetFallingVelocity() const override;
+        void SetFallingVelocity(const AZ::Vector3& fallingVelocity) override;
 
         // AzPhysics::SimulatedBodyComponentRequestsBus
         void EnablePhysics() override;
@@ -115,6 +120,12 @@ namespace JoltPhysics
         void DestroyCharacter();
         void TryCreateCharacter();
 
+        //! Accumulates the scene's gravity into m_fallingVelocity and asks the character
+        //! to move by it. Jolt's character has gravity of its own, disabled on purpose:
+        //! this character is driven entirely by requested velocity, so gravity has to
+        //! arrive as a request like everything else or the two would fight.
+        void ApplyGravity(float deltaTime);
+
         Physics::CharacterConfiguration m_characterConfig;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfig;
 
@@ -126,6 +137,16 @@ namespace JoltPhysics
 
         //! false = virtual character (default); true = rigid-body character.
         bool m_rigidBodyCharacter = false;
+
+        //! How much of the scene's gravity this character feels. On by default: a
+        //! character that does not fall is not a useful starting point, and every project
+        //! would otherwise write the same few lines. Set it to zero for an
+        //! animation-driven character.
+        float m_gravityMultiplier = 1.0f;
+
+        //! What gravity has built up so far, kept between frames. Shed on landing, so it
+        //! does not grow without bound while the character stands still.
+        AZ::Vector3 m_fallingVelocity = AZ::Vector3::CreateZero();
 
         AZStd::string m_serializedIdentifier;
 

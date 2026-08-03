@@ -89,6 +89,10 @@ namespace JoltPhysics
         //! false = virtual character (default); true = rigid-body character.
         bool m_rigidBodyCharacter = false;
 
+        //! How much of the scene gravity the character feels; carried into the runtime
+        //! component by BuildGameEntity.
+        float m_gravityMultiplier = 1.0f;
+
         //! Puts the Edit button on the component and enters component mode on double click.
         AzToolsFramework::ComponentModeFramework::ComponentModeDelegate m_componentModeDelegate;
     };

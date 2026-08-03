@@ -27,6 +27,10 @@ namespace JoltPhysics
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
                     ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround)
                     ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal)
+                    ->Event("GetGravityMultiplier", &JoltCharacterGameplayRequests::GetGravityMultiplier)
+                    ->Event("SetGravityMultiplier", &JoltCharacterGameplayRequests::SetGravityMultiplier)
+                    ->Event("GetFallingVelocity", &JoltCharacterGameplayRequests::GetFallingVelocity)
+                    ->Event("SetFallingVelocity", &JoltCharacterGameplayRequests::SetFallingVelocity)
                     ;
             });
 
@@ -41,6 +45,7 @@ namespace JoltPhysics
                 ->Field("Height", &JoltCharacterControllerComponent::m_height)
                 ->Field("Radius", &JoltCharacterControllerComponent::m_radius)
                 ->Field("RigidBodyCharacter", &JoltCharacterControllerComponent::m_rigidBodyCharacter)
+                ->Field("GravityMultiplier", &JoltCharacterControllerComponent::m_gravityMultiplier)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -63,6 +68,10 @@ namespace JoltPhysics
                         "Radius", "Capsule radius.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
                         ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_gravityMultiplier,
+                        "Gravity multiplier",
+                        "How much of the scene gravity this character feels. 1 falls at normal weight; "
+                        "0 turns gravity off, for a character whose vertical motion comes from animation.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltCharacterControllerComponent::m_rigidBodyCharacter,
                         "Rigid body character",
                         "When set, the character is a real rigid body in the simulation (cheaper, most "
@@ -140,12 +149,52 @@ namespace JoltPhysics
             return;
         }
 
+        ApplyGravity(deltaTime);
+
         if (AzPhysics::SimulatedBody* body = GetSimulatedBody())
         {
             m_syncingTransformFromCharacter = true;
             AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTM, body->GetTransform());
             m_syncingTransformFromCharacter = false;
         }
+    }
+
+    void JoltCharacterControllerComponent::ApplyGravity(float deltaTime)
+    {
+        if (m_gravityMultiplier == 0.0f || deltaTime <= 0.0f)
+        {
+            // Off means off, including the accumulation: a character switched to
+            // animation-driven mid-fall should not find a stale velocity waiting for it
+            // when gravity is switched back on.
+            m_fallingVelocity = AZ::Vector3::CreateZero();
+            return;
+        }
+
+        auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get();
+        AzPhysics::Scene* scene = physicsSystem ? physicsSystem->GetScene(m_attachedSceneHandle) : nullptr;
+        if (scene == nullptr)
+        {
+            return;
+        }
+
+        const AZ::Vector3 gravity = scene->GetGravity() * m_gravityMultiplier;
+
+        if (IsOnGround())
+        {
+            // Standing: shed what gravity had built, but only the part pulling into the
+            // ground. Zeroing all of it would eat a jump on the frame it starts, which is
+            // the frame the character is still touching the floor.
+            if (m_fallingVelocity.Dot(gravity) > 0.0f)
+            {
+                m_fallingVelocity = AZ::Vector3::CreateZero();
+            }
+        }
+
+        m_fallingVelocity += gravity * deltaTime;
+
+        // As a request, like every other velocity this character is given. The scene
+        // applies and clears requests each step, so this is asked for every tick.
+        AddVelocityForTick(m_fallingVelocity);
     }
 
     int JoltCharacterControllerComponent::GetTickOrder()
@@ -367,6 +416,26 @@ namespace JoltPhysics
             return character->IsOnGround();
         }
         return false;
+    }
+
+    float JoltCharacterControllerComponent::GetGravityMultiplier() const
+    {
+        return m_gravityMultiplier;
+    }
+
+    void JoltCharacterControllerComponent::SetGravityMultiplier(float gravityMultiplier)
+    {
+        m_gravityMultiplier = gravityMultiplier;
+    }
+
+    AZ::Vector3 JoltCharacterControllerComponent::GetFallingVelocity() const
+    {
+        return m_fallingVelocity;
+    }
+
+    void JoltCharacterControllerComponent::SetFallingVelocity(const AZ::Vector3& fallingVelocity)
+    {
+        m_fallingVelocity = fallingVelocity;
     }
 
     AZ::Vector3 JoltCharacterControllerComponent::GetGroundNormal() const

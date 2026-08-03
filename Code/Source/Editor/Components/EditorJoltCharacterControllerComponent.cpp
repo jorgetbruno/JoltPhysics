@@ -28,6 +28,7 @@ namespace JoltPhysics
                 ->Field("Height", &EditorJoltCharacterControllerComponent::m_height)
                 ->Field("Radius", &EditorJoltCharacterControllerComponent::m_radius)
                 ->Field("RigidBodyCharacter", &EditorJoltCharacterControllerComponent::m_rigidBodyCharacter)
+                ->Field("GravityMultiplier", &EditorJoltCharacterControllerComponent::m_gravityMultiplier)
                 ->Field("ComponentMode", &EditorJoltCharacterControllerComponent::m_componentModeDelegate)
                 ;
 
@@ -49,6 +50,10 @@ namespace JoltPhysics
                         "Radius", "Capsule radius.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.01f)
                         ->Attribute(AZ::Edit::Attributes::Suffix, " m")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltCharacterControllerComponent::m_gravityMultiplier,
+                        "Gravity multiplier",
+                        "How much of the scene gravity this character feels. 1 falls at normal weight; "
+                        "0 turns gravity off, for a character whose vertical motion comes from animation.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltCharacterControllerComponent::m_rigidBodyCharacter,
                         "Rigid body character",
                         "When set, the character is a real rigid body in the simulation (cheaper, most "
@@ -239,6 +244,7 @@ namespace JoltPhysics
             component->GetHeight() = m_height;
             component->GetRadius() = m_radius;
             component->GetRigidBodyCharacter() = m_rigidBodyCharacter;
+            component->GetGravityMultiplierValue() = m_gravityMultiplier;
         }
     }
 

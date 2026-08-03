@@ -6,11 +6,8 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
-- **`AzPhysics::JointHelpersInterface` is not implemented** (editor joint-limit
-  visualization/auto-configuration).
-- **Character controller gaps**: `AttachShape` is a no-op (a Jolt character's shape is
-  fixed at creation) and there is no `CharacterGameplayComponent` equivalent (gameplay
-  drives via `CharacterRequestBus`).
+- **Character controller gap**: `AttachShape` is a no-op — a Jolt character's shape is
+  fixed at creation.
 - **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
   mesh editor colliders create static bodies in the editor scene (see resolved
   entries); the compound colliders deliberately do not (their children are separate
@@ -67,6 +64,19 @@ deviations from PhysX behavior.
 - Cylinder collider removal (engine dropped `CylinderShapeConfiguration` in 26.05).
 
 ## Resolved in later milestones (kept for reference)
+
+- **`AzPhysics::JointHelpersInterface` and `EditorJointHelpersInterface`** are
+  implemented (`JoltJointHelpers`, `JoltEditorJointHelpers`), so the Animation Editor's
+  ragdoll joint tools work in a project running Jolt: joint types to author, initial
+  limits computed from a bone's rest pose and example rotations, swing-cone and
+  twist-arc visualization data, and the limit auto-fit. Only the PhysX gem registers
+  these in the shipped engine, and both `EMotionFX.dll` and `AzFramework`'s
+  `CharacterPhysicsDebugDraw` reach for them — so a ragdoll this gem could simulate
+  could not be authored.
+- **Characters fall on their own** — the character controller applies the scene's
+  gravity, tracks the falling velocity between frames, and sheds it on landing (see
+  DIVERGENCES.md "Character gravity"). PhysX puts this in a separate example
+  `CharacterGameplayComponent`; here it is on the controller.
 
 - **`AzPhysics::SceneInterface`** is implemented (`JoltSceneInterface`), including
   scene-level trigger/collision events, so engine-wide consumers (e.g. the WhiteBox
