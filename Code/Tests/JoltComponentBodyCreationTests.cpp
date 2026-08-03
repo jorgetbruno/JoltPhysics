@@ -12,6 +12,9 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltStaticRigidBodyComponent.h>
+#include <Pipeline/JoltMeshAssetHandler.h>
+#include <Clients/Components/JoltMeshColliderComponent.h>
 #include <Clients/Components/JoltSphereColliderComponent.h>
 #include <Clients/Components/JoltStaticCompoundColliderComponent.h>
 #include <System/JoltSystem.h>
@@ -25,6 +28,7 @@
 #include <AzCore/Component/TransformBus.h>
 #include <AzFramework/Components/NonUniformScaleComponent.h>
 #include <AzFramework/Components/TransformComponent.h>
+#include <AzCore/Interface/Interface.h>
 #include <AzFramework/Physics/SystemBus.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
@@ -60,6 +64,79 @@ namespace JoltPhysics
 
         private:
             AzPhysics::SceneHandle m_sceneHandle;
+        };
+
+        //! The half of the cooked-mesh cache contract that lives on the system component.
+        //!
+        //! JoltShapeUtils AddRefs a cooked shape onto the configuration it built it from,
+        //! and CookedMeshShapeConfiguration's destructor balances that by broadcasting
+        //! ReleaseNativeMeshObject. Tests that own their configuration can release it by
+        //! hand, but a mesh-asset collider expands into *clones* that live and die inside
+        //! the gem - there is nothing to release by hand, and with no handler on the bus
+        //! the shape simply leaks and the suite fails at teardown with "There are still
+        //! allocations". This answers the two release calls the same way the system
+        //! component does; everything else is a stub, since nothing here calls it.
+        class ScopedNativeMeshReleaser : public Physics::SystemRequestBus::Handler
+        {
+        public:
+            ScopedNativeMeshReleaser()
+            {
+                Physics::SystemRequestBus::Handler::BusConnect();
+                // Both, as the system component does: SystemRequestBus and
+                // AZ::Interface<Physics::System> are separate registrations, and the
+                // engine reaches for the interface on this path.
+                AZ::Interface<Physics::System>::Register(this);
+            }
+            ~ScopedNativeMeshReleaser() override
+            {
+                AZ::Interface<Physics::System>::Unregister(this);
+                Physics::SystemRequestBus::Handler::BusDisconnect();
+            }
+
+            AZStd::shared_ptr<Physics::Shape> CreateShape(
+                const Physics::ColliderConfiguration& colliderConfiguration,
+                const Physics::ShapeConfiguration& configuration) override
+            {
+                return JoltShapeUtils::CreateShape(colliderConfiguration, configuration);
+            }
+
+            void ReleaseNativeMeshObject(void* nativeMeshObject) override
+            {
+                if (nativeMeshObject)
+                {
+                    ++m_releases;
+                    static_cast<JPH::Shape*>(nativeMeshObject)->Release();
+                }
+            }
+
+            int m_releases = 0;
+
+            void ReleaseNativeHeightfieldObject(void* nativeHeightfieldObject) override
+            {
+                if (nativeHeightfieldObject)
+                {
+                    static_cast<JPH::Shape*>(nativeHeightfieldObject)->Release();
+                }
+            }
+
+            bool CookConvexMeshToFile(const AZStd::string&, const AZ::Vector3*, AZ::u32) override
+            {
+                return false;
+            }
+            bool CookConvexMeshToMemory(const AZ::Vector3*, AZ::u32, AZStd::vector<AZ::u8>&) override
+            {
+                return false;
+            }
+            bool CookTriangleMeshToFile(
+                const AZStd::string&, const AZ::Vector3*, AZ::u32, const AZ::u32*, AZ::u32) override
+            {
+                return false;
+            }
+            bool CookTriangleMeshToMemory(
+                const AZ::Vector3*, AZ::u32, const AZ::u32*, AZ::u32, AZStd::vector<AZ::u8>&) override
+            {
+                return false;
+            }
         };
 
         void SetUp() override
@@ -485,6 +562,92 @@ namespace JoltPhysics
             entity->Deactivate();
             ReleaseCachedNativeMesh(collider->GetShapeConfiguration());
         }
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, AnAssetMeshColliderGivesGeometryToEitherKindOfBody)
+    {
+        // A .joltmesh collider reaches its body differently from every other collider:
+        // the shapes are not the component's own, they are expanded out of an asset when
+        // the body asks for them. The static and dynamic bodies ask at different moments,
+        // so both are pinned here - by the body's world bounds, which is the one reading a
+        // resting-body probe cannot confound (a hull that happens to be a sphere lets a
+        // ball roll off its apex, which looks exactly like having no collider at all).
+        // CreateMeshAsset goes through the asset manager, which refuses to make one
+        // without a handler for the type - the same handler the system component
+        // registers in production, and which the test environment does not run.
+        Pipeline::JoltMeshAssetHandler assetHandler;
+        assetHandler.Register();
+
+        // The asset expands into cloned configurations that live and die inside the gem,
+        // so the shapes cached on them can only be released through the bus.
+        ScopedNativeMeshReleaser nativeMeshReleaser;
+
+        const AZStd::vector<AZ::u8> blob = MakeUnitCubeConvexBlob();
+
+        auto makeAsset = [&blob]()
+        {
+            auto cooked = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+            cooked->SetCookedMeshData(
+                blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::Convex);
+
+            Pipeline::JoltMeshAssetData assetData;
+            assetData.m_colliderShapes.emplace_back(
+                AZStd::make_shared<Pipeline::JoltAssetColliderConfiguration>(), cooked);
+            assetData.m_materialIndexPerShape = { 0 };
+            return assetData.CreateMeshAsset();
+        };
+
+        auto halfExtentsOfBodyFor = [this](AZ::Entity* entity)
+        {
+            const auto [foundSceneHandle, bodyHandle] =
+                m_system->FindAttachedBodyHandleFromEntityId(entity->GetId());
+            EXPECT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+            if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
+            {
+                return AZ::Vector3::CreateZero();
+            }
+            return m_scene->GetSimulatedBodyFromHandle(bodyHandle)->GetAabb().GetExtents() * 0.5f;
+        };
+
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("AssetMeshStaticBody");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = entity->CreateComponent<JoltMeshColliderComponent>();
+            entity->CreateComponent<JoltStaticRigidBodyComponent>();
+            collider->GetShapeConfiguration().m_asset = makeAsset();
+            entity->Init();
+            entity->Activate();
+
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(0.5f), 0.01f))
+                << "a static body took no geometry from its asset mesh collider";
+            entity->Deactivate();
+            // The scene defers body deletion to the next step, and the body owns the
+            // expanded configurations - so without a step the shapes cached on them
+            // outlive this test rather than being released by it.
+            SimulateSeconds(0.05f);
+        }
+
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("AssetMeshDynamicBody");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = entity->CreateComponent<JoltMeshColliderComponent>();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+            collider->GetShapeConfiguration().m_asset = makeAsset();
+            entity->Init();
+            entity->Activate();
+
+            EXPECT_TRUE(halfExtentsOfBodyFor(entity.get()).IsClose(AZ::Vector3(0.5f), 0.01f))
+                << "a dynamic body took no geometry from its asset mesh collider";
+            entity->Deactivate();
+            SimulateSeconds(0.05f);
+        }
+
+        // And the shapes cached on those expanded configurations were handed back
+        // rather than leaked - the failure this would otherwise surface as is a suite
+        // that reports every test passing and then fails at teardown.
+        EXPECT_GT(nativeMeshReleaser.m_releases, 0)
+            << "no cooked shape was released, so the expansion leaked its geometry";
+        assetHandler.Unregister();
     }
 
     TEST_F(JoltComponentBodyCreationTests, ScaledColliderGeometryMatchesTheShapeTypesLimits)
