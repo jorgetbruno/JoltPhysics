@@ -41,6 +41,18 @@ namespace JoltPhysics
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
+        //! Whether this collider offers component mode: the Edit button in the inspector
+        //! and the double click that enters it in the viewport. Every collider serves the
+        //! offset to manipulators, but only one that connected its delegate has a way in.
+        //!
+        //! Public because the delegate answers its own bus only once the entity is
+        //! selected - which needs a running editor - so this is the only way to tell
+        //! outside one whether a given collider has a handle at all.
+        bool OffersComponentMode() const
+        {
+            return m_componentModeDelegate.IsConnected();
+        }
+
     protected:
         // AZ::Component
         void Activate() override;

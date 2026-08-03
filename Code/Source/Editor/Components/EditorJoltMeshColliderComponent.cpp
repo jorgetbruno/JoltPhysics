@@ -13,6 +13,7 @@
 
 #include <Clients/Components/JoltMeshColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderGeometryUtils.h>
+#include <Editor/Components/JoltColliderOffsetComponentMode.h>
 #include <Shape/JoltShapeUtils.h>
 #include <Utils/ReflectionUtils.h>
 
@@ -62,6 +63,7 @@ namespace JoltPhysics
         EditorJoltColliderComponentBase::Reflect(context);
         Internal::ReflectOnce<Physics::ShapeConfiguration>(context);
         Internal::ReflectOnce<Physics::PhysicsAssetShapeConfiguration>(context);
+        Internal::ReflectOnce<JoltColliderOffsetComponentMode>(context);
         EditorProxyJoltMeshAsset::Reflect(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -115,6 +117,12 @@ namespace JoltPhysics
         // Connecting fires OnModelReady immediately when the render mesh is already
         // loaded; that event drives the .joltmesh auto-assignment.
         AZ::Render::MeshComponentNotificationBus::Handler::BusConnect(GetEntityId());
+
+        // The offset is the one thing about a cooked collider a handle can express, and
+        // without a delegate there is no Edit button to reach it with.
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltMeshColliderComponent, JoltColliderOffsetComponentMode>(
+            AZ::EntityComponentIdPair(GetEntityId(), GetId()), this);
 
         UpdateMeshAsset();
     }

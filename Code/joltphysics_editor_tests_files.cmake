@@ -9,6 +9,7 @@ set(FILES
     Tests/JoltEditorColliderGeometryTests.cpp
     Tests/JoltEditorConvexDecompositionTests.cpp
     Tests/JoltEditorPrimitiveFitTests.cpp
+    Tests/JoltColliderOffsetComponentModeTests.cpp
     Tests/JoltJointComponentModeTests.cpp
     Tests/JoltVehicleComponentModeTests.cpp
     Tests/JoltEditorVehicleSettleTests.cpp

@@ -989,11 +989,22 @@ feature, trust the topic sections below the milestones.**
 - **A joint drag is one undo step.** The frame is written on every mouse move so
   the viewport and inspector track the drag, but the undo batch is taken on mouse
   up, scoped so it always closes — a batch left open blocks saving the level.
-- **Heightfield, mesh and compound colliders have no component mode**, and so no
-  Edit button: their geometry comes from a baked blob, a terrain provider or the
-  child entities, none of which a manipulator could drag. The mesh and heightfield
-  colliders do report selection bounds (see below), so they are still clickable in
-  the viewport; the compound colliders do not, having no geometry of their own.
+- **The mesh colliders have an offset-only component mode**,
+  `JoltColliderOffsetComponentMode`. Their geometry comes from a blob and has no
+  dimension to drag, but the translation offset is a field they do support, and
+  nudging a shared `.joltmesh` prop collider — a door, a fence, a rock reused across
+  entities — against its render mesh is routine. It wraps the engine's own
+  `ShapeTranslationOffsetViewportEdit`, driven through the `ShapeManipulatorRequests`
+  handler the collider base already implements, so the mode knows nothing about what
+  it is offsetting and one serves both the asset and baked mesh colliders. There is
+  no dimensions sub-mode to switch to, so there is no viewport cluster either: the
+  mode is the handle. PhysX reaches the same place from the other direction, with a
+  `ComponentModeDelegate` on its `EditorMeshColliderComponent`.
+- **Heightfield and compound colliders have no component mode**, and so no Edit
+  button: their geometry comes from a terrain provider or from child entities, and
+  neither has an offset a handle would sit on. The heightfield collider does report
+  selection bounds (see below), so it is still clickable in the viewport; the
+  compound colliders do not, having no geometry of their own.
 - **The character controller joins `CapsuleComponentMode` too**, even though it is
   not a collider and does not derive from the collider base. It answers the same
   four manipulator buses directly and reuses the capsule clamping rule (height held

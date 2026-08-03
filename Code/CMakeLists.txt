@@ -140,12 +140,14 @@ ly_add_target(
         Gem::LmbrCentral
 )
 
-# The shape collider pulls LmbrCentral's shape buses into a translation unit that also
-# uses Jolt, and the two do not survive being lumped together by the unity build - Jolt's
-# namespace macros come out undefined. Compiling it on its own costs one more object file
-# and avoids an include-order landmine that would fire again on the next edit.
+# These pull AzToolsFramework's shape/component-mode headers into a translation unit that
+# also uses Jolt, and the two do not survive being lumped together by the unity build -
+# Jolt's namespace macros come out undefined and HashCombine.h fails to parse. Compiling
+# them on their own costs two more object files and avoids an include-order landmine that
+# would fire again on the next edit.
 set_source_files_properties(
     Source/Editor/Components/EditorJoltShapeColliderComponent.cpp
+    Source/Editor/Components/JoltColliderOffsetComponentMode.cpp
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE
 )
 

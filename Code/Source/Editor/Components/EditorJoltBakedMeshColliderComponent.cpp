@@ -12,6 +12,7 @@
 
 #include <Clients/Components/JoltBakedMeshColliderComponent.h>
 #include <Editor/Components/EditorJoltColliderGeometryUtils.h>
+#include <Editor/Components/JoltColliderOffsetComponentMode.h>
 #include <Shape/JoltMeshUtils.h>
 #include <Utils/ReflectionUtils.h>
 
@@ -24,6 +25,7 @@ namespace JoltPhysics
     {
         EditorJoltColliderComponentBase::Reflect(context);
         Internal::ReflectOnce<Physics::CookedMeshShapeConfiguration>(context);
+        Internal::ReflectOnce<JoltColliderOffsetComponentMode>(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
@@ -104,6 +106,12 @@ namespace JoltPhysics
         EditorJoltColliderComponentBase::Activate();
 
         m_debugLinesDirty = true;
+
+        // Same as the asset mesh collider: a baked hull has no dimension to drag, but it
+        // does have an offset, and a delegate is what puts an Edit button on it.
+        m_componentModeDelegate.ConnectWithSingleComponentMode<
+            EditorJoltBakedMeshColliderComponent, JoltColliderOffsetComponentMode>(
+            AZ::EntityComponentIdPair(GetEntityId(), GetId()), this);
 
         // No baked data yet: keep trying each editor tick. The immediate attempt in
         // the old code lost the race against the render mesh's async asset load on
