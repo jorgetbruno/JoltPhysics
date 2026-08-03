@@ -1206,6 +1206,40 @@ namespace JoltPhysics
         yard->Deactivate();
     }
 
+    TEST_F(JoltSoftBodyAttachmentTests, TurningATargetSwingsTheClothRoundWithIt)
+    {
+        // Trimming a sail is turning the spar it is bent to, so an attachment has to carry
+        // a target's rotation and not just its position. Everything else here has only
+        // ever moved a target in a straight line, which the inverse binds would survive
+        // even if the rotation were being dropped.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.0f, 8.0f));
+        auto cloth = CreateHangingCloth(AZ::Vector3(0.0f, 0.0f, 8.0f), yard->GetId(), AZ::EntityId());
+
+        TickAndSimulate(0.2f);
+        const AZ::Vector3 centreBefore = ClothCentre(cloth->GetId());
+
+        // A quarter turn about z: the cloth hangs on the other axis afterwards.
+        AZ::TransformBus::Event(
+            yard->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateFromQuaternionAndTranslation(
+                AZ::Quaternion::CreateRotationZ(AZ::Constants::HalfPi), AZ::Vector3(0.0f, 0.0f, 8.0f)));
+        TickAndSimulate(1.0f);
+
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(bounds, cloth->GetId(), &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(bounds.IsValid());
+
+        // The sheet was a metre wide along x and is now a metre wide along y.
+        const AZ::Vector3 extents = bounds.GetExtents();
+        EXPECT_GT(extents.GetY(), extents.GetX())
+            << "the cloth did not turn with its target - extents " << extents.GetX() << ", " << extents.GetY();
+        // And it stayed where the target is rather than being flung.
+        EXPECT_LT(ClothCentre(cloth->GetId()).GetDistance(centreBefore), 1.5f);
+
+        cloth->Deactivate();
+        yard->Deactivate();
+    }
+
     TEST_F(JoltSoftBodyAttachmentTests, ASailFastenedAtHeadAndFootStaysStandingBetweenThem)
     {
         // The demo's rig, reproduced: a standing sail bent to a yard above and sheeted to
