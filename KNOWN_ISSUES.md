@@ -42,14 +42,6 @@ deviations from PhysX behavior.
   the joint bus is addressed by entity id; see the joint-bus entry in DIVERGENCES.md for
   what lifting it would cost.
 
-- **Per-contact material resolution is not cached.** Every manifold add and persist
-  resolves the touching collider's material, which for a single-collider body reproduces
-  the friction and restitution already baked into the Jolt body at creation. Caching it
-  is not free to do correctly: the resolution is deliberately live so a material edited
-  at runtime applies to bodies that already exist (pinned by
-  `MaterialPropertyChangeAppliesToExistingBody`), so a cache needs invalidating whenever
-  a material property changes rather than a plain skip.
-
 - **`jolt_Debug` draws through `JPH::DebugRendererSimple`**, which re-tessellates every
   shape each frame and emits one triangle at a time; the gem then turns each into two
   heap allocations and a bus broadcast. Jolt's full `DebugRenderer` interface exists to

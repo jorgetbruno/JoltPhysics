@@ -592,6 +592,22 @@ feature, trust the topic sections below the milestones.**
   contacts on its own in Jolt, so bodies over the change still have to be woken - but a
   local deformation no longer wakes every sleeping body on the map.
 
+## Contact material resolution
+
+- **A body whose material cannot vary across its own surface resolves nothing per
+  contact.** Friction and restitution are baked into the Jolt body at creation, so for a
+  single-collider body without a per-face table or heightfield indices, re-resolving them
+  on every manifold produced exactly the values Jolt would have used anyway - at the cost
+  of a hash lookup, two RTTI casts and shared_ptr traffic on the parallel narrowphase, per
+  manifold, per step.
+- **Live material edits still reach existing bodies**, which is what makes the skip safe
+  rather than a regression. Materials carry a process-wide generation that
+  `JoltMaterial::SetProperty` bumps; a scene compares it once at the top of each step and
+  re-bakes its bodies' values only when it has moved. One integer compare per step in
+  place of a resolution per contact, with a walk only when something actually changed.
+- Bodies that *can* vary - several colliders, a baked per-face table, a heightfield's
+  per-triangle indices - take the full per-contact path exactly as before.
+
 ## Collision event dispatch
 
 - **Persist is raised once per body pair per step, not once per touching sub-shape.**

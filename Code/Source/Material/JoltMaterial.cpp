@@ -1,3 +1,4 @@
+#include <Material/JoltMaterialManager.h>
 #include <Material/JoltMaterial.h>
 
 namespace JoltPhysics
@@ -60,6 +61,11 @@ namespace JoltPhysics
         {
             return;
         }
+
+        // Bodies bake their friction and restitution at creation and refresh them when
+        // this number moves, so a runtime edit still reaches bodies that already exist -
+        // without every contact re-resolving a material that almost never changes.
+        JoltMaterialManager::BumpMaterialGeneration();
 
         if (propertyName == DynamicFrictionName)
         {

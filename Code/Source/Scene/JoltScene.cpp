@@ -176,6 +176,17 @@ namespace JoltPhysics
 
         m_currentDeltaTime = deltaTime;
 
+        // Materials are resolved live so an edit reaches existing bodies. Doing that per
+        // manifold cost a hash lookup, two RTTI casts and shared_ptr traffic on the
+        // parallel narrowphase for a value that had not changed; doing it here costs one
+        // integer compare per step and a walk only when something actually changed.
+        if (const AZ::u32 materialGeneration = JoltMaterialManager::GetMaterialGeneration();
+            materialGeneration != m_bakedMaterialGeneration)
+        {
+            m_bakedMaterialGeneration = materialGeneration;
+            RefreshBakedBodyMaterials();
+        }
+
         // Move characters before the physics step so dynamic bodies respond to them
         // within the same step (Jolt CharacterVirtual updates are user-driven).
         for (auto& [crc, body] : m_simulatedBodies)
@@ -495,6 +506,43 @@ namespace JoltPhysics
                          : staticBody->GetColliderConfiguration(colliderIndex);
     }
 
+    void JoltScene::RefreshBakedBodyMaterials()
+    {
+        auto* bodyInterface = GetBodyInterface();
+        if (!bodyInterface)
+        {
+            return;
+        }
+
+        for (auto& [crc, body] : m_simulatedBodies)
+        {
+            JPH::BodyID bodyId;
+            AZStd::shared_ptr<Physics::Material> material;
+            if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body))
+            {
+                bodyId = rigidBody->GetBodyId();
+                material = rigidBody->GetColliderMaterial(0);
+            }
+            else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body))
+            {
+                bodyId = staticBody->GetBodyId();
+                material = staticBody->GetColliderMaterial(0);
+            }
+            else
+            {
+                continue;
+            }
+
+            if (bodyId.IsInvalid())
+            {
+                continue;
+            }
+            const auto [friction, restitution] = JoltMaterialManager::GetFrictionRestitution(material.get());
+            bodyInterface->SetFriction(bodyId, friction);
+            bodyInterface->SetRestitution(bodyId, restitution);
+        }
+    }
+
     AZStd::shared_ptr<Physics::Material> JoltScene::GetMaterialInstanceForSubShape(
         JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const
     {
@@ -553,6 +601,22 @@ namespace JoltPhysics
         return config == nullptr || config->m_isInSceneQueries;
     }
 
+    namespace
+    {
+        //! Whether a body's material can differ from one part of its surface to another:
+        //! a triangle mesh carrying a baked per-face table, or a heightfield with
+        //! per-triangle indices. Compounds are handled by the collider count instead.
+        bool HasPerSurfaceMaterials(const JPH::Shape* shape, const JoltStaticRigidBody* staticBody)
+        {
+            if (staticBody != nullptr && !staticBody->GetHeightfieldMaterialIndices().empty())
+            {
+                return true;
+            }
+            const JPH::Shape* leafShape = UnwrapDecoratedShape(shape);
+            return leafShape != nullptr && leafShape->GetSubType() == JPH::EShapeSubType::Mesh;
+        }
+    } // namespace
+
     bool JoltScene::GetMaterialForSubShape(
         const JPH::Body& body, const JPH::SubShapeID& subShapeId, float& outFriction, float& outRestitution)
     {
@@ -607,6 +671,16 @@ namespace JoltPhysics
         };
 
         const JPH::Shape* shape = body.GetShape();
+
+        // A body whose material cannot vary across its own surface has its friction and
+        // restitution baked in already (and re-baked whenever a material changes), so
+        // resolving them again per manifold produces exactly the values Jolt would have
+        // used anyway. Skipping says "use the body's own", which is the cheap path this
+        // callback runs on the parallel narrowphase for most contacts in most scenes.
+        if (colliderCount == 1 && !HasPerSurfaceMaterials(shape, staticBody))
+        {
+            return false;
+        }
 
         // Bare triangle-mesh body (no compound): read the slot per triangle and
         // resolve it against collider 0's slots. No slots falls through to the

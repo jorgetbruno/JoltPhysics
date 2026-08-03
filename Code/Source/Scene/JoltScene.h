@@ -171,6 +171,12 @@ namespace JoltPhysics
         const Physics::ColliderConfiguration* GetColliderConfigurationForSubShape(
             JPH::BodyID bodyId, const JPH::SubShapeID& subShapeId) const;
 
+        //! Re-bakes every body's friction and restitution from its first collider's
+        //! material. Called when the material generation moves, which is what keeps
+        //! per-contact resolution skippable for simple bodies while a runtime material
+        //! edit still reaches bodies that already exist.
+        void RefreshBakedBodyMaterials();
+
         //! The material a sub-shape resolves to, for callers that need its identity rather
         //! than its friction and restitution - scene-query hits, which surface-effect
         //! systems read to pick a footstep sound or an impact decal. Null when the body is
@@ -321,6 +327,10 @@ namespace JoltPhysics
         //! handle outliving its body resolves to null rather than to the slot's next
         //! occupant.
         AZStd::vector<AZ::u32> m_slotGenerations;
+
+        //! Material generation the baked body values were taken at; a mismatch at the top
+        //! of a step means some material was edited and the bodies need re-baking.
+        AZ::u32 m_bakedMaterialGeneration = 0;
 
         AZStd::unordered_map<AZ::u32, AzPhysics::SimulatedBodyHandle> m_bodyHandleByJoltId;
         AZStd::unordered_set<AZ::u32> m_sensorBodyIds;

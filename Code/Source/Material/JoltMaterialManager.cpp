@@ -1,3 +1,4 @@
+#include <AzCore/std/parallel/atomic.h>
 #include <Material/JoltMaterialManager.h>
 #include <Material/JoltMaterial.h>
 
@@ -58,6 +59,22 @@ namespace JoltPhysics
         }
 
         return materialManager->GetDefaultMaterial();
+    }
+
+    namespace
+    {
+        //! Process-wide: materials are shared across scenes, so one counter serves them.
+        AZStd::atomic<AZ::u32> g_materialGeneration{ 1 };
+    }
+
+    AZ::u32 JoltMaterialManager::GetMaterialGeneration()
+    {
+        return g_materialGeneration.load(AZStd::memory_order_relaxed);
+    }
+
+    void JoltMaterialManager::BumpMaterialGeneration()
+    {
+        g_materialGeneration.fetch_add(1, AZStd::memory_order_relaxed);
     }
 
     AZStd::pair<float, float> JoltMaterialManager::GetFrictionRestitution(const Physics::Material* material)

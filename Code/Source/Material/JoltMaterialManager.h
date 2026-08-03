@@ -47,6 +47,14 @@ namespace JoltPhysics
         //! (defaults when the material is null or not a JoltMaterial).
         static AZStd::pair<float, float> GetFrictionRestitution(const Physics::Material* material);
 
+        //! Bumped whenever any material's properties change. Contact resolution is
+        //! deliberately live - editing a material at runtime has to reach bodies that
+        //! already exist - and this is what lets that happen without re-resolving every
+        //! material on every manifold: bodies refresh their baked values when the number
+        //! moves, which is approximately never.
+        static AZ::u32 GetMaterialGeneration();
+        static void BumpMaterialGeneration();
+
         //! Resolves the {friction, restitution} pair for a collider configuration:
         //! ResolveMaterial followed by GetFrictionRestitution.
         static AZStd::pair<float, float> ResolveFrictionRestitution(
