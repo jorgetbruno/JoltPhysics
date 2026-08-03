@@ -35,10 +35,6 @@ deviations from PhysX behavior.
   prisms are handled; a concave prism needs the decomposition path the baked mesh collider
   already uses, which is an editor-time bake rather than the live read this does.
 
-- **One joint per entity.** `JoltJointService` is declared incompatible with itself and
-  the joint bus is addressed by entity id; see the joint-bus entry in DIVERGENCES.md for
-  what lifting it would cost.
-
 - **`jolt_Debug` still re-tessellates every shape each frame.** Primitives are now
   batched by colour into a handful of broadcasts per frame rather than one per triangle,
   which was the dominant cost; the remaining work is Jolt's full `DebugRenderer`

@@ -312,18 +312,18 @@ feature, trust the topic sections below the milestones.**
 
 ## Joint bus addressing
 
-- **An entity carries at most one joint**, and `JoltJointRequestBus` is addressed by
-  plain `EntityId`. PhysX addresses its joint bus by `AZ::EntityComponentIdPair` and
-  puts no self-incompatibility on its joint components, so a PhysX entity can carry
-  several - a plank hung from two chains, a door with a hinge and a spring-damper.
-  Content like that needs proxy entities here, and a script cannot name "the second
-  joint" because the bus id cannot express one.
-- **Lifting the restriction means changing the bus id**, not just dropping the service
-  incompatibility: `AZ::ComponentBus` addresses by entity, so two joint components on one
-  entity would make every `GetPosition`-style request ambiguous rather than
-  multi-answering usefully. That change breaks every script written against the current
-  surface, which is why it is recorded here rather than done quietly - the surface is
-  young enough that the cost is small today and grows with every script written.
+- **An entity may carry several joints**, and the joint buses are addressed by
+  `AZ::EntityComponentIdPair` - entity *and* component - exactly as PhysX addresses its
+  own. A plank hung from two chains, or a door with a hinge and a spring-damper, needs no
+  proxy entities, and a script can name which joint it means.
+- **This changed the bus id**, so C++ and script callers that addressed a joint by plain
+  entity id must pass `AZ::EntityComponentIdPair(entityId, componentId)` instead. Done now
+  rather than later on purpose: `AZ::ComponentBus` addresses by entity, so the cap could
+  not be lifted without it, and the cost of the change grows with every script written
+  against the old shape.
+- **The gem reflects `EntityComponentIdPair` for scripting itself**, because AzCore does
+  not - without it a script cannot construct a bus address, and every joint event fails to
+  bind. The registration is guarded so another gem doing the same is harmless.
 
 ## Gear and rack-and-pinion joints
 

@@ -1,3 +1,6 @@
+#include <JoltPhysics/JoltPhysicsBus.h>
+#include <Clients/Components/JoltJointComponents.h>
+#include <AzFramework/Components/TransformComponent.h>
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -947,6 +950,40 @@ namespace JoltPhysics
         EXPECT_NE(m_scene->AddJoint(&config, anchorHandle, childHandle), AzPhysics::InvalidJointHandle);
         EXPECT_TRUE(warnings.ContainsWarningWith("SoftBall"));
         EXPECT_TRUE(warnings.ContainsWarningWith("soft limits are not supported"));
+    }
+
+    TEST_F(JoltJointTests, AnEntityCanCarrySeveralJointsAndAddressEachOne)
+    {
+        // Joints used to declare their own service incompatible with itself, so an entity
+        // could carry exactly one - and the bus was addressed by entity, so even lifting
+        // that would have made every request ambiguous. Content that hangs one body from
+        // two attachments (a plank on two chains, a door with a hinge and a damper) needed
+        // proxy entities, and a script could never name "the second joint".
+        auto entity = AZStd::make_unique<AZ::Entity>("TwoJoints");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* first = entity->CreateComponent<JoltHingeJointComponent>();
+        auto* second = entity->CreateComponent<JoltHingeJointComponent>();
+        ASSERT_NE(first, nullptr);
+        ASSERT_NE(second, nullptr) << "a second joint component could not even be created";
+        ASSERT_NE(first->GetId(), second->GetId());
+
+        entity->Init();
+        entity->Activate();
+        EXPECT_EQ(entity->GetState(), AZ::Entity::State::Active)
+            << "an entity carrying two joints failed to activate";
+
+        // Each joint answers on its own address rather than both on the entity's.
+        const AZ::EntityComponentIdPair firstAddress(entity->GetId(), first->GetId());
+        const AZ::EntityComponentIdPair secondAddress(entity->GetId(), second->GetId());
+
+        int firstHandlerCalls = 0;
+        int secondHandlerCalls = 0;
+        JoltJointRequestBus::EventResult(firstHandlerCalls, firstAddress, [](JoltJointRequests*) { return 1; });
+        JoltJointRequestBus::EventResult(secondHandlerCalls, secondAddress, [](JoltJointRequests*) { return 1; });
+        EXPECT_EQ(firstHandlerCalls, 1) << "the first joint did not answer on its own address";
+        EXPECT_EQ(secondHandlerCalls, 1) << "the second joint did not answer on its own address";
+
+        entity->Deactivate();
     }
 
 } // namespace JoltPhysics

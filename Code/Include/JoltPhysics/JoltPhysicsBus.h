@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AzCore/Component/ComponentBus.h>
+#include <AzCore/Component/EntityId.h>
 #include <AzCore/EBus/EBus.h>
 #include <AzCore/Interface/Interface.h>
 #include <AzCore/Math/Transform.h>
@@ -41,10 +42,20 @@ namespace JoltPhysics
 
     //! Runtime control of joints (mirrors the PhysX gem's JointRequestBus surface so
     //! gameplay code can read joint state and drive motors per joint component).
+    //!
+    //! Addressed by entity *and component*, as PhysX addresses its joint bus, because an
+    //! entity may carry several joints - a plank hung from two chains, a door with a hinge
+    //! and a spring-damper. A plain entity address cannot name one of them, and with
+    //! several handlers on one address every request would answer ambiguously rather than
+    //! usefully.
     class JoltJointRequests
-        : public AZ::ComponentBus
+        : public AZ::EBusTraits
     {
     public:
+        static constexpr AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
+        static constexpr AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Multiple;
+        using BusIdType = AZ::EntityComponentIdPair;
+
         virtual ~JoltJointRequests() = default;
 
         //! Current joint position: hinge angle (radians) or slider displacement (meters).
@@ -74,10 +85,16 @@ namespace JoltPhysics
 
     using JoltJointRequestBus = AZ::EBus<JoltJointRequests>;
 
-    //! Notifications from a joint component, addressed by its entity id.
+    //! Notifications from a joint component, addressed by entity and component so a
+    //! handler can follow one joint on an entity that carries several.
     class JoltJointNotifications
-        : public AZ::ComponentBus
+        : public AZ::EBusTraits
     {
+    public:
+        static constexpr AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
+        static constexpr AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Multiple;
+        using BusIdType = AZ::EntityComponentIdPair;
+
     public:
         virtual ~JoltJointNotifications() = default;
 

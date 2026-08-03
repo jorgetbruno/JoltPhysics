@@ -63,6 +63,22 @@ namespace JoltPhysics
     {
         Internal::ReflectOnce<JoltJointComponentConfiguration>(context);
 
+        // The joint buses are addressed by entity *and* component so an entity can carry
+        // several joints, and AzCore does not reflect that id type for scripting - so a
+        // script could not name a bus address, and every joint event failed to bind.
+        if (auto* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            if (behaviorContext->m_classes.find("EntityComponentIdPair") == behaviorContext->m_classes.end())
+            {
+                behaviorContext->Class<AZ::EntityComponentIdPair>("EntityComponentIdPair")
+                    ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Constructor<const AZ::EntityId&, AZ::ComponentId>()
+                    ->Property("EntityId", &AZ::EntityComponentIdPair::GetEntityId, nullptr)
+                    ->Property("ComponentId", &AZ::EntityComponentIdPair::GetComponentId, nullptr)
+                    ;
+            }
+        }
+
         Internal::ReflectEBusOnce(context, "JoltJointRequestBus",
             [](AZ::BehaviorContext* behaviorContext)
             {
@@ -113,9 +129,14 @@ namespace JoltPhysics
         provided.push_back(AZ_CRC_CE("JoltJointService"));
     }
 
-    void JoltJointComponentBase::GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
+    void JoltJointComponentBase::GetIncompatibleServices(
+        [[maybe_unused]] AZ::ComponentDescriptor::DependencyArrayType& incompatible)
     {
-        incompatible.push_back(AZ_CRC_CE("JoltJointService"));
+        // Deliberately empty. Joints used to declare their own service incompatible with
+        // itself, capping an entity at one - which PhysX does not do, and which content
+        // like a plank on two chains or a door with a hinge and a damper needs. The bus is
+        // addressed by entity *and* component, so several joints on one entity stay
+        // individually addressable.
     }
 
     void JoltJointComponentBase::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
@@ -125,7 +146,7 @@ namespace JoltPhysics
 
     void JoltJointComponentBase::Activate()
     {
-        JoltJointRequestBus::Handler::BusConnect(GetEntityId());
+        JoltJointRequestBus::Handler::BusConnect(AZ::EntityComponentIdPair(GetEntityId(), GetId()));
         AZ::TickBus::Handler::BusConnect();
     }
 
@@ -241,7 +262,8 @@ namespace JoltPhysics
                             // dropped, not destroyed, or a reused slot would be freed.
                             m_jointHandle = AzPhysics::InvalidJointHandle;
                             JoltJointNotificationBus::Event(
-                                GetEntityId(), &JoltJointNotifications::OnJointBroken);
+                                AZ::EntityComponentIdPair(GetEntityId(), GetId()),
+                                &JoltJointNotifications::OnJointBroken);
                         }
                     });
                 joltScene->RegisterJointBreakHandler(m_jointBreakHandler);
