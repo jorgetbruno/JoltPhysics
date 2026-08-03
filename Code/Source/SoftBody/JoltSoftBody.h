@@ -60,6 +60,12 @@ namespace JoltPhysics
         //! Baked: how a cloth is held up. Ignored by the other shapes (a mesh has no
         //! canonical corners or top edge; pin its particles at runtime instead).
         JoltSoftBodyPinning m_pinning = JoltSoftBodyPinning::Corners;
+        //! Baked: where the generated body sits relative to its entity, in the entity's
+        //! own space. A soft body is otherwise centred exactly on its entity, which is
+        //! wrong for anything worn: a cape belongs at an actor's shoulders and an actor's
+        //! origin is between its feet, and the cloth cannot simply be moved to its own
+        //! entity because the gem that binds cloth to a skeleton needs both on one.
+        AZ::Vector3 m_offset = AZ::Vector3::CreateZero();
         //! Baked: extents in metres. A Cube and a Balloon use the X component only, since
         //! Jolt's cube helper takes a single spacing and the balloon is a sphere.
         AZ::Vector3 m_size = AZ::Vector3(2.0f, 2.0f, 2.0f);
