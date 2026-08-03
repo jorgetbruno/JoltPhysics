@@ -483,6 +483,16 @@ namespace JoltPhysics
 
     void JoltRigidBody::ApplyLinearImpulse(const AZ::Vector3& impulse)
     {
+        // A kinematic body does not answer to impulses, and Jolt asserts rather than
+        // ignores - PhysX ignores, and so does this. Non-finite impulses are refused for
+        // the same reason: Jolt would assert, and a NaN says the *caller* is broken.
+        if (IsKinematic() || !impulse.IsFinite())
+        {
+            AZ_Warning("JoltPhysics", !IsKinematic() || impulse.IsFinite(),
+                "Ignoring a non-finite impulse on entity %s.", GetEntityId().ToString().c_str());
+            return;
+        }
+
         if (m_scene && !m_bodyId.IsInvalid())
         {
             if (auto* bodyInterface = m_scene->GetBodyInterface())
@@ -526,7 +536,15 @@ namespace JoltPhysics
                     const JPH::Body& body = bodyLock.GetBody();
                     if (body.GetMotionProperties())
                     {
-                        return 1.0f / body.GetMotionProperties()->GetInverseMass();
+                        // Unchecked on purpose: the checked accessor asserts on any
+                        // non-dynamic body, and a kinematic body's mass is a fair
+                        // question with a sensible answer - its configured mass, since
+                        // its inverse is zero by definition rather than by data.
+                        const float inverseMass = body.GetMotionProperties()->GetInverseMassUnchecked();
+                        if (inverseMass > 0.0f)
+                        {
+                            return 1.0f / inverseMass;
+                        }
                     }
                 }
             }

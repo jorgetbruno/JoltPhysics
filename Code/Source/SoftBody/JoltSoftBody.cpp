@@ -482,6 +482,12 @@ namespace JoltPhysics
         ApplyLiveSettings();
     }
 
+    AZ::Vector3 JoltSoftBody::GetLastWindImpulse() const
+    {
+        AZStd::lock_guard lock(m_mutex);
+        return m_lastWindImpulse;
+    }
+
     void JoltSoftBody::SetWindInfluence(float influence)
     {
         AZStd::lock_guard lock(m_mutex);
@@ -494,6 +500,10 @@ namespace JoltPhysics
     {
         {
             AZStd::lock_guard lock(m_mutex);
+            // Zeroed before any early-out: when the wind dies, the sail's pull on
+            // whatever it is rigged to must die with it rather than hold its last value.
+            m_lastWindImpulse = AZ::Vector3::CreateZero();
+
             if (!m_physicsSystem || m_bodyId.IsInvalid() || m_settings.m_windInfluence <= 0.0f)
             {
                 return;
@@ -526,6 +536,8 @@ namespace JoltPhysics
         AZ_PROFILE_FUNCTION(Physics);
 
         AZStd::lock_guard lock(m_mutex);
+        JPH::Vec3 totalImpulseLocal = JPH::Vec3::sZero();
+        JPH::Quat bodyRotation = JPH::Quat::sIdentity();
         {
             JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
             if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
@@ -536,11 +548,11 @@ namespace JoltPhysics
             JPH::Body& body = bodyLock.GetBody();
             auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
             auto& vertices = motionProperties->GetVertices();
+            bodyRotation = body.GetRotation();
 
             // Particles live in the body's centre-of-mass frame, so the wind comes into
             // that frame once rather than every vertex going out to world.
-            const JPH::Vec3 windLocal =
-                body.GetRotation().Conjugated() * Conversions::ToJolt(wind);
+            const JPH::Vec3 windLocal = bodyRotation.Conjugated() * Conversions::ToJolt(wind);
 
             // Pressure = 1/2 rho v^2 with sea-level air. The magnitude matters less than
             // the shape - quadratic in the *relative* normal speed, so a sail already
@@ -572,14 +584,44 @@ namespace JoltPhysics
                 // way the triangle happens to wind.
                 const JPH::Vec3 faceImpulse = normal *
                     (pressureScale * normalSpeed * AZ::GetAbs(normalSpeed) * area * deltaTime / 3.0f);
+                if (faceImpulse.IsNaN())
+                {
+                    continue;
+                }
 
+                const float absNormalSpeed = AZ::GetAbs(normalSpeed);
                 for (JPH::SoftBodyVertex* vertex : { &v0, &v1, &v2 })
                 {
                     // Zero inverse mass is a pinned particle; the wind blows past it.
-                    vertex->mVelocity += faceImpulse * vertex->mInvMass;
+                    JPH::Vec3 velocityDelta = faceImpulse * vertex->mInvMass;
+
+                    // Clamped so one step can at most cancel the relative wind, never
+                    // push past it. Quadratic drag integrated explicitly is unstable
+                    // without this: once anything - a weld dragging the cloth behind a
+                    // fast boat - takes the relative speed high enough that k*v^2*dt
+                    // exceeds 2v, every step amplifies the last, and the first sail
+                    // rigged to a hull turned itself into a trillion-metre NaN in nine
+                    // seconds. The clamp is also the physical truth: wind cannot blow a
+                    // leaf faster than itself.
+                    const float deltaLength = velocityDelta.Length();
+                    if (deltaLength > absNormalSpeed && deltaLength > 0.0f)
+                    {
+                        velocityDelta *= absNormalSpeed / deltaLength;
+                    }
+
+                    vertex->mVelocity += velocityDelta;
+
+                    // The impulse actually applied, not the one asked for - the rigged
+                    // hull must receive what the canvas truly absorbed.
+                    if (vertex->mInvMass > 0.0f)
+                    {
+                        totalImpulseLocal += velocityDelta / vertex->mInvMass;
+                    }
                 }
             }
         }
+
+        m_lastWindImpulse = Conversions::FromJolt(bodyRotation * totalImpulseLocal);
 
         // Wind is a continuous force: a body it acts on must not sleep through it, or a
         // flag freezes mid-air the moment it settles for an instant. Outside the body
@@ -1345,8 +1387,37 @@ namespace JoltPhysics
             return false;
         }
 
+        // The body's rotation is folded into the shared settings' own vertices here rather
+        // than handed to Jolt, and the body is created upright.
+        //
+        // Jolt offers to do this (mMakeRotationIdentity, on by default) but bakes only the
+        // *simulated* particles, leaving the shared settings unrotated - and the skinned
+        // constraints read their rest pose straight out of the shared settings. So a
+        // rotated, skinned body has its particles in one space and its skinning targets
+        // computed in another, and every hard-skinned particle is dragged to where it
+        // would have been unrotated. A sail hung from a yard collapsed onto its back
+        // within a frame of being rigged, edge-on to the wind and catching nothing.
+        //
+        // Doing it here keeps the two in step, and keeps the body's frame identity-rotated
+        // and therefore stable across the rebuild that installing skinning data causes -
+        // which matters, because the inverse binds are computed against that frame just
+        // before it.
+        //
+        // Safe after constraint generation: constraints store rest *lengths*, which a
+        // rotation does not change.
+        const AZ::Quaternion bodyRotation = m_worldTransform.GetRotation();
+        if (!bodyRotation.IsIdentity())
+        {
+            for (JPH::SoftBodySharedSettings::Vertex& vertex : sharedSettings->mVertices)
+            {
+                const AZ::Vector3 rotated = bodyRotation.TransformVector(
+                    AZ::Vector3(vertex.mPosition.x, vertex.mPosition.y, vertex.mPosition.z));
+                vertex.mPosition = JPH::Float3(rotated.GetX(), rotated.GetY(), rotated.GetZ());
+            }
+        }
+
         JPH::SoftBodyCreationSettings creationSettings(
-            sharedSettings, ToJoltR(m_worldTransform.GetTranslation()), ToJolt(m_worldTransform.GetRotation()), m_objectLayer);
+            sharedSettings, ToJoltR(m_worldTransform.GetTranslation()), JPH::Quat::sIdentity(), m_objectLayer);
         creationSettings.mNumIterations = AZ::GetMax(m_settings.m_numIterations, 1u);
         creationSettings.mLinearDamping = AZ::GetMax(m_settings.m_linearDamping, 0.0f);
         creationSettings.mPressure = m_settings.m_pressure;
@@ -1355,7 +1426,13 @@ namespace JoltPhysics
         creationSettings.mRestitution = AZ::GetMax(m_settings.m_restitution, 0.0f);
         creationSettings.mVertexRadius = AZ::GetMax(m_settings.m_vertexRadius, 0.0f);
         creationSettings.mMaxLinearVelocity = AZ::GetMax(m_settings.m_maxLinearVelocity, 0.0f);
-        creationSettings.mUpdatePosition = m_settings.m_updatePosition;
+        // A skinned body must not chase its own frame. Jolt does its skinning maths in the
+        // body's centre-of-mass frame, and mUpdatePosition moves that frame to follow the
+        // particles every step - so the frame the skinned targets were computed against
+        // drifts out from under them, which drags the cloth further, which moves the frame
+        // again. A sail rigged to a boat collapsed into a flat sheet within a second of
+        // this, and the wind then had nothing to push on.
+        creationSettings.mUpdatePosition = m_settings.m_updatePosition && m_skinnedVertices.empty();
         creationSettings.mFacesDoubleSided = m_settings.m_doubleSidedFaces;
         creationSettings.mAllowSleeping = m_settings.m_allowSleeping;
         creationSettings.mCollisionGroup = m_collisionGroup;

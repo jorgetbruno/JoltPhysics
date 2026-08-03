@@ -16,6 +16,7 @@
 #include <Editor/Components/EditorJoltMutableCompoundColliderComponent.h>
 #include <Editor/Components/EditorJoltCharacterControllerComponent.h>
 #include <Editor/Components/EditorJoltVehicleComponent.h>
+#include <Editor/Components/EditorJoltSoftBodyAttachmentComponent.h>
 #include <Editor/Components/EditorJoltSoftBodyComponent.h>
 #include <Editor/Components/EditorJoltFixedJointComponent.h>
 #include <Editor/Components/EditorJoltBallJointComponent.h>
@@ -52,6 +53,7 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltCharacterControllerComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltVehicleComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltSoftBodyComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltSoftBodyAttachmentComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltFixedJointComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltBallJointComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltHingeJointComponent::CreateDescriptor());

@@ -64,6 +64,7 @@ namespace JoltPhysics
         float GetGravityFactor() const override;
         void SetWindInfluence(float influence) override;
         float GetWindInfluence() const override;
+        AZ::Vector3 GetLastWindImpulse() const override;
         void SetNumIterations(AZ::u32 iterations) override;
         AZ::u32 GetNumIterations() const override;
         void SetFriction(float friction) override;

@@ -12,6 +12,7 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <Clients/Components/JoltSoftBodyAttachmentComponent.h>
 #include <JoltPhysics/JoltSoftBodyBus.h>
 #include <Clients/Components/JoltSoftBodyComponent.h>
 #include <JoltPhysics/JoltCharacterGameplayBus.h>
@@ -33,6 +34,7 @@
 #include <AzFramework/Components/NonUniformScaleComponent.h>
 #include <AzFramework/Components/TransformComponent.h>
 #include <AzCore/Interface/Interface.h>
+#include <AzFramework/Physics/RigidBodyBus.h>
 #include <AzFramework/Physics/SystemBus.h>
 #include <AzFramework/Physics/WindBus.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
@@ -1096,6 +1098,316 @@ namespace JoltPhysics
 
         faceOn->Deactivate();
         edgeOn->Deactivate();
+    }
+
+    //! Cloth rigged to a moving entity - the attachment component. The pinning presets
+    //! anchor in world space, which is right for a curtain and wrong for a sail; these
+    //! pin the difference.
+    class JoltSoftBodyAttachmentTests : public JoltSoftBodyWindTests
+    {
+    protected:
+        //! A kinematic block to hang cloth from - a yard, as far as the cloth knows.
+        AZStd::unique_ptr<AZ::Entity> CreateYard(const AZ::Vector3& position)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("Yard");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* body = entity->CreateComponent<JoltRigidBodyComponent>();
+            body->GetConfiguration().m_kinematic = true;
+            auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+            collider->GetShapeConfiguration().m_dimensions = AZ::Vector3(2.0f, 0.2f, 0.2f);
+
+            entity->Init();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTM, AZ::Transform::CreateTranslation(position));
+            entity->Activate();
+            return entity;
+        }
+
+        //! A cloth hanging with its top row inside attach range of the given point.
+        //! CreateCloth builds a 1x1 sheet in the XY plane centred on its position, so the
+        //! +y edge is 0.5 from centre.
+        AZStd::unique_ptr<AZ::Entity> CreateHangingCloth(
+            const AZ::Vector3& position, const AZ::EntityId& targetEntity, const AZ::EntityId& pushEntity)
+        {
+            auto entity = CreateCloth(position);
+            entity->Deactivate();
+            auto* attachment = entity->CreateComponent<JoltSoftBodyAttachmentComponent>();
+            JoltSoftBodyAttachTarget target;
+            target.m_entity = targetEntity;
+            target.m_attachDistance = 0.3f;
+            attachment->GetTargets().push_back(target);
+            attachment->GetPushEntity() = pushEntity;
+            entity->Activate();
+            return entity;
+        }
+
+        //! Ticks so the attachment's bind retry runs, then simulates.
+        void TickAndSimulate(float seconds)
+        {
+            AZ::TickBus::Broadcast(&AZ::TickEvents::OnTick, 1.0f / 60.0f, AZ::ScriptTimePoint());
+            SimulateSeconds(seconds);
+        }
+    };
+
+    TEST_F(JoltSoftBodyAttachmentTests, ARiggedClothHoldsItsShapeWithTheDefaultUpdatePosition)
+    {
+        // The fixture above turns "update position" off by hand, which is what every
+        // skinned test has quietly relied on. An author will not: it defaults on. With it
+        // on, Jolt moves the body's centre of mass to follow the particles - and that is
+        // the very frame the skinning maths works in, so the targets drift out from under
+        // the cloth, which drags it further, which moves the frame again. A sail rigged to
+        // a boat collapsed from a 2 m sheet into a flat rag inside a second.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.0f, 8.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("RiggedSail");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* softBody = entity->CreateComponent<JoltSoftBodyComponent>();
+
+        JoltSoftBodySettings& settings = softBody->GetSettings();
+        settings.m_shape = JoltSoftBodyShape::Cloth;
+        settings.m_pinning = JoltSoftBodyPinning::None;
+        settings.m_size = AZ::Vector3(2.0f, 2.0f, 1.0f);
+        settings.m_resolution = 6;
+        settings.m_mass = 2.0f;
+        settings.m_allowSleeping = false;
+        // Left at its default on purpose - that default is the subject.
+        ASSERT_TRUE(settings.m_updatePosition);
+
+        auto* attachment = entity->CreateComponent<JoltSoftBodyAttachmentComponent>();
+        JoltSoftBodyAttachTarget target;
+        target.m_entity = yard->GetId();
+        target.m_attachDistance = 0.4f;
+        attachment->GetTargets().push_back(target);
+
+        entity->Init();
+        // Standing up, hung so its top edge is within reach of the yard.
+        AZ::TransformBus::Event(
+            entity->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateFromQuaternionAndTranslation(
+                AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi), AZ::Vector3(0.0f, 0.0f, 7.0f)));
+        entity->Activate();
+
+        TickAndSimulate(1.0f);
+
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(bounds, entity->GetId(), &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(bounds.IsValid());
+
+        // Still standing in the plane its rotation put it in. Asserting on the standing
+        // dimension specifically, not on "some two dimensions survived": a cloth that
+        // collapses back into its *unrotated* layout is still 2 m by 2 m, so a looser
+        // check calls that healthy - which is exactly how the first version of this test
+        // passed while the demo's sail was lying flat on its back.
+        const AZ::Vector3 extents = bounds.GetExtents();
+        EXPECT_NEAR(extents.GetX(), 2.0f, 0.3f) << "the rigged cloth lost its width";
+        EXPECT_GT(extents.GetZ(), 1.4f) << "the rigged cloth collapsed out of the plane it was rotated into";
+
+        entity->Deactivate();
+        yard->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, ASailFastenedAtHeadAndFootStaysStandingBetweenThem)
+    {
+        // The demo's rig, reproduced: a standing sail bent to a yard above and sheeted to
+        // a boom below. Two fastenings rather than one, which is what stops a sail
+        // flogging - and what a single-target test cannot cover.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.0f, 8.0f));
+        auto boom = CreateYard(AZ::Vector3(0.0f, 0.0f, 6.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("RiggedSail");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* softBody = entity->CreateComponent<JoltSoftBodyComponent>();
+
+        JoltSoftBodySettings& settings = softBody->GetSettings();
+        settings.m_shape = JoltSoftBodyShape::Cloth;
+        settings.m_pinning = JoltSoftBodyPinning::None;
+        settings.m_size = AZ::Vector3(2.0f, 2.0f, 1.0f);
+        settings.m_resolution = 10;
+        settings.m_mass = 2.0f;
+        settings.m_allowSleeping = false;
+
+        auto* attachment = entity->CreateComponent<JoltSoftBodyAttachmentComponent>();
+        for (const AZ::EntityId& spar : { yard->GetId(), boom->GetId() })
+        {
+            JoltSoftBodyAttachTarget target;
+            target.m_entity = spar;
+            target.m_attachDistance = 0.4f;
+            attachment->GetTargets().push_back(target);
+        }
+        entity->Init();
+        // Standing, spanning exactly the two spars: head at z=8, foot at z=6.
+        AZ::TransformBus::Event(
+            entity->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateFromQuaternionAndTranslation(
+                AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi), AZ::Vector3(0.0f, 0.0f, 7.0f)));
+        entity->Activate();
+
+        TickAndSimulate(1.0f);
+
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(bounds, entity->GetId(), &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(bounds.IsValid());
+
+        const AZ::Vector3 extents = bounds.GetExtents();
+        EXPECT_NEAR(extents.GetX(), 2.0f, 0.3f) << "the sail lost its width";
+        EXPECT_GT(extents.GetZ(), 1.4f) << "the sail collapsed out of the plane it was rotated into";
+
+        entity->Deactivate();
+        boom->Deactivate();
+        yard->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, AClothStandsUpWhenItsEntityIsRotated)
+    {
+        // A cloth is generated in its entity's local XY plane, so standing one up - a
+        // sail, a banner, a curtain - is done by rotating the entity. If that rotation is
+        // dropped the sheet stays flat on its back, and a wind blowing across it is
+        // perfectly edge-on: it catches nothing and looks like the wind is broken.
+        auto entity = AZStd::make_unique<AZ::Entity>("StandingCloth");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* softBody = entity->CreateComponent<JoltSoftBodyComponent>();
+
+        JoltSoftBodySettings& settings = softBody->GetSettings();
+        settings.m_shape = JoltSoftBodyShape::Cloth;
+        settings.m_pinning = JoltSoftBodyPinning::TopEdge;
+        settings.m_size = AZ::Vector3(2.0f, 2.0f, 1.0f);
+        settings.m_resolution = 6;
+
+        entity->Init();
+        // A quarter turn about x: the cloth's local +y edge becomes the top, and its
+        // faces come to look along y.
+        AZ::TransformBus::Event(
+            entity->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateFromQuaternionAndTranslation(
+                AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi), AZ::Vector3(0.0f, 0.0f, 6.0f)));
+        entity->Activate();
+
+        AZ::Aabb bounds = AZ::Aabb::CreateNull();
+        JoltSoftBodyRequestBus::EventResult(bounds, entity->GetId(), &JoltSoftBodyRequests::GetWorldBounds);
+        ASSERT_TRUE(bounds.IsValid());
+
+        const AZ::Vector3 extents = bounds.GetExtents();
+        EXPECT_NEAR(extents.GetX(), 2.0f, 0.1f) << "the cloth lost its width";
+        EXPECT_NEAR(extents.GetZ(), 2.0f, 0.1f) << "the cloth is lying flat instead of standing up";
+        EXPECT_LT(extents.GetY(), 0.1f) << "the cloth is not in the plane its rotation put it in";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, AKinematicBodyAnswersItsMassInsteadOfAsserting)
+    {
+        // Jolt's checked inverse-mass accessor asserts on any non-dynamic body, and
+        // GetMass reached it. Found the expensive way: a force region asking a kinematic
+        // yard its mass took the whole editor down. A kinematic body's mass is a fair
+        // question; the answer is its configured mass.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.0f, 4.0f));
+        SimulateSeconds(0.1f);
+
+        float mass = -1.0f;
+        Physics::RigidBodyRequestBus::EventResult(mass, yard->GetId(), &Physics::RigidBodyRequests::GetMass);
+        EXPECT_GT(mass, 0.0f);
+
+        yard->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, AttachedClothFollowsItsTargetInsteadOfAnchoringInPlace)
+    {
+        // The reason this component exists: a top-pinned cloth would stay at the world
+        // position it was built at while the yard sailed away.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.5f, 6.0f));
+        auto cloth = CreateHangingCloth(AZ::Vector3(0.0f, 0.0f, 6.0f), yard->GetId(), AZ::EntityId());
+
+        TickAndSimulate(0.2f);
+        const AZ::Vector3 centreBefore = ClothCentre(cloth->GetId());
+        ASSERT_TRUE(centreBefore.IsFinite());
+
+        // Sail the yard 3 m along x, kinematically, the way a boat carries its rig.
+        AZ::TransformBus::Event(
+            yard->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateTranslation(AZ::Vector3(3.0f, 0.5f, 6.0f)));
+        TickAndSimulate(1.0f);
+
+        const AZ::Vector3 centreAfter = ClothCentre(cloth->GetId());
+        EXPECT_GT(centreAfter.GetX() - centreBefore.GetX(), 2.0f)
+            << "the cloth stayed behind when its target moved";
+
+        cloth->Deactivate();
+        yard->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, TheWindOnAnAttachedSailPushesTheHullItIsRiggedTo)
+    {
+        // The other half of sailing: the boat must be driven by the same wind the sail
+        // visibly catches. The hull here floats free of gravity so the only thing that
+        // can move it is the canvas.
+        ScopedTestWind wind;
+
+        // The hull: a free dynamic box, gravity off.
+        auto hull = AZStd::make_unique<AZ::Entity>("Hull");
+        hull->CreateComponent<AzFramework::TransformComponent>();
+        auto* hullBody = hull->CreateComponent<JoltRigidBodyComponent>();
+        hullBody->GetConfiguration().m_gravityEnabled = false;
+        // Light and explicit, so a one-square-metre sail's ~20 N moves it by an amount a
+        // test can assert rather than a rounding error on a computed-density tonne.
+        hullBody->GetConfiguration().m_computeMass = false;
+        hullBody->GetConfiguration().m_mass = 10.0f;
+        hull->CreateComponent<JoltBoxColliderComponent>();
+        hull->Init();
+        AZ::TransformBus::Event(
+            hull->GetId(), &AZ::TransformBus::Events::SetWorldTM,
+            AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, -20.0f, 2.0f)));
+        hull->Activate();
+
+        // The yard above it, and the sail hung from the yard, face-on to a +z wind.
+        auto yard = CreateYard(AZ::Vector3(0.0f, 0.5f, 8.0f));
+        auto sail = CreateHangingCloth(AZ::Vector3(0.0f, 0.0f, 8.0f), yard->GetId(), hull->GetId());
+        JoltSoftBodyRequestBus::Event(sail->GetId(), &JoltSoftBodyRequests::SetGravityFactor, 0.0f);
+
+        TickAndSimulate(0.2f); // attach in still air
+
+        AZ::Vector3 velocityBefore = AZ::Vector3::CreateZero();
+        Physics::RigidBodyRequestBus::EventResult(
+            velocityBefore, hull->GetId(), &Physics::RigidBodyRequests::GetLinearVelocity);
+
+        wind.m_wind = AZ::Vector3(0.0f, 0.0f, 6.0f);
+        TickAndSimulate(1.0f);
+
+        AZ::Vector3 velocityAfter = AZ::Vector3::CreateZero();
+        Physics::RigidBodyRequestBus::EventResult(
+            velocityAfter, hull->GetId(), &Physics::RigidBodyRequests::GetLinearVelocity);
+
+        EXPECT_GT(velocityAfter.GetZ() - velocityBefore.GetZ(), 0.3f)
+            << "the sail caught wind and the hull felt none of it";
+
+        sail->Deactivate();
+        yard->Deactivate();
+        hull->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyAttachmentTests, AClothNowhereNearItsTargetStaysFreeInsteadOfTeleporting)
+    {
+        // A misplaced rig should read as "nothing attached" - warned once - not as cloth
+        // snapping across the level to its target.
+        auto yard = CreateYard(AZ::Vector3(30.0f, 0.0f, 6.0f));
+
+        AZStd::unique_ptr<AZ::Entity> cloth;
+        {
+            // The warning is expected exactly once, when the bind attempt gives up.
+            JoltWarningCatcher warnings;
+            cloth = CreateHangingCloth(AZ::Vector3(0.0f, 0.0f, 6.0f), yard->GetId(), AZ::EntityId());
+            TickAndSimulate(0.2f);
+            EXPECT_TRUE(warnings.ContainsWarningWith("nothing attached"));
+        }
+
+        const AZ::Vector3 centre = ClothCentre(cloth->GetId());
+        EXPECT_LT(centre.GetX(), 5.0f) << "the cloth teleported towards a target it never touched";
+
+        // And an out-of-reach rig must not weld anything: the cloth still falls.
+        SimulateSeconds(0.5f);
+        EXPECT_LT(ClothCentre(cloth->GetId()).GetZ(), centre.GetZ() - 0.5f);
+
+        cloth->Deactivate();
+        yard->Deactivate();
     }
 
     TEST_F(JoltSoftBodySkinningBusTests, JointsGivenInWorldSpaceMoveTheClothToWhereTheyActuallyAre)

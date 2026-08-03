@@ -1051,14 +1051,58 @@ feature, trust the topic sections below the milestones.**
 
   This is also the one rebuild here that runs when there is *no* body: a `Custom` body has
   nothing to build from until the geometry arrives, so it exists as an empty body first.
+- **Cloth can be fastened to things that move.** `JoltSoftBodyAttachmentComponent` welds
+  particles near one or more target entities and feeds those targets' transforms to the
+  skinning path every step, so a sail follows a boat's yard, a banner two poles, a tarp a
+  truck bed. The pinning presets cannot do this: a pinned particle anchors in world space,
+  which is right for a curtain rail and wrong for anything that sails away. PhysX has no
+  equivalent - its cloth attaches to a skinned actor or to nothing.
+
+  It takes a *list* of fastenings because cloth held in one place flogs. That is not a
+  design preference: the demo's first rigged sail, bent only along its head, thrashed for
+  ten seconds and moved its boat half a metre. Bent to a yard and sheeted to a boom, the
+  same sail drew steadily and sailed her three and a half metres.
+
+  The other direction is `GetLastWindImpulse`: what the wind put into the canvas this
+  step, which an attachment hands to a rigid body of the author's choosing. A boat is then
+  driven by the same gust its sail visibly fills with, rather than by a second invented
+  force that would drift out of agreement with what the canvas is doing.
+- **A soft body's rotation is baked into its own shared settings, not left to Jolt.**
+  Jolt offers to do it (`mMakeRotationIdentity`, on by default) but bakes only the
+  simulated particles - the shared settings stay unrotated, and the skinned constraints
+  read their rest pose straight out of the shared settings. A rotated, skinned body
+  therefore has its particles in one space and its skinning targets computed in another,
+  and every hard-skinned particle is dragged to where it would have been unrotated. A
+  standing sail collapsed onto its back within a frame of being rigged - edge-on to the
+  wind, catching nothing, while still reporting itself correctly attached. Baking it here
+  keeps the two in step and keeps the body frame identity-rotated, which matters because
+  installing skinning data rebuilds the body and the inverse binds are computed against
+  that frame just before it.
+- **A skinned body does not chase its own frame.** `mUpdatePosition` moves a body's centre
+  of mass to follow its particles, and that centre of mass is the frame Jolt does its
+  skinning maths in - so the frame drifts out from under the targets, which drags the
+  cloth, which moves the frame again. Forced off whenever skinning data is present; the
+  author's setting still applies to every unskinned body.
+- **A rigged body ignores its entity transform.** Whatever it is rigged to is what places
+  it, so rebuilding on `OnTransformChanged` would throw the simulation away every time
+  that thing moved - every frame, for a sail on a boat. Before the rig is taken the
+  transform is still tracked, so cloth parented to a vehicle starts out riding along.
+- **Impulses on non-dynamic bodies are ignored, not asserted.** Jolt asserts; PhysX
+  ignores, and so does this. Same for non-finite impulses, which say the caller is broken.
+  `GetMass` answers a kinematic body's configured mass rather than asserting on an inverse
+  mass that is zero by definition - a force region asking a kinematic spar its mass took
+  the whole editor down.
 - **Soft bodies feel the scene's wind.** Every soft body samples
   `Physics::WindRequests` over its bounds once per fixed step and takes a per-face
   pressure along the face normal, quadratic in the normal component of the *relative*
   wind - so a sail fills face-on, luffs edge-on, and stops accelerating once it moves
   with the wind. That is the same authored wind the force regions publish (a region
   tagged `global_wind`/`wind` with a world-space force), so one entity pushes the rigid
-  bodies and blows the cloth. NvCloth does its wind inside the cloth solver; PhysX soft
-  bodies get nothing. `Wind influence` is live and script-visible - easing it down is
+  bodies and blows the cloth. Each particle's change in velocity is clamped to the
+  relative wind speed - quadratic drag integrated explicitly is unstable without it, and
+  the first sail rigged to a hull turned itself into a trillion-metre NaN in nine seconds.
+  The clamp is also the physical truth: wind cannot blow a leaf faster than itself.
+  NvCloth does its wind inside the cloth solver; PhysX soft bodies get nothing. `Wind influence` is live and script-visible - easing it down is
   how gameplay reefs a sail - and pinned particles ignore wind by construction (zero
   inverse mass). Wind keeps its body awake, deliberately: a flag that sleeps mid-air the
   instant it settles reads as frozen, not as calm.

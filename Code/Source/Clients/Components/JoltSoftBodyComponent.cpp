@@ -95,6 +95,11 @@ namespace JoltPhysics
                     ->Event("GetGravityFactor", &JoltSoftBodyRequests::GetGravityFactor)
                     ->Event("SetWindInfluence", &JoltSoftBodyRequests::SetWindInfluence)
                     ->Event("GetWindInfluence", &JoltSoftBodyRequests::GetWindInfluence)
+                    ->Event("GetLastWindImpulse", &JoltSoftBodyRequests::GetLastWindImpulse)
+                    // The skinning setters stay C++-only (one rebuilds the body, the
+                    // other wants a skeleton per frame), but whether a body is skinned
+                    // is a harmless read - and what lets automation verify a rig took.
+                    ->Event("HasSkinningData", &JoltSoftBodyRequests::HasSkinningData)
                     ->Event("SetNumIterations", &JoltSoftBodyRequests::SetNumIterations)
                     ->Event("GetNumIterations", &JoltSoftBodyRequests::GetNumIterations)
                     ->Event("SetFriction", &JoltSoftBodyRequests::SetFriction)
@@ -365,12 +370,26 @@ namespace JoltPhysics
 
     void JoltSoftBodyComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)
     {
+        auto* softBody = GetSoftBody();
+        if (softBody == nullptr)
+        {
+            return;
+        }
+
+        // A rigged body is placed by whatever it is rigged to - an attachment, a
+        // skeleton - not by its entity transform. Rebuilding it here would throw away the
+        // simulation and snap the particles back every time the thing it hangs from
+        // moved, which for a sail on a boat is every single frame. Before the rig is
+        // taken this still tracks the transform, so a cloth parented to a vehicle starts
+        // out riding along with it.
+        if (softBody->HasSkinningData())
+        {
+            return;
+        }
+
         // Rebuilds the body at the new placement. Moving a soft body every frame would
         // rebuild it every frame, so this suits placement rather than animation.
-        if (auto* softBody = GetSoftBody())
-        {
-            softBody->SetTransform(world);
-        }
+        softBody->SetTransform(world);
     }
 
     void JoltSoftBodyComponent::OnTick(float /*deltaTime*/, AZ::ScriptTimePoint /*time*/)
@@ -521,6 +540,12 @@ namespace JoltPhysics
     float JoltSoftBodyComponent::GetWindInfluence() const
     {
         return m_settings.m_windInfluence;
+    }
+
+    AZ::Vector3 JoltSoftBodyComponent::GetLastWindImpulse() const
+    {
+        auto* softBody = GetSoftBody();
+        return softBody ? softBody->GetLastWindImpulse() : AZ::Vector3::CreateZero();
     }
 
     void JoltSoftBodyComponent::SetGravityFactor(float factor)

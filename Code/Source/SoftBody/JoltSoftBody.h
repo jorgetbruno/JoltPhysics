@@ -211,6 +211,13 @@ namespace JoltPhysics
         //! wind, which is what fills a sail face-on and lets it luff edge-on.
         void ApplyWind(float deltaTime);
 
+        //! The total impulse the last ApplyWind put into the body, in world space and
+        //! newton-seconds. This is the sail's pull: what an attachment transfers to the
+        //! rigid body the cloth is rigged to, so the boat is driven by the same wind its
+        //! sail visibly catches rather than by a second, made-up force. Zero when the air
+        //! was still.
+        AZ::Vector3 GetLastWindImpulse() const;
+
         void SetWindInfluence(float influence);
 
         void SetPressure(float pressure);
@@ -350,6 +357,10 @@ namespace JoltPhysics
         //! a real character.
         AZStd::vector<AZ::Vector3> m_customVertices;
         AZStd::vector<AZ::u32> m_customIndices;
+
+        //! What the last wind application added, in world space. Read by attachments to
+        //! push the body the cloth is rigged to.
+        AZ::Vector3 m_lastWindImpulse = AZ::Vector3::CreateZero();
 
         //! Skinning data, baked into the shared settings on every rebuild.
         AZStd::vector<AZ::Transform> m_jointInvBinds;

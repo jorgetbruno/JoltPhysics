@@ -113,6 +113,12 @@ namespace JoltPhysics
         virtual void SetWindInfluence(float influence) = 0;
         virtual float GetWindInfluence() const = 0;
 
+        //! The total impulse the wind put into this body on the last physics step, in
+        //! world space and newton-seconds. This is the sail's pull: attachments feed it
+        //! to the rigid body the cloth is rigged to, and gameplay can read it as "how
+        //! hard is the canvas drawing" for trim feedback. Zero in still air.
+        virtual AZ::Vector3 GetLastWindImpulse() const = 0;
+
         //! Solver iterations per step. Higher is stiffer and more expensive.
         virtual void SetNumIterations(AZ::u32 iterations) = 0;
         virtual AZ::u32 GetNumIterations() const = 0;

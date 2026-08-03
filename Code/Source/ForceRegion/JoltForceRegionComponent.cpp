@@ -177,6 +177,16 @@ namespace JoltPhysics
                 continue;
             }
 
+            if (rigidBody->IsKinematic())
+            {
+                // Kinematic bodies do not answer to forces, and asking one its mass is a
+                // Jolt assert - a kinematic yard sailing through a wind region crashed
+                // the editor before this check existed. Kept in the set: it can turn
+                // dynamic while inside, and its Exit event still ends the tracking.
+                ++it;
+                continue;
+            }
+
             JoltForceRegionEntityParams entityParams;
             entityParams.m_position = rigidBody->GetPosition();
             entityParams.m_velocity = rigidBody->GetLinearVelocity();

@@ -54,6 +54,8 @@ set(FILES
     Source/Character/JoltRagdollNode.h
     Source/Character/JoltSkeletonMapper.cpp
     Source/Character/JoltSkeletonMapper.h
+    Source/Clients/Components/JoltSoftBodyAttachmentComponent.cpp
+    Source/Clients/Components/JoltSoftBodyAttachmentComponent.h
     Source/Clients/Components/JoltSoftBodyComponent.cpp
     Source/Clients/Components/JoltSoftBodyComponent.h
     Source/Joint/JoltJoint.cpp
