@@ -318,7 +318,9 @@ feature, trust the topic sections below the milestones.**
   `CharacterPhysicsDebugDraw::RenderJointLimit` and EMotionFX's joint-limit widget,
   manipulators and optimiser all resolve `AZ::Interface<AzPhysics::JointHelpersInterface>`,
   and in the shipped engine only the PhysX gem answers it. Without them a Jolt project
-  could simulate a ragdoll it had no way to author.
+  could simulate a ragdoll it had no way to author. Every caller null-checks the
+  interface, so the absence was a dead UI rather than a crash — the optimiser even says
+  so in a notification window.
 - **Four joint types are offered for authoring**, because `AzPhysics::JointType` names
   exactly four: D6, fixed, ball and hinge. The gem also has prismatic, distance, cone,
   swing-twist, gear and rack-and-pinion joints, but there is no way for a caller to ask
@@ -330,10 +332,18 @@ feature, trust the topic sections below the milestones.**
   the same frame in their own space, which makes the pose the frame was computed from
   the joint's rest pose — zero swing, zero twist — so a ragdoll does not start life
   pushing against its own limits.
+- **The axis arrives in world space**, not in the child body's, and is brought into the
+  child's frame before the rotation is taken (matching PhysX's implementation, which is
+  the contract EMotionFX is written against). Reading it as child-local instead puts the
+  limit cone somewhere else for every bone whose body is rotated.
 - **Limits are fitted as the tightest that admit every example pose, plus a margin**,
   with swing symmetric (a cone cannot express anything else) and twist free to be
   asymmetric. With no examples the defaults are returned untouched: nothing observed is
   not the same as nothing allowed, and a zero-width limit would weld the bone solid.
+- **Example poses and motion samples arrive as the child relative to its parent**, in
+  the parent bone's space, and are brought into the joint frame before anything is
+  measured. Fitting them as they arrive describes rotations about the parent bone's axes
+  instead, which reads a pure twist about the joint's own axis as a swing.
 - **A hinge fit takes the twist range and drops the off-axis swing.** Widening a hinge
   to admit motion it will never permit would describe a joint that does not exist.
 - **Swing angles are tilts towards an axis, not rotations about one.** The two name
@@ -341,13 +351,23 @@ feature, trust the topic sections below the milestones.**
   already drawn as a displacement towards Y for its Y half-angle, so the measurement
   matches the drawing. Nothing here silently re-reads what the constraints do with those
   angles; that mapping is `JoltJoint`'s and is untouched.
-- **The twist arc reports validity per line segment**, and is swept over the limits
-  *widened to include where the joint currently is*, so an over-rotated bone draws an
-  overrun that the caller renders in the error colour. A segment counts as allowed when
-  its midpoint is inside the limits, so one straddling a limit is not reported as fully
-  valid.
-- **The swing cone is a solid, not an outline**: an apex at the joint origin fanning out
-  through concentric rings to an elliptical rim, so it shades as a volume.
+- **Limit visualization is lines only, in the joint frame within the parent body.** The
+  caller (`CharacterPhysicsDebugDraw::RenderJointLimit`) transforms every point by the
+  parent's world transform itself, so folding the parent's rotation in here would rotate
+  the whole drawing twice. The `parentRotation`/`childRotation` arguments are used for
+  one thing: working out where the joint currently is, which is what decides whether a
+  limit draws as met or violated.
+- **The vertex and index buffers the interface carries are left untouched**, because
+  nothing renders them — `RenderJointLimit` draws only the line buffer, and PhysX marks
+  its own copies of them `[[maybe_unused]]`. A solid cone would simply be invisible.
+- **A violated limit marks its whole drawing as violated**, one verdict for the cone and
+  one for the arc, since the renderer colours per line: a cone drawn half in the error
+  colour would read as half the limit being broken rather than the joint being outside
+  it. The current twist is drawn as its own spoke, always flagged valid — it is a
+  readout, not a limit.
+- **The swing cone is tested as an ellipse, not as two independent half-angles.** A
+  swing can be inside both half-angles taken one at a time and still outside the cone
+  they describe together.
 - **The limit auto-fit only applies to the 6-DOF limit** and refuses anything else
   rather than reshaping it, since that is the only limit with both a cone and a twist
   range to fit. It never moves the joint frames — it bounds the motion, it does not

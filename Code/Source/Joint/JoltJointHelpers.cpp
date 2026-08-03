@@ -10,34 +10,42 @@ namespace JoltPhysics
 {
     namespace
     {
-        //! The joint frame in world space, given the child's pose and the axis the limit
-        //! is centred on.
+        //! The joint frame as the child body holds it, given the axis the limit is
+        //! centred on.
         //!
         //! The frame's X axis is the twist axis - Jolt's swing-twist and 6-DOF
         //! constraints both take X that way, and so do this gem's own joint components -
-        //! so building the frame is a matter of rotating X onto the requested axis. The
-        //! axis arrives in the child body's space, which is where a ragdoll's bone
-        //! direction is expressed.
-        AZ::Quaternion ComputeJointWorldRotation(const AZ::Quaternion& childWorldRotation, const AZ::Vector3& axis)
+        //! so building the frame is a matter of rotating X onto the requested axis.
+        //!
+        //! The axis arrives in **world** space, not the child's: EMotionFX hands over a
+        //! bone direction it has already resolved, so it has to be brought into the
+        //! child's frame before the rotation is taken. Reading it as child-local instead
+        //! puts the whole limit cone somewhere else for every bone whose body is rotated.
+        AZ::Quaternion ComputeChildLocalRotation(const AZ::Quaternion& childWorldRotation, const AZ::Vector3& axis)
         {
             const AZ::Vector3 normalizedAxis =
                 axis.GetLengthSq() > AZ::Constants::FloatEpsilon ? axis.GetNormalized() : AZ::Vector3::CreateAxisX();
-            const AZ::Quaternion axisRotation =
-                AZ::Quaternion::CreateShortestArc(AZ::Vector3::CreateAxisX(), normalizedAxis);
-            return childWorldRotation * axisRotation;
+            return AZ::Quaternion::CreateShortestArc(
+                AZ::Vector3::CreateAxisX(), childWorldRotation.GetConjugate().TransformVector(normalizedAxis));
         }
 
-        //! The child's rotation relative to the parent, expressed in the joint frame.
-        //!
-        //! This is the quantity the limits are written against: it is identity in the
-        //! pose the joint was authored from, so a decomposition of it reads directly as
-        //! "how far has this bone moved from rest".
-        AZ::Quaternion RelativeRotationInJointFrame(
+        using JointLimitMath::RelativeRotationInJointFrame;
+
+        //! Every sample brought from "child relative to parent" into the joint's own
+        //! frame, which is the space the limits are written in.
+        AZStd::vector<AZ::Quaternion> ToJointFrame(
+            const AZStd::vector<AZ::Quaternion>& childRelativeToParentSamples,
             const AZ::Quaternion& parentLocalRotation,
-            const AZ::Quaternion& childRelativeToParent,
             const AZ::Quaternion& childLocalRotation)
         {
-            return parentLocalRotation.GetConjugate() * childRelativeToParent * childLocalRotation;
+            AZStd::vector<AZ::Quaternion> jointFrameSamples;
+            jointFrameSamples.reserve(childRelativeToParentSamples.size());
+            for (const AZ::Quaternion& sample : childRelativeToParentSamples)
+            {
+                jointFrameSamples.push_back(
+                    RelativeRotationInJointFrame(parentLocalRotation, sample, childLocalRotation));
+            }
+            return jointFrameSamples;
         }
     } // namespace
 
@@ -78,12 +86,12 @@ namespace JoltPhysics
         const AZ::Vector3& axis,
         const AZStd::vector<AZ::Quaternion>& exampleLocalRotations)
     {
-        // The joint frame, and the same frame written in each body's own space. Both
-        // bodies name one frame, so at the pose this was computed from the joint sits at
-        // its rest position with zero swing and zero twist.
-        const AZ::Quaternion jointWorldRotation = ComputeJointWorldRotation(childWorldRotation, axis);
-        const AZ::Quaternion parentLocalRotation = parentWorldRotation.GetConjugate() * jointWorldRotation;
-        const AZ::Quaternion childLocalRotation = childWorldRotation.GetConjugate() * jointWorldRotation;
+        // The joint frame, written in each body's own space. Both bodies name one frame,
+        // so at the pose this was computed from the joint sits at its rest position with
+        // zero swing and zero twist.
+        const AZ::Quaternion childLocalRotation = ComputeChildLocalRotation(childWorldRotation, axis);
+        const AZ::Quaternion parentLocalRotation =
+            parentWorldRotation.GetConjugate() * childWorldRotation * childLocalRotation;
 
         auto applyFrames = [&parentLocalRotation, &childLocalRotation](AzPhysics::JointConfiguration& configuration)
         {
@@ -99,15 +107,8 @@ namespace JoltPhysics
             // The example poses are the child relative to the parent; bring each into the
             // joint frame before measuring, or the fit would describe rotations about the
             // parent's axes rather than the joint's.
-            AZStd::vector<AZ::Quaternion> jointFrameSamples;
-            jointFrameSamples.reserve(exampleLocalRotations.size());
-            for (const AZ::Quaternion& example : exampleLocalRotations)
-            {
-                jointFrameSamples.push_back(
-                    RelativeRotationInJointFrame(parentLocalRotation, example, childLocalRotation));
-            }
-
-            const JointLimitMath::SwingTwistLimits limits = JointLimitMath::FitLimits(jointFrameSamples);
+            const JointLimitMath::SwingTwistLimits limits =
+                JointLimitMath::FitLimits(ToJointFrame(exampleLocalRotations, parentLocalRotation, childLocalRotation));
             configuration->m_swingLimitY = limits.m_swingYDegrees;
             configuration->m_swingLimitZ = limits.m_swingZDegrees;
             configuration->m_twistLimitLower = limits.m_twistLowerDegrees;
@@ -120,16 +121,9 @@ namespace JoltPhysics
             auto configuration = AZStd::make_unique<JoltBallJointConfiguration>();
             applyFrames(*configuration);
 
-            AZStd::vector<AZ::Quaternion> jointFrameSamples;
-            jointFrameSamples.reserve(exampleLocalRotations.size());
-            for (const AZ::Quaternion& example : exampleLocalRotations)
-            {
-                jointFrameSamples.push_back(
-                    RelativeRotationInJointFrame(parentLocalRotation, example, childLocalRotation));
-            }
-
             // A ball joint limits swing and leaves twist free, so only the cone is fitted.
-            const JointLimitMath::SwingTwistLimits limits = JointLimitMath::FitLimits(jointFrameSamples);
+            const JointLimitMath::SwingTwistLimits limits =
+                JointLimitMath::FitLimits(ToJointFrame(exampleLocalRotations, parentLocalRotation, childLocalRotation));
             configuration->m_limitProperties.m_isLimited = true;
             configuration->m_limitProperties.m_limitFirst = limits.m_swingYDegrees;
             configuration->m_limitProperties.m_limitSecond = limits.m_swingZDegrees;
@@ -141,17 +135,10 @@ namespace JoltPhysics
             auto configuration = AZStd::make_unique<JoltHingeJointConfiguration>();
             applyFrames(*configuration);
 
-            AZStd::vector<AZ::Quaternion> jointFrameSamples;
-            jointFrameSamples.reserve(exampleLocalRotations.size());
-            for (const AZ::Quaternion& example : exampleLocalRotations)
-            {
-                jointFrameSamples.push_back(
-                    RelativeRotationInJointFrame(parentLocalRotation, example, childLocalRotation));
-            }
-
             // A hinge is twist alone - the swing the samples show is off-axis motion the
             // hinge will not permit, and is deliberately dropped rather than widened into.
-            const JointLimitMath::SwingTwistLimits limits = JointLimitMath::FitLimits(jointFrameSamples);
+            const JointLimitMath::SwingTwistLimits limits =
+                JointLimitMath::FitLimits(ToJointFrame(exampleLocalRotations, parentLocalRotation, childLocalRotation));
             configuration->m_limitProperties.m_isLimited = true;
             configuration->m_limitProperties.m_limitFirst = limits.m_twistLowerDegrees;
             configuration->m_limitProperties.m_limitSecond = limits.m_twistUpperDegrees;
@@ -181,42 +168,55 @@ namespace JoltPhysics
         float scale,
         AZ::u32 angularSubdivisions,
         AZ::u32 radialSubdivisions,
-        AZStd::vector<AZ::Vector3>& vertexBufferOut,
-        AZStd::vector<AZ::u32>& indexBufferOut,
+        [[maybe_unused]] AZStd::vector<AZ::Vector3>& vertexBufferOut,
+        [[maybe_unused]] AZStd::vector<AZ::u32>& indexBufferOut,
         AZStd::vector<AZ::Vector3>& lineBufferOut,
         AZStd::vector<bool>& lineValidityBufferOut)
     {
-        // Everything is drawn in the joint frame as the parent holds it: that frame is
-        // where the limits are defined, and drawing there means the cone stays put while
-        // the child swings inside it.
-        const AZ::Quaternion jointRotation = parentRotation * configuration.m_parentLocalRotation;
+        // Geometry goes out in the joint's frame *within the parent body* - the caller
+        // applies the parent's world transform to every point itself
+        // (CharacterPhysicsDebugDraw::RenderJointLimit). Folding parentRotation in here
+        // as well would rotate the whole drawing twice.
+        //
+        // The two rotations are for one thing only: working out where the joint actually
+        // is, which is what decides whether the limits are drawn as met or violated.
+        const AZ::Quaternion& jointLocalRotation = configuration.m_parentLocalRotation;
 
-        // Where the child currently is, in that same frame - what decides which part of
-        // the twist arc is drawn as violated.
         const AZ::Quaternion childRelativeToParent = parentRotation.GetConjugate() * childRotation;
-        const AZ::Quaternion relativeInJointFrame = RelativeRotationInJointFrame(
-            configuration.m_parentLocalRotation, childRelativeToParent, configuration.m_childLocalRotation);
-        const JointLimitMath::SwingTwist current = JointLimitMath::DecomposeSwingTwist(relativeInJointFrame);
+        const JointLimitMath::SwingTwist current =
+            JointLimitMath::DecomposeSwingTwist(JointLimitMath::RelativeRotationInJointFrame(
+                configuration.m_parentLocalRotation, childRelativeToParent, configuration.m_childLocalRotation));
+
+        // The vertex and index buffers are left alone deliberately: nothing renders them.
+        // RenderJointLimit draws the line buffer and never touches the triangles, and the
+        // PhysX implementation marks its own copies of them [[maybe_unused]] for the same
+        // reason. A solid cone here would simply be invisible.
 
         if (const auto* d6 = azrtti_cast<const JoltD6JointLimitConfiguration*>(&configuration))
         {
-            JointLimitMath::AppendSwingConeMesh(
-                d6->m_swingLimitY, d6->m_swingLimitZ, jointRotation, scale, angularSubdivisions, radialSubdivisions,
-                vertexBufferOut, indexBufferOut);
+            JointLimitMath::AppendSwingConeLines(
+                d6->m_swingLimitY, d6->m_swingLimitZ, current.m_swingYDegrees, current.m_swingZDegrees,
+                jointLocalRotation, scale, angularSubdivisions, radialSubdivisions, lineBufferOut,
+                lineValidityBufferOut);
             JointLimitMath::AppendTwistArcLines(
-                d6->m_twistLimitLower, d6->m_twistLimitUpper, current.m_twistDegrees, jointRotation, scale,
+                d6->m_twistLimitLower, d6->m_twistLimitUpper, current.m_twistDegrees, jointLocalRotation, scale,
                 angularSubdivisions, lineBufferOut, lineValidityBufferOut);
+            JointLimitMath::AppendCurrentTwistLine(
+                current.m_twistDegrees, jointLocalRotation, scale, lineBufferOut, lineValidityBufferOut);
             return;
         }
 
         if (const auto* swingTwist = azrtti_cast<const JoltSwingTwistJointConfiguration*>(&configuration))
         {
-            JointLimitMath::AppendSwingConeMesh(
-                swingTwist->m_normalHalfConeAngle, swingTwist->m_planeHalfConeAngle, jointRotation, scale,
-                angularSubdivisions, radialSubdivisions, vertexBufferOut, indexBufferOut);
+            JointLimitMath::AppendSwingConeLines(
+                swingTwist->m_normalHalfConeAngle, swingTwist->m_planeHalfConeAngle, current.m_swingYDegrees,
+                current.m_swingZDegrees, jointLocalRotation, scale, angularSubdivisions, radialSubdivisions,
+                lineBufferOut, lineValidityBufferOut);
             JointLimitMath::AppendTwistArcLines(
-                swingTwist->m_twistLower, swingTwist->m_twistUpper, current.m_twistDegrees, jointRotation, scale,
+                swingTwist->m_twistLower, swingTwist->m_twistUpper, current.m_twistDegrees, jointLocalRotation, scale,
                 angularSubdivisions, lineBufferOut, lineValidityBufferOut);
+            JointLimitMath::AppendCurrentTwistLine(
+                current.m_twistDegrees, jointLocalRotation, scale, lineBufferOut, lineValidityBufferOut);
             return;
         }
 
@@ -224,18 +224,20 @@ namespace JoltPhysics
         {
             if (ball->m_limitProperties.m_isLimited)
             {
-                JointLimitMath::AppendSwingConeMesh(
-                    ball->m_limitProperties.m_limitFirst, ball->m_limitProperties.m_limitSecond, jointRotation, scale,
-                    angularSubdivisions, radialSubdivisions, vertexBufferOut, indexBufferOut);
+                JointLimitMath::AppendSwingConeLines(
+                    ball->m_limitProperties.m_limitFirst, ball->m_limitProperties.m_limitSecond, current.m_swingYDegrees,
+                    current.m_swingZDegrees, jointLocalRotation, scale, angularSubdivisions, radialSubdivisions,
+                    lineBufferOut, lineValidityBufferOut);
             }
             return;
         }
 
         if (const auto* cone = azrtti_cast<const JoltConeJointConfiguration*>(&configuration))
         {
-            JointLimitMath::AppendSwingConeMesh(
-                cone->m_halfConeAngle, cone->m_halfConeAngle, jointRotation, scale, angularSubdivisions,
-                radialSubdivisions, vertexBufferOut, indexBufferOut);
+            JointLimitMath::AppendSwingConeLines(
+                cone->m_halfConeAngle, cone->m_halfConeAngle, current.m_swingYDegrees, current.m_swingZDegrees,
+                jointLocalRotation, scale, angularSubdivisions, radialSubdivisions, lineBufferOut,
+                lineValidityBufferOut);
             return;
         }
 
@@ -245,8 +247,10 @@ namespace JoltPhysics
             {
                 JointLimitMath::AppendTwistArcLines(
                     hinge->m_limitProperties.m_limitFirst, hinge->m_limitProperties.m_limitSecond,
-                    current.m_twistDegrees, jointRotation, scale, angularSubdivisions, lineBufferOut,
+                    current.m_twistDegrees, jointLocalRotation, scale, angularSubdivisions, lineBufferOut,
                     lineValidityBufferOut);
+                JointLimitMath::AppendCurrentTwistLine(
+                    current.m_twistDegrees, jointLocalRotation, scale, lineBufferOut, lineValidityBufferOut);
             }
             return;
         }

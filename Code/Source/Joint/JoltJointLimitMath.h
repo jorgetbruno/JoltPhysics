@@ -38,6 +38,20 @@ namespace JoltPhysics
         //! which would collapse the two into one number.
         SwingTwist DecomposeSwingTwist(const AZ::Quaternion& rotation);
 
+        //! The child's rotation relative to the parent, expressed in the joint frame.
+        //!
+        //! Identity in the pose the joint was authored from, so a decomposition of it
+        //! reads directly as "how far has this bone moved from rest".
+        AZ::Quaternion RelativeRotationInJointFrame(
+            const AZ::Quaternion& parentLocalRotation,
+            const AZ::Quaternion& childRelativeToParent,
+            const AZ::Quaternion& childLocalRotation);
+
+        //! Whether a swing fits inside an elliptical cone, as the ellipse equation rather
+        //! than two independent comparisons - a swing can be inside both half-angles taken
+        //! one at a time and still outside the cone they describe together.
+        bool IsSwingWithinLimits(float swingYDegrees, float swingZDegrees, float limitYDegrees, float limitZDegrees);
+
         //! The tightest limits containing every sample, plus a margin in degrees.
         //!
         //! Swing limits come back symmetric because that is what a cone can express;
@@ -58,32 +72,57 @@ namespace JoltPhysics
             float minimumExtentDegrees = 1.0f,
             float maximumExtentDegrees = 179.0f);
 
-        //! The swing cone as a triangle mesh: an apex at the joint origin and a fan out
-        //! to an elliptical rim, so the cone reads as a solid volume rather than an
-        //! outline. Appends to the buffers rather than clearing them, so a caller can
-        //! build one mesh out of several limits.
-        void AppendSwingConeMesh(
-            float swingYDegrees,
-            float swingZDegrees,
-            const AZ::Quaternion& jointRotation,
+        //! @name Joint limit visualization
+        //!
+        //! Everything below appends *lines* - point pairs, one validity flag per pair -
+        //! and nothing writes the triangle buffers the interface also carries, because
+        //! nothing renders them: AzFramework's CharacterPhysicsDebugDraw::RenderJointLimit
+        //! draws the line buffer and leaves the vertex and index buffers alone, and PhysX
+        //! marks its own copies of them [[maybe_unused]]. A solid cone would simply be
+        //! invisible.
+        //!
+        //! Points are in the *joint's frame within the parent body* - the caller applies
+        //! the parent's world transform itself. Pre-applying the parent's rotation here
+        //! would apply it twice.
+        //!
+        //! Validity is decided by where the joint currently is, not by which part of the
+        //! drawing a segment belongs to: the whole cone, or the whole arc, turns the error
+        //! colour when the joint is outside it. That is the contract the renderer and the
+        //! PhysX implementation share.
+        //! @{
+
+        void AppendSwingConeLines(
+            float swingLimitYDegrees,
+            float swingLimitZDegrees,
+            float currentSwingYDegrees,
+            float currentSwingZDegrees,
+            const AZ::Quaternion& jointLocalRotation,
             float scale,
             AZ::u32 angularSubdivisions,
             AZ::u32 radialSubdivisions,
-            AZStd::vector<AZ::Vector3>& vertexBuffer,
-            AZStd::vector<AZ::u32>& indexBuffer);
+            AZStd::vector<AZ::Vector3>& lineBuffer,
+            AZStd::vector<bool>& lineValidityBuffer);
 
-        //! The twist range as a line arc about the joint frame's X axis, swept from the
-        //! lower limit to the upper. Each segment is flagged valid or violated: the
-        //! caller draws the violated part in the error colour, which is how an
-        //! over-rotated bone shows up in the Animation Editor.
         void AppendTwistArcLines(
             float twistLowerDegrees,
             float twistUpperDegrees,
             float currentTwistDegrees,
-            const AZ::Quaternion& jointRotation,
+            const AZ::Quaternion& jointLocalRotation,
             float scale,
             AZ::u32 angularSubdivisions,
             AZStd::vector<AZ::Vector3>& lineBuffer,
             AZStd::vector<bool>& lineValidityBuffer);
+
+        //! A single spoke showing where the twist actually is inside (or outside) the arc.
+        //! Always flagged valid: it is a readout, not a limit, and colouring it as a
+        //! violation would say the marker itself was wrong.
+        void AppendCurrentTwistLine(
+            float currentTwistDegrees,
+            const AZ::Quaternion& jointLocalRotation,
+            float scale,
+            AZStd::vector<AZ::Vector3>& lineBuffer,
+            AZStd::vector<bool>& lineValidityBuffer);
+
+        //! @}
     } // namespace JointLimitMath
 } // namespace JoltPhysics

@@ -28,9 +28,6 @@ namespace JoltPhysics
             return nullptr;
         }
 
-        // The samples are already in the joint's own frame: the caller measured the child
-        // against the parent through the frames this configuration carries, which is the
-        // same space ComputeInitialJointLimitConfiguration fitted in.
         auto optimized = AZStd::make_unique<JoltD6JointLimitConfiguration>(*d6);
         if (localRotationSamples.empty())
         {
@@ -39,7 +36,20 @@ namespace JoltPhysics
             return optimized;
         }
 
-        const JointLimitMath::SwingTwistLimits limits = JointLimitMath::FitLimits(localRotationSamples);
+        // The samples are raw joint rotations sampled straight out of a motion - the
+        // child relative to its parent, in the parent bone's space, not the joint's. They
+        // have to be brought into the joint frame before anything is measured, the same
+        // way ComputeInitialJointLimitConfiguration does with its example poses; fitting
+        // them as they arrive describes rotations about the parent bone's axes instead.
+        AZStd::vector<AZ::Quaternion> jointFrameSamples;
+        jointFrameSamples.reserve(localRotationSamples.size());
+        for (const AZ::Quaternion& sample : localRotationSamples)
+        {
+            jointFrameSamples.push_back(JointLimitMath::RelativeRotationInJointFrame(
+                d6->m_parentLocalRotation, sample, d6->m_childLocalRotation));
+        }
+
+        const JointLimitMath::SwingTwistLimits limits = JointLimitMath::FitLimits(jointFrameSamples);
         optimized->m_swingLimitY = limits.m_swingYDegrees;
         optimized->m_swingLimitZ = limits.m_swingZDegrees;
         optimized->m_twistLimitLower = limits.m_twistLowerDegrees;

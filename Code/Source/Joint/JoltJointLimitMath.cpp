@@ -18,9 +18,42 @@ namespace JoltPhysics
             //! runs away long before that. Clamped where the drawing stays readable.
             constexpr float MaximumDrawnHalfAngleDegrees = 89.0f;
 
-            AZ::u32 ClampSubdivisions(AZ::u32 subdivisions, AZ::u32 minimum, AZ::u32 maximum)
+            //! The same bounds PhysX clamps to, so a caller that tuned its subdivision
+            //! counts against one backend gets the same detail from the other.
+            constexpr AZ::u32 MinimumAngularSubdivisions = 4;
+            constexpr AZ::u32 MaximumAngularSubdivisions = 32;
+            constexpr AZ::u32 MinimumRadialSubdivisions = 1;
+            constexpr AZ::u32 MaximumRadialSubdivisions = 4;
+
+            //! A point on the cone at the given angle round its rim, at a fraction of the
+            //! full half-angles. Normalised so every rim point is the same distance out,
+            //! which is what makes the drawing read as a cone rather than a pyramid.
+            AZ::Vector3 ConePoint(
+                float tanY, float tanZ, float angleRadians, float fraction, const AZ::Quaternion& jointLocalRotation,
+                float scale)
             {
-                return AZ::GetClamp(subdivisions, minimum, maximum);
+                const AZ::Vector3 direction =
+                    AZ::Vector3(1.0f, fraction * tanY * cosf(angleRadians), fraction * tanZ * sinf(angleRadians))
+                        .GetNormalized();
+                return jointLocalRotation.TransformVector(direction) * scale;
+            }
+
+            AZ::Vector3 TwistPoint(float degrees, const AZ::Quaternion& jointLocalRotation, float scale)
+            {
+                const float radians = AZ::DegToRad(degrees);
+                return jointLocalRotation.TransformVector(AZ::Vector3(0.0f, cosf(radians), sinf(radians))) * scale;
+            }
+
+            void AppendLine(
+                const AZ::Vector3& from,
+                const AZ::Vector3& to,
+                bool valid,
+                AZStd::vector<AZ::Vector3>& lineBuffer,
+                AZStd::vector<bool>& lineValidityBuffer)
+            {
+                lineBuffer.push_back(from);
+                lineBuffer.push_back(to);
+                lineValidityBuffer.push_back(valid);
             }
         } // namespace
 
@@ -39,13 +72,9 @@ namespace JoltPhysics
                 const float inverseLength = 1.0f / sqrtf(twistLengthSquared);
                 twist = AZ::Quaternion(normalized.GetX() * inverseLength, 0.0f, 0.0f, normalized.GetW() * inverseLength);
             }
-            else
-            {
-                // A half turn away from the X axis: the twist is unrecoverable (any twist
-                // followed by that swing gives the same rotation), so call it zero and
-                // let the swing carry all of it.
-                twist = AZ::Quaternion::CreateIdentity();
-            }
+            // Otherwise a half turn away from the X axis: the twist is unrecoverable (any
+            // twist followed by that swing gives the same rotation), so it stays identity
+            // and the swing carries all of it.
 
             const AZ::Quaternion swing = normalized * twist.GetConjugate();
 
@@ -76,6 +105,29 @@ namespace JoltPhysics
             result.m_swingZDegrees = AZ::RadToDeg(atan2f(swungAxis.GetZ(), swungAxis.GetX()));
 
             return result;
+        }
+
+        AZ::Quaternion RelativeRotationInJointFrame(
+            const AZ::Quaternion& parentLocalRotation,
+            const AZ::Quaternion& childRelativeToParent,
+            const AZ::Quaternion& childLocalRotation)
+        {
+            return parentLocalRotation.GetConjugate() * childRelativeToParent * childLocalRotation;
+        }
+
+        bool IsSwingWithinLimits(float swingYDegrees, float swingZDegrees, float limitYDegrees, float limitZDegrees)
+        {
+            // Guard the division rather than the caller: a limit of zero is a cone with no
+            // opening, which only a swing of zero fits.
+            const float safeLimitY = AZ::GetMax(fabsf(limitYDegrees), SwingEpsilon);
+            const float safeLimitZ = AZ::GetMax(fabsf(limitZDegrees), SwingEpsilon);
+            const float yFactor = swingYDegrees / safeLimitY;
+            const float zFactor = swingZDegrees / safeLimitZ;
+
+            // The ellipse, not two independent comparisons: a swing can be inside both
+            // half-angles taken one at a time and still outside the cone they describe.
+            constexpr float Epsilon = 1e-4f;
+            return yFactor * yFactor + zFactor * zFactor <= 1.0f + Epsilon;
         }
 
         SwingTwistLimits FitLimits(
@@ -116,67 +168,59 @@ namespace JoltPhysics
             return limits;
         }
 
-        void AppendSwingConeMesh(
-            float swingYDegrees,
-            float swingZDegrees,
-            const AZ::Quaternion& jointRotation,
+        void AppendSwingConeLines(
+            float swingLimitYDegrees,
+            float swingLimitZDegrees,
+            float currentSwingYDegrees,
+            float currentSwingZDegrees,
+            const AZ::Quaternion& jointLocalRotation,
             float scale,
             AZ::u32 angularSubdivisions,
             AZ::u32 radialSubdivisions,
-            AZStd::vector<AZ::Vector3>& vertexBuffer,
-            AZStd::vector<AZ::u32>& indexBuffer)
+            AZStd::vector<AZ::Vector3>& lineBuffer,
+            AZStd::vector<bool>& lineValidityBuffer)
         {
-            const AZ::u32 angularSegments = ClampSubdivisions(angularSubdivisions, 4, 64);
-            const AZ::u32 radialSegments = ClampSubdivisions(radialSubdivisions, 1, 16);
+            const AZ::u32 angularSegments =
+                AZ::GetClamp(angularSubdivisions, MinimumAngularSubdivisions, MaximumAngularSubdivisions);
+            const AZ::u32 radialSegments =
+                AZ::GetClamp(radialSubdivisions, MinimumRadialSubdivisions, MaximumRadialSubdivisions);
 
-            const float tanY = tanf(AZ::DegToRad(AZ::GetClamp(swingYDegrees, 0.0f, MaximumDrawnHalfAngleDegrees)));
-            const float tanZ = tanf(AZ::DegToRad(AZ::GetClamp(swingZDegrees, 0.0f, MaximumDrawnHalfAngleDegrees)));
+            const float tanY = tanf(AZ::DegToRad(AZ::GetClamp(swingLimitYDegrees, 0.0f, MaximumDrawnHalfAngleDegrees)));
+            const float tanZ = tanf(AZ::DegToRad(AZ::GetClamp(swingLimitZDegrees, 0.0f, MaximumDrawnHalfAngleDegrees)));
 
-            const AZ::u32 firstVertex = aznumeric_cast<AZ::u32>(vertexBuffer.size());
-
-            // The apex, then rings out to the rim. Rings rather than a single fan so the
-            // surface still shades as a curved sheet when a renderer lights it.
-            vertexBuffer.push_back(AZ::Vector3::CreateZero());
+            // One verdict for the whole cone: the renderer colours a violated limit by
+            // line, so a cone drawn half in the error colour would read as half the limit
+            // being broken rather than the joint being outside it.
+            const bool swingValid =
+                IsSwingWithinLimits(currentSwingYDegrees, currentSwingZDegrees, swingLimitYDegrees, swingLimitZDegrees);
 
             for (AZ::u32 ring = 1; ring <= radialSegments; ++ring)
             {
-                const float ringFraction = aznumeric_cast<float>(ring) / aznumeric_cast<float>(radialSegments);
-                for (AZ::u32 segment = 0; segment < angularSegments; ++segment)
+                const float fraction = aznumeric_cast<float>(ring) / aznumeric_cast<float>(radialSegments);
+                AZ::Vector3 previous = ConePoint(tanY, tanZ, 0.0f, fraction, jointLocalRotation, scale);
+                const AZ::Vector3 first = previous;
+
+                for (AZ::u32 segment = 1; segment <= angularSegments; ++segment)
                 {
-                    const float angle =
-                        AZ::Constants::TwoPi * aznumeric_cast<float>(segment) / aznumeric_cast<float>(angularSegments);
-                    const AZ::Vector3 direction =
-                        AZ::Vector3(1.0f, ringFraction * tanY * cosf(angle), ringFraction * tanZ * sinf(angle))
-                            .GetNormalized();
-                    vertexBuffer.push_back(jointRotation.TransformVector(direction) * scale * ringFraction);
+                    const float angle = AZ::Constants::TwoPi * aznumeric_cast<float>(segment) /
+                        aznumeric_cast<float>(angularSegments);
+                    const AZ::Vector3 current = (segment == angularSegments)
+                        ? first // close the ring exactly rather than within rounding
+                        : ConePoint(tanY, tanZ, angle, fraction, jointLocalRotation, scale);
+                    AppendLine(previous, current, swingValid, lineBuffer, lineValidityBuffer);
+                    previous = current;
                 }
             }
 
-            // Apex fan onto the first ring.
-            for (AZ::u32 segment = 0; segment < angularSegments; ++segment)
+            // Spokes out to the rim, so the cone reads as a volume from the joint origin
+            // rather than as a floating ellipse.
+            constexpr AZ::u32 SpokeCount = 4;
+            for (AZ::u32 spoke = 0; spoke < SpokeCount; ++spoke)
             {
-                const AZ::u32 next = (segment + 1) % angularSegments;
-                indexBuffer.push_back(firstVertex);
-                indexBuffer.push_back(firstVertex + 1 + segment);
-                indexBuffer.push_back(firstVertex + 1 + next);
-            }
-
-            // Quads between successive rings, as pairs of triangles.
-            for (AZ::u32 ring = 1; ring < radialSegments; ++ring)
-            {
-                const AZ::u32 innerRingStart = firstVertex + 1 + (ring - 1) * angularSegments;
-                const AZ::u32 outerRingStart = firstVertex + 1 + ring * angularSegments;
-                for (AZ::u32 segment = 0; segment < angularSegments; ++segment)
-                {
-                    const AZ::u32 next = (segment + 1) % angularSegments;
-                    indexBuffer.push_back(innerRingStart + segment);
-                    indexBuffer.push_back(outerRingStart + segment);
-                    indexBuffer.push_back(outerRingStart + next);
-
-                    indexBuffer.push_back(innerRingStart + segment);
-                    indexBuffer.push_back(outerRingStart + next);
-                    indexBuffer.push_back(innerRingStart + next);
-                }
+                const float angle = AZ::Constants::TwoPi * aznumeric_cast<float>(spoke) / aznumeric_cast<float>(SpokeCount);
+                AppendLine(
+                    AZ::Vector3::CreateZero(), ConePoint(tanY, tanZ, angle, 1.0f, jointLocalRotation, scale), swingValid,
+                    lineBuffer, lineValidityBuffer);
             }
         }
 
@@ -184,54 +228,49 @@ namespace JoltPhysics
             float twistLowerDegrees,
             float twistUpperDegrees,
             float currentTwistDegrees,
-            const AZ::Quaternion& jointRotation,
+            const AZ::Quaternion& jointLocalRotation,
             float scale,
             AZ::u32 angularSubdivisions,
             AZStd::vector<AZ::Vector3>& lineBuffer,
             AZStd::vector<bool>& lineValidityBuffer)
         {
-            const AZ::u32 arcSegments = ClampSubdivisions(angularSubdivisions, 4, 64);
+            const AZ::u32 arcSegments =
+                AZ::GetClamp(angularSubdivisions, MinimumAngularSubdivisions, MaximumAngularSubdivisions);
 
-            // Sweep the whole span the joint could be in - the limits, widened to include
-            // where it actually is. A bone dragged past its limit then draws an arc that
-            // runs beyond the allowed part, with that overrun marked invalid, which is
-            // the whole point of reporting validity per segment.
-            const float sweepFrom = AZ::GetMin(twistLowerDegrees, currentTwistDegrees);
-            const float sweepTo = AZ::GetMax(twistUpperDegrees, currentTwistDegrees);
+            // The arc is the limit, drawn where the limit is. Where the joint actually sits
+            // is a separate line (AppendCurrentTwistLine), so an overrun shows as the
+            // marker standing outside an arc the renderer has turned the error colour.
+            const bool twistValid = currentTwistDegrees >= twistLowerDegrees && currentTwistDegrees <= twistUpperDegrees;
 
-            auto pointAt = [&jointRotation, scale](float degrees)
-            {
-                const float radians = AZ::DegToRad(degrees);
-                return jointRotation.TransformVector(AZ::Vector3(0.0f, cosf(radians), sinf(radians))) * scale;
-            };
+            AZ::Vector3 previous = TwistPoint(twistLowerDegrees, jointLocalRotation, scale);
 
-            AZ::Vector3 previous = pointAt(sweepFrom);
+            // The end spokes, so the range reads as a wedge rather than a floating arc.
+            AppendLine(AZ::Vector3::CreateZero(), previous, twistValid, lineBuffer, lineValidityBuffer);
+
             for (AZ::u32 segment = 1; segment <= arcSegments; ++segment)
             {
                 const float fraction = aznumeric_cast<float>(segment) / aznumeric_cast<float>(arcSegments);
-                const float degrees = sweepFrom + (sweepTo - sweepFrom) * fraction;
-                const AZ::Vector3 current = pointAt(degrees);
-
-                lineBuffer.push_back(previous);
-                lineBuffer.push_back(current);
-
-                // A segment counts as allowed when its midpoint is inside the limits, so
-                // one segment straddling a limit is not silently reported as fully valid.
-                const float midpoint = degrees - (sweepTo - sweepFrom) / (2.0f * aznumeric_cast<float>(arcSegments));
-                lineValidityBuffer.push_back(midpoint >= twistLowerDegrees && midpoint <= twistUpperDegrees);
-
+                const float degrees = twistLowerDegrees + (twistUpperDegrees - twistLowerDegrees) * fraction;
+                const AZ::Vector3 current = TwistPoint(degrees, jointLocalRotation, scale);
+                AppendLine(previous, current, twistValid, lineBuffer, lineValidityBuffer);
                 previous = current;
             }
 
-            // The two ends, as spokes back to the origin, so the range reads as a wedge
-            // rather than a floating arc.
-            lineBuffer.push_back(AZ::Vector3::CreateZero());
-            lineBuffer.push_back(pointAt(twistLowerDegrees));
-            lineValidityBuffer.push_back(true);
+            AppendLine(AZ::Vector3::CreateZero(), previous, twistValid, lineBuffer, lineValidityBuffer);
+        }
 
-            lineBuffer.push_back(AZ::Vector3::CreateZero());
-            lineBuffer.push_back(pointAt(twistUpperDegrees));
-            lineValidityBuffer.push_back(true);
+        void AppendCurrentTwistLine(
+            float currentTwistDegrees,
+            const AZ::Quaternion& jointLocalRotation,
+            float scale,
+            AZStd::vector<AZ::Vector3>& lineBuffer,
+            AZStd::vector<bool>& lineValidityBuffer)
+        {
+            // Drawn slightly longer than the arc so it stays readable where it crosses it.
+            constexpr float MarkerScale = 1.25f;
+            AppendLine(
+                AZ::Vector3::CreateZero(), TwistPoint(currentTwistDegrees, jointLocalRotation, scale * MarkerScale),
+                /*valid*/ true, lineBuffer, lineValidityBuffer);
         }
     } // namespace JointLimitMath
 } // namespace JoltPhysics

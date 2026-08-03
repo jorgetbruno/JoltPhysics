@@ -138,8 +138,10 @@ namespace JoltPhysics
 
     TEST_F(JoltJointHelpersTests, TheComputedFrameSitsOnTheRequestedAxisAndReadsAsRest)
     {
-        // The bone direction a ragdoll hands over. Deliberately not an axis of the child's
-        // frame, so an implementation that ignored it and used X would be caught.
+        // The bone direction a ragdoll hands over, in WORLD space - EMotionFX resolves it
+        // before calling. The child body is deliberately rotated, so reading the axis as
+        // child-local instead would land the frame somewhere else entirely and be caught
+        // here.
         const AZ::Vector3 axis = AZ::Vector3(0.0f, 1.0f, 0.0f);
         const AZ::Quaternion parentWorldRotation = AZ::Quaternion::CreateRotationZ(AZ::DegToRad(35.0f));
         const AZ::Quaternion childWorldRotation = AZ::Quaternion::CreateRotationX(AZ::DegToRad(-20.0f));
@@ -148,11 +150,16 @@ namespace JoltPhysics
             azrtti_typeid<JoltD6JointLimitConfiguration>(), parentWorldRotation, childWorldRotation, axis, {});
         ASSERT_NE(configuration, nullptr);
 
-        // The joint's X axis is its twist axis, and it must point along the axis asked for.
+        // The joint's X axis is its twist axis, and in world space it must be the axis
+        // that was asked for - not that axis pushed through the child's rotation.
         const AZ::Quaternion jointWorldRotation = childWorldRotation * configuration->m_childLocalRotation;
         const AZ::Vector3 jointX = jointWorldRotation.TransformVector(AZ::Vector3::CreateAxisX());
-        const AZ::Vector3 expectedAxis = childWorldRotation.TransformVector(axis.GetNormalized());
-        EXPECT_TRUE(jointX.IsClose(expectedAxis, 1e-3f));
+        EXPECT_TRUE(jointX.IsClose(axis.GetNormalized(), 1e-3f));
+
+        // And the parent names the same frame.
+        const AZ::Vector3 jointXFromParent =
+            (parentWorldRotation * configuration->m_parentLocalRotation).TransformVector(AZ::Vector3::CreateAxisX());
+        EXPECT_TRUE(jointXFromParent.IsClose(axis.GetNormalized(), 1e-3f));
 
         // Both bodies name the same frame, so the pose it was computed from is the joint's
         // rest pose: zero swing, zero twist. Without that, a ragdoll would start life
@@ -202,38 +209,75 @@ namespace JoltPhysics
         EXPECT_FALSE(warnings.m_warnings.empty()) << "the refusal was silent";
     }
 
-    TEST_F(JoltJointHelpersTests, ASwingConeIsDrawnAsASolidInsideItsOwnAngles)
+    TEST_F(JoltJointHelpersTests, LimitsAreDrawnAsLinesInTheJointFrameOfTheParentBody)
     {
+        // The caller transforms every point by the parent body's world transform before
+        // drawing it (CharacterPhysicsDebugDraw::RenderJointLimit), so the geometry must
+        // come out in the joint frame *within the parent* - carrying only
+        // m_parentLocalRotation. Folding the parent's own rotation in here as well would
+        // rotate the whole drawing twice, which is exactly what this catches: the parent
+        // is rotated a quarter turn and the child is not.
         JoltD6JointLimitConfiguration configuration;
         configuration.m_swingLimitY = 20.0f;
-        configuration.m_swingLimitZ = 40.0f;
+        configuration.m_swingLimitZ = 20.0f;
+        configuration.m_parentLocalRotation = AZ::Quaternion::CreateIdentity();
+        configuration.m_childLocalRotation = AZ::Quaternion::CreateIdentity();
 
         AZStd::vector<AZ::Vector3> vertexBuffer;
         AZStd::vector<AZ::u32> indexBuffer;
         AZStd::vector<AZ::Vector3> lineBuffer;
         AZStd::vector<bool> lineValidityBuffer;
 
+        const AZ::Quaternion parentRotation = AZ::Quaternion::CreateRotationZ(AZ::DegToRad(90.0f));
         m_helpers.GenerateJointLimitVisualizationData(
-            configuration, AZ::Quaternion::CreateIdentity(), AZ::Quaternion::CreateIdentity(), 1.0f, 16, 2,
-            vertexBuffer, indexBuffer, lineBuffer, lineValidityBuffer);
+            configuration, parentRotation, parentRotation, 1.0f, 16, 2, vertexBuffer, indexBuffer, lineBuffer,
+            lineValidityBuffer);
 
-        ASSERT_FALSE(vertexBuffer.empty());
-        ASSERT_FALSE(indexBuffer.empty());
-        EXPECT_EQ(indexBuffer.size() % 3, 0u) << "the mesh is drawn as triangles";
-        for (const AZ::u32 index : indexBuffer)
+        ASSERT_FALSE(lineBuffer.empty());
+        EXPECT_EQ(lineBuffer.size() % 2, 0u) << "lines are drawn as point pairs";
+        EXPECT_EQ(lineValidityBuffer.size(), lineBuffer.size() / 2)
+            << "validity is reported once per line, not once per point";
+
+        // The cone opens along the joint frame's X. With an identity parent-local
+        // rotation that is +X, whatever the parent body itself is doing.
+        float furthestAlongX = 0.0f;
+        for (const AZ::Vector3& point : lineBuffer)
         {
-            EXPECT_LT(index, vertexBuffer.size()) << "an index points past the end of the vertex buffer";
+            furthestAlongX = AZ::GetMax(furthestAlongX, point.GetX());
         }
+        EXPECT_GT(furthestAlongX, 0.5f) << "the drawing was rotated out of the joint frame";
 
-        // Every rim vertex has to sit inside the angles the limit was authored with -
-        // the drawn cone is what an author trusts when they decide a limit is right.
-        for (const AZ::Vector3& vertex : vertexBuffer)
+        // Nothing writes the triangle buffers: the renderer never draws them.
+        EXPECT_TRUE(vertexBuffer.empty());
+        EXPECT_TRUE(indexBuffer.empty());
+    }
+
+    TEST_F(JoltJointHelpersTests, TheDrawnConeStaysInsideTheAnglesItWasAuthoredWith)
+    {
+        JoltD6JointLimitConfiguration configuration;
+        configuration.m_swingLimitY = 20.0f;
+        configuration.m_swingLimitZ = 40.0f;
+        // Twist limits wide open, so the arc lines do not muddy the cone measurement.
+        configuration.m_twistLimitLower = -1.0f;
+        configuration.m_twistLimitUpper = 1.0f;
+
+        AZStd::vector<AZ::Vector3> vertexBuffer;
+        AZStd::vector<AZ::u32> indexBuffer;
+        AZStd::vector<AZ::Vector3> lineBuffer;
+        AZStd::vector<bool> lineValidityBuffer;
+
+        JointLimitMath::AppendSwingConeLines(
+            configuration.m_swingLimitY, configuration.m_swingLimitZ, 0.0f, 0.0f, AZ::Quaternion::CreateIdentity(),
+            1.0f, 16, 2, lineBuffer, lineValidityBuffer);
+
+        ASSERT_FALSE(lineBuffer.empty());
+        for (const AZ::Vector3& point : lineBuffer)
         {
-            if (vertex.GetLengthSq() < 1e-6f)
+            if (point.GetLengthSq() < 1e-6f)
             {
                 continue; // the apex
             }
-            const AZ::Vector3 direction = vertex.GetNormalized();
+            const AZ::Vector3 direction = point.GetNormalized();
             const float swingY = AZ::RadToDeg(atan2f(direction.GetY(), direction.GetX()));
             const float swingZ = AZ::RadToDeg(atan2f(direction.GetZ(), direction.GetX()));
             EXPECT_LE(fabsf(swingY), configuration.m_swingLimitY + Tolerance);
@@ -241,15 +285,26 @@ namespace JoltPhysics
         }
     }
 
-    TEST_F(JoltJointHelpersTests, ATwistArcMarksTheOverrunAsViolated)
+    TEST_F(JoltJointHelpersTests, AnEllipticalConeRejectsASwingThatIsInsideBothHalfAnglesAlone)
     {
-        // The child is twisted well past the limit. The arc is swept over the whole span
-        // so the excess is visible, and the segments beyond the limit report as invalid -
-        // which is how an over-rotated bone shows up in red rather than silently looking
-        // fine.
+        // 15 degrees each way is inside a 20 x 20 cone taken axis by axis, but outside the
+        // ellipse those two half-angles actually describe. Checking the axes independently
+        // would call this fine and draw a limit the solver would then break.
+        EXPECT_TRUE(JointLimitMath::IsSwingWithinLimits(19.0f, 0.0f, 20.0f, 20.0f));
+        EXPECT_TRUE(JointLimitMath::IsSwingWithinLimits(0.0f, 19.0f, 20.0f, 20.0f));
+        EXPECT_FALSE(JointLimitMath::IsSwingWithinLimits(15.0f, 15.0f, 20.0f, 20.0f));
+    }
+
+    TEST_F(JoltJointHelpersTests, AViolatedLimitMarksItsWholeDrawingAsViolated)
+    {
+        // The renderer colours per line, so a limit drawn half in the error colour would
+        // read as half of it being broken rather than the joint being outside it. The
+        // whole cone, or the whole arc, carries one verdict.
         JoltD6JointLimitConfiguration configuration;
         configuration.m_twistLimitLower = -30.0f;
         configuration.m_twistLimitUpper = 30.0f;
+        configuration.m_swingLimitY = 45.0f;
+        configuration.m_swingLimitZ = 45.0f;
 
         AZStd::vector<AZ::Vector3> vertexBuffer;
         AZStd::vector<AZ::u32> indexBuffer;
@@ -260,15 +315,14 @@ namespace JoltPhysics
             configuration, AZ::Quaternion::CreateIdentity(), Twist(80.0f), 1.0f, 16, 2, vertexBuffer, indexBuffer,
             lineBuffer, lineValidityBuffer);
 
-        ASSERT_FALSE(lineBuffer.empty());
-        EXPECT_EQ(lineBuffer.size() % 2, 0u) << "lines are drawn as point pairs";
-        EXPECT_EQ(lineValidityBuffer.size(), lineBuffer.size() / 2)
-            << "validity is reported once per line, not once per point";
-
+        ASSERT_FALSE(lineValidityBuffer.empty());
         const size_t violated =
             static_cast<size_t>(std::count(lineValidityBuffer.begin(), lineValidityBuffer.end(), false));
         EXPECT_GT(violated, 0u) << "a twist of 80 degrees against a 30 degree limit drew nothing as violated";
-        EXPECT_LT(violated, lineValidityBuffer.size()) << "the allowed part of the range was drawn as violated too";
+
+        // The swing is untouched by a pure twist, so its cone stays valid - and the
+        // current-twist marker is a readout rather than a limit, so it does too.
+        EXPECT_LT(violated, lineValidityBuffer.size()) << "the swing cone was condemned along with the twist";
     }
 
     TEST_F(JoltJointHelpersTests, AJointInsideItsLimitsDrawsNothingViolated)
@@ -308,5 +362,6 @@ namespace JoltPhysics
         EXPECT_TRUE(vertexBuffer.empty());
         EXPECT_TRUE(indexBuffer.empty());
         EXPECT_TRUE(lineBuffer.empty());
+        EXPECT_TRUE(lineValidityBuffer.empty());
     }
 } // namespace JoltPhysics
