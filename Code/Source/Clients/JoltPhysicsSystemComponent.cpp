@@ -196,38 +196,90 @@ namespace JoltPhysics
         // Draw everything regardless of camera distance (debug toggle is meant to show all).
         settings.m_drawDistance = 100000.0f;
 
+        // Jolt hands this renderer one primitive at a time, and each used to become two
+        // heap allocations and a bus broadcast of its own - so a mesh or heightfield level
+        // spent hundreds of thousands of allocations and broadcasts per frame, which made
+        // the toggle unusable on exactly the scenes it exists to inspect.
+        //
+        // Primitives are accumulated by colour instead and flushed once. Jolt uses a
+        // handful of colours (sleeping versus awake, per motion type), so a frame costs a
+        // handful of broadcasts rather than one per triangle. The buffers are static so
+        // they keep their capacity between frames rather than reallocating from nothing.
+        struct BatchedGeometry
+        {
+            AZStd::unordered_map<AZ::u32, AZStd::vector<AZ::Vector3>> m_linesByColor;
+            AZStd::unordered_map<AZ::u32, AZStd::vector<AZ::Vector3>> m_trianglesByColor;
+        };
+        static BatchedGeometry batched;
+
+        for (auto& [color, points] : batched.m_linesByColor)
+        {
+            points.clear();
+        }
+        for (auto& [color, points] : batched.m_trianglesByColor)
+        {
+            points.clear();
+        }
+
         settings.m_drawLineCB = [](const Physics::DebugDrawVertex& from, const Physics::DebugDrawVertex& to,
                                    [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
-                                   [[maybe_unused]] float thickness, [[maybe_unused]] void* udata)
+                                   [[maybe_unused]] float thickness, void* udata)
         {
-            const AZStd::vector<AZ::Vector3> points = { from.m_position, to.m_position };
-            AzFramework::DebugDisplayRequestBus::Broadcast(
-                &AzFramework::DebugDisplayRequests::DrawLines, points, from.m_color);
+            auto* geometry = static_cast<BatchedGeometry*>(udata);
+            AZStd::vector<AZ::Vector3>& points = geometry->m_linesByColor[from.m_color.ToU32()];
+            points.push_back(from.m_position);
+            points.push_back(to.m_position);
         };
 
         settings.m_drawTriBatchCB = [](const Physics::DebugDrawVertex* verts, AZ::u32 numVerts, const AZ::u32* indices,
                                        AZ::u32 numIndices,
                                        [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
-                                       [[maybe_unused]] void* udata)
+                                       void* udata)
         {
-            AZStd::vector<AZ::Vector3> positions;
-            AZStd::vector<AZ::u32> indexList;
-            positions.reserve(numVerts);
-            indexList.reserve(numIndices);
-            for (AZ::u32 i = 0; i < numVerts; ++i)
+            if (numVerts == 0 || numIndices == 0)
             {
-                positions.push_back(verts[i].m_position);
+                return;
             }
+
+            // Flattened rather than kept indexed: batches from different shapes cannot
+            // share an index base, and re-basing every batch to merge them would cost more
+            // than the vertices it saves at these sizes.
+            auto* geometry = static_cast<BatchedGeometry*>(udata);
+            AZStd::vector<AZ::Vector3>& points = geometry->m_trianglesByColor[verts[0].m_color.ToU32()];
             for (AZ::u32 i = 0; i < numIndices; ++i)
             {
-                indexList.push_back(indices[i]);
+                if (indices[i] < numVerts)
+                {
+                    points.push_back(verts[indices[i]].m_position);
+                }
             }
-            const AZ::Color color = numVerts > 0 ? verts[0].m_color : AZ::Color(0.0f, 1.0f, 0.0f, 1.0f);
-            AzFramework::DebugDisplayRequestBus::Broadcast(
-                &AzFramework::DebugDisplayRequests::DrawTrianglesIndexed, positions, indexList, color);
         };
 
+        settings.m_udata = &batched;
+
         DebugDrawPhysics(settings);
+
+        // One broadcast per colour, for the whole scene.
+        for (const auto& [packedColor, points] : batched.m_linesByColor)
+        {
+            if (!points.empty())
+            {
+                AZ::Color color;
+                color.FromU32(packedColor);
+                AzFramework::DebugDisplayRequestBus::Broadcast(
+                    &AzFramework::DebugDisplayRequests::DrawLines, points, color);
+            }
+        }
+        for (const auto& [packedColor, points] : batched.m_trianglesByColor)
+        {
+            if (!points.empty())
+            {
+                AZ::Color color;
+                color.FromU32(packedColor);
+                AzFramework::DebugDisplayRequestBus::Broadcast(
+                    &AzFramework::DebugDisplayRequests::DrawTriangles, points, color);
+            }
+        }
     }
 
     int JoltPhysicsSystemComponent::GetTickOrder()

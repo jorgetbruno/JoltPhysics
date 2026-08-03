@@ -42,11 +42,10 @@ deviations from PhysX behavior.
   the joint bus is addressed by entity id; see the joint-bus entry in DIVERGENCES.md for
   what lifting it would cost.
 
-- **`jolt_Debug` draws through `JPH::DebugRendererSimple`**, which re-tessellates every
-  shape each frame and emits one triangle at a time; the gem then turns each into two
-  heap allocations and a bus broadcast. Jolt's full `DebugRenderer` interface exists to
-  cache geometry per shape and redraw it by handle, which is what a large scene needs
-  before the toggle is usable there.
+- **`jolt_Debug` still re-tessellates every shape each frame.** Primitives are now
+  batched by colour into a handful of broadcasts per frame rather than one per triangle,
+  which was the dominant cost; the remaining work is Jolt's full `DebugRenderer`
+  interface, which caches a shape's geometry once and redraws it by handle.
 
 ## Build / Tooling
 
