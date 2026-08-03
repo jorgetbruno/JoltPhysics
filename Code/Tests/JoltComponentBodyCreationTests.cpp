@@ -837,6 +837,82 @@ namespace JoltPhysics
         entity->Deactivate();
     }
 
+    TEST_F(JoltSoftBodyCustomGeometryTests, ReadingParticlesIntoTheCallersBufferReusesIt)
+    {
+        // Anything drawing a soft body reads every particle every frame. GetVertexPositions
+        // hands back a new vector each time, which on a character's cloth mesh is a
+        // fifty-thousand-element allocation sixty times a second - so the read that reuses
+        // the caller's buffer has to be on the bus, not just inside the gem.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeGrid(5, vertices, indices);
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZStd::vector<AZ::Vector3> buffer;
+        bool copied = false;
+        JoltSoftBodyRequestBus::EventResult(
+            copied, entityId, &JoltSoftBodyRequests::CopyVertexPositions, buffer);
+        ASSERT_TRUE(copied);
+        ASSERT_EQ(buffer.size(), vertices.size());
+
+        const size_t capacityAfterFirstRead = buffer.capacity();
+        const AZ::Vector3* dataAfterFirstRead = buffer.data();
+
+        SimulateSeconds(0.2f);
+
+        JoltSoftBodyRequestBus::EventResult(
+            copied, entityId, &JoltSoftBodyRequests::CopyVertexPositions, buffer);
+        ASSERT_TRUE(copied);
+        EXPECT_EQ(buffer.capacity(), capacityAfterFirstRead);
+        EXPECT_EQ(buffer.data(), dataAfterFirstRead) << "the buffer was reallocated on a steady-state read";
+
+        // And it agrees with the allocating read it replaces.
+        AZStd::vector<AZ::Vector3> byValue;
+        JoltSoftBodyRequestBus::EventResult(byValue, entityId, &JoltSoftBodyRequests::GetVertexPositions);
+        ASSERT_EQ(byValue.size(), buffer.size());
+        for (size_t index = 0; index < byValue.size(); ++index)
+        {
+            EXPECT_TRUE(byValue[index].IsClose(buffer[index], 1e-3f));
+        }
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, ReadingParticlesOfABodyThatIsNotThereEmptiesTheBuffer)
+    {
+        // A caller polls this every frame, including the frames before the geometry lands
+        // and after the body goes away. Leaving the previous frame's particles in the buffer
+        // would draw a cloth that is no longer simulating anywhere.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        MakeGrid(3, vertices, indices);
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZStd::vector<AZ::Vector3> buffer;
+        bool copied = false;
+        JoltSoftBodyRequestBus::EventResult(
+            copied, entityId, &JoltSoftBodyRequests::CopyVertexPositions, buffer);
+        ASSERT_TRUE(copied);
+        ASSERT_FALSE(buffer.empty());
+
+        JoltSoftBodyRequestBus::Event(
+            entityId, &JoltSoftBodyRequests::SetCustomGeometry, AZStd::vector<AZ::Vector3>(),
+            AZStd::vector<AZ::u32>());
+
+        JoltSoftBodyRequestBus::EventResult(
+            copied, entityId, &JoltSoftBodyRequests::CopyVertexPositions, buffer);
+        EXPECT_FALSE(copied);
+        EXPECT_TRUE(buffer.empty());
+
+        entity->Deactivate();
+    }
+
     TEST_F(JoltSoftBodyCustomGeometryTests, ABodyWaitingForItsGeometryIsEmptyRatherThanBroken)
     {
         // A Custom body activates before whatever feeds it has anything to feed - an actor

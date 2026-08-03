@@ -1051,6 +1051,12 @@ feature, trust the topic sections below the milestones.**
 
   This is also the one rebuild here that runs when there is *no* body: a `Custom` body has
   nothing to build from until the geometry arrives, so it exists as an empty body first.
+- **Particle positions can be read into a buffer the caller keeps.** `GetVertexPositions`
+  returns by value, which is right for a script or a one-off read and wrong sixty times a
+  second: a character's cloth mesh is tens of thousands of particles, so polling it that
+  way allocates and frees that vector every frame. `CopyVertexPositions` fills a buffer the
+  caller owns and is the one to use per frame. The gem's own debug draw already worked this
+  way internally — publishing it is what let the cloth gem stop allocating.
 - **Skinning wraps Jolt's skinned constraints, not a render pipeline.**
   `SetSkinningData` (inverse bind transforms + per-particle joint weights and max
   drift) bakes `Skinned` constraints into the shared settings, and

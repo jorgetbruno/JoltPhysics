@@ -2,6 +2,7 @@
 
 #include <AzCore/Asset/AssetSerializer.h>
 #include <AzCore/Component/Entity.h>
+#include <AzCore/Debug/Profiler.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -613,6 +614,19 @@ namespace JoltPhysics
             softBody->CopyVertexPositions(positions);
         }
         return positions;
+    }
+
+    bool JoltSoftBodyComponent::CopyVertexPositions(AZStd::vector<AZ::Vector3>& outPositions) const
+    {
+        AZ_PROFILE_FUNCTION(Physics);
+
+        auto* softBody = GetSoftBody();
+        if (softBody == nullptr)
+        {
+            outPositions.clear();
+            return false;
+        }
+        return softBody->CopyVertexPositions(outPositions);
     }
 
     AZStd::vector<AZ::u32> JoltSoftBodyComponent::GetTriangleIndices() const

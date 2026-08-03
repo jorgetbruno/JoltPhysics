@@ -77,6 +77,7 @@ namespace JoltPhysics
         AZ::Aabb GetWorldBounds() const override;
         AZ::Vector3 GetVertexPosition(AZ::u32 index) const override;
         AZStd::vector<AZ::Vector3> GetVertexPositions() const override;
+        bool CopyVertexPositions(AZStd::vector<AZ::Vector3>& outPositions) const override;
         AZStd::vector<AZ::u32> GetTriangleIndices() const override;
         bool SetVertexPinned(AZ::u32 index, bool pinned) override;
         bool IsVertexPinned(AZ::u32 index) const override;

@@ -153,6 +153,14 @@ namespace JoltPhysics
         //! feasible and not. Empty when the body is not in a scene.
         virtual AZStd::vector<AZ::Vector3> GetVertexPositions() const = 0;
 
+        //! The same positions, copied into a vector the caller owns and keeps.
+        //!
+        //! This is the one to use every frame. GetVertexPositions returns by value, so a
+        //! renderer polling a cloth of fifty thousand particles allocates and frees that
+        //! vector sixty times a second; reusing one buffer costs nothing after the first
+        //! call. Returns false and leaves the buffer empty when the body is not in a scene.
+        virtual bool CopyVertexPositions(AZStd::vector<AZ::Vector3>& outPositions) const = 0;
+
         //! Triangle indices into the particle array, three per triangle, for building a
         //! surface from GetVertexPositions. Fixed until the body rebuilds.
         virtual AZStd::vector<AZ::u32> GetTriangleIndices() const = 0;
