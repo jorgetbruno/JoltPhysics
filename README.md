@@ -125,6 +125,15 @@ The physics gem is deliberately renderer-free. Features that need Atom, or that 
 provides and this gem does not wrap, live in sibling gems that reach the backend through
 `JoltPhysicsSystemRequests` — no changes to this gem required:
 
+> **One bounded exception, stated rather than left to be discovered.** The *editor* target
+> `JoltPhysics.Editor.Private.Object` links `Gem::CommonFeaturesAtom.Static`, for the one
+> thing it uses: `MeshComponentBus`, so the mesh collider component can offer the entity's
+> own render mesh when picking a collider asset. The runtime, API and client targets link
+> no Atom at all, which is the part that matters — a game running this gem needs no
+> renderer. An O3DE editor always has one. Removing it would cost the asset
+> auto-assignment and nothing else.
+
+
 | Gem | Adds | Needs Atom |
 |---|---|---|
 | **JoltBuoyancy** | `Jolt Water Volume` — boxes of water that float, sink and drift rigid bodies | no |

@@ -138,6 +138,50 @@ namespace JoltPhysics
             return AZ::Vector3::CreateZero();
         }
 
+        //! Runs the request's filter callback before narrow phase, for the queries where
+        //! that is the difference between filtering a hit and never generating it.
+        //!
+        //! Colliding a shape against a soft body walks its faces; a face crushed to no area
+        //! has no normal to seed GJK with, and Jolt reports an assertion. The callback that
+        //! would have skipped that body was only ever applied to hits already returned - so
+        //! a caller who knew the problem, read the note in KNOWN_ISSUES and wrote a filter
+        //! to avoid cloth still walked those faces. Consulted here, the body is rejected in
+        //! the broad phase and the faces are never touched.
+        //!
+        //! Only the body is available at this point, not the sub-shape, so a callback that
+        //! discriminates on the collider still gets its second look per hit afterwards.
+        class SceneQueryPreNarrowPhaseBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            SceneQueryPreNarrowPhaseBodyFilter(const AzPhysics::OverlapRequest& request, JoltScene* scene)
+                : m_request(request)
+                , m_scene(scene)
+            {
+            }
+
+            bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                if (!m_request.m_filterCallback || !m_scene)
+                {
+                    return true;
+                }
+
+                const AzPhysics::SimulatedBody* simulatedBody =
+                    m_scene->GetSimulatedBodyFromHandle(m_scene->GetBodyHandleFromJoltId(body.GetID()));
+                if (!simulatedBody)
+                {
+                    return true;
+                }
+                // OverlapFilterCallback returns bool, unlike the raycast and shapecast
+                // callbacks which return a QueryHitType.
+                return m_request.m_filterCallback(simulatedBody, nullptr);
+            }
+
+        private:
+            const AzPhysics::OverlapRequest& m_request;
+            JoltScene* m_scene;
+        };
+
         // Applies the request's filter callback (if any) to a candidate hit.
         // Returns true when the hit should be included in the results.
         bool PassesFilterCallback(
@@ -479,8 +523,9 @@ namespace JoltPhysics
 
         JPH::CollideShapeSettings settings;
         JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        const SceneQueryPreNarrowPhaseBodyFilter bodyFilter(request, scene);
         query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), pose, settings, JPH::RVec3::sZero(), collector,
-            broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
+            broadPhaseLayerFilter, objectLayerFilter, bodyFilter, shapeFilter);
 
         // CollideShape reports every contact point; an overlap query reports one hit per body.
         AZStd::unordered_set<AZ::u32> reportedBodies;

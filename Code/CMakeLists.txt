@@ -273,7 +273,12 @@ if(PAL_TRAIT_BUILD_HOST_TOOLS)
                 AZ::SceneCore
                 AZ::SceneData
                 Gem::LmbrCentral.Editor
-                Gem::CommonFeaturesAtom.Static # MeshComponentBus for asset auto-assignment
+                # The gem's one Atom dependency, and it is editor-only: MeshComponentBus,
+                # so the mesh collider can offer the entity's own render mesh when picking
+                # a collider asset. The runtime, API and client targets link no Atom, which
+                # is what "renderer-free" is protecting - a game needs no renderer, an
+                # editor always has one. Documented in README.md under "The gem family".
+                Gem::CommonFeaturesAtom.Static
                 ${gem_name}.Private.Object
                 Jolt::Jolt
                 joltphysics_vhacd # editor-time convex decomposition (VHACD); runtime stays free of it
