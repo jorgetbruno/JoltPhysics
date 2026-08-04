@@ -20,8 +20,29 @@ namespace JoltPhysics
         static constexpr JPH::uint NumLayers = 2;
     }
 
+    //! What kind of body holds an object layer. Only used to keep characters out of soft
+    //! bodies, but it belongs here rather than at any one call site, because that is the
+    //! single place every collision path already consults - the character's own sweep, the
+    //! ground query Jolt's rigid character runs and gives no filter hook for, the inner
+    //! body's simulation contacts, and the broadphase.
+    //!
+    //! Why characters and cloth do not mix: a character controller does not negotiate with
+    //! what it hits, it pushes itself out, and cloth has nothing to push back with. It gets
+    //! crushed until a triangle has no area, and Jolt cannot collide against a face with no
+    //! normal to separate along. The engine's own cloth settles it the same way - the
+    //! NvCloth gem has no PhysX dependency at all, so its cloth is never in the physics
+    //! scene and a character cannot reach it.
+    //!
+    //! Rigid bodies still collide with soft bodies both ways; only characters are excluded.
+    enum class JoltBodyClass : AZ::u8
+    {
+        Rigid,
+        SoftBody,
+        Character,
+    };
+
     //! Assigns a Jolt object layer to each distinct combination of AzPhysics collision
-    //! layer, collision group mask and motion class (moving or not).
+    //! layer, collision group mask, motion class (moving or not) and body class.
     //!
     //! AzPhysics filtering is per body - two bodies collide only if each one's group mask
     //! contains the other one's layer - which cannot be expressed as a function of two
@@ -44,13 +65,18 @@ namespace JoltPhysics
 
         //! The object layer for this combination, registering one if it is new.
         //! Safe to call from the main thread while jobs read; readers never block.
-        JPH::ObjectLayer Acquire(AZ::u64 collidesWithMask, AZ::u8 collisionLayerIndex, bool isMoving);
+        JPH::ObjectLayer Acquire(
+            AZ::u64 collidesWithMask,
+            AZ::u8 collisionLayerIndex,
+            bool isMoving,
+            JoltBodyClass bodyClass = JoltBodyClass::Rigid);
 
         struct Entry
         {
             AZ::u64 m_collidesWithMask = AZStd::numeric_limits<AZ::u64>::max();
             AZ::u8 m_collisionLayerIndex = 0;
             bool m_isMoving = true;
+            JoltBodyClass m_bodyClass = JoltBodyClass::Rigid;
         };
 
         const Entry& Get(JPH::ObjectLayer objectLayer) const
@@ -127,12 +153,18 @@ namespace JoltPhysics
 
     //! The object layer for a body built from this collider configuration. Falls back to
     //! the default moving/non-moving layer when there is no configuration to read.
-    JPH::ObjectLayer AcquireObjectLayer(const Physics::ColliderConfiguration* colliderConfiguration, bool isMoving);
+    JPH::ObjectLayer AcquireObjectLayer(
+        const Physics::ColliderConfiguration* colliderConfiguration,
+        bool isMoving,
+        JoltBodyClass bodyClass = JoltBodyClass::Rigid);
 
     //! The object layer for a body whose layer and group are configured directly (the
     //! character controller carries them outside a collider configuration).
     JPH::ObjectLayer AcquireObjectLayer(
-        const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId, bool isMoving);
+        const AzPhysics::CollisionLayer& collisionLayer,
+        const AzPhysics::CollisionGroups::Id& collisionGroupId,
+        bool isMoving,
+        JoltBodyClass bodyClass = JoltBodyClass::Rigid);
 
     //! Whether a query with this collision group mask should see bodies on this layer.
     bool ObjectLayerMatchesQueryMask(JPH::ObjectLayer objectLayer, AZ::u64 collisionGroupMask);

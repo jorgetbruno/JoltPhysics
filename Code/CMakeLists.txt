@@ -28,7 +28,10 @@ if(NOT JOLTPHYSICS_USE_EXTERNAL)
     set(CPP_RTTI_ENABLED ON)
     set(OBJECT_LAYER_BITS 32)
     set(CROSS_PLATFORM_DETERMINISTIC OFF)
-    set(USE_ASSERTS ON)
+    # Left OFF here and switched on per configuration below. Jolt's own option makes
+    # JPH_ENABLE_ASSERTS a PUBLIC define for every configuration, which put its assertion
+    # checks in shipped release builds.
+    set(USE_ASSERTS OFF)
     set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF)
     set(INTERPROCEDURAL_OPTIMIZATION OFF)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
@@ -54,6 +57,15 @@ if(NOT JOLTPHYSICS_USE_EXTERNAL)
     target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
     target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:profile>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
     target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:Debug>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
+
+    # Assertions everywhere a developer is looking, and nowhere a player is. Jolt asserts on
+    # geometry it cannot work with, which is worth knowing about while building a level and
+    # is pure cost in a shipped title. PUBLIC and per-config so the gem and Jolt always
+    # agree - JPH_IF_ENABLE_ASSERTS adds members to Jolt's types, so a mismatch between the
+    # library and its callers is an ODR bug rather than a missing warning.
+    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_ENABLE_ASSERTS>")
+    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:profile>:JPH_ENABLE_ASSERTS>")
+    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:Debug>:JPH_ENABLE_ASSERTS>")
 
     if(FLOATING_POINT_EXCEPTIONS_ENABLED AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
         target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_FLOATING_POINT_EXCEPTIONS_ENABLED>")

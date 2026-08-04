@@ -315,6 +315,9 @@ namespace JoltPhysics
         JPH::Ref<JPH::SoftBodySharedSettings> BuildSharedSettings(
             AZStd::vector<AZ::u32>& outTriangleIndices, float& outPerVertexInvMass) const;
 
+        //! Says which entity lost faces and how many, once per build, for every shape.
+        void ReportDegenerateFaces(size_t dropped, size_t total, size_t orphans) const;
+
         //! Creates and adds the body. Assumes the caller holds m_mutex and that any
         //! previous body has been removed.
         bool CreateBody();

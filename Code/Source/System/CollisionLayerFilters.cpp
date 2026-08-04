@@ -17,7 +17,8 @@ namespace JoltPhysics
         m_count.store(2, AZStd::memory_order_release);
     }
 
-    JPH::ObjectLayer JoltObjectLayerRegistry::Acquire(AZ::u64 collidesWithMask, AZ::u8 collisionLayerIndex, bool isMoving)
+    JPH::ObjectLayer JoltObjectLayerRegistry::Acquire(
+        AZ::u64 collidesWithMask, AZ::u8 collisionLayerIndex, bool isMoving, JoltBodyClass bodyClass)
     {
         AZStd::lock_guard lock(m_registrationMutex);
 
@@ -26,7 +27,7 @@ namespace JoltPhysics
         {
             const Entry& entry = m_entries[i];
             if (entry.m_collidesWithMask == collidesWithMask && entry.m_collisionLayerIndex == collisionLayerIndex &&
-                entry.m_isMoving == isMoving)
+                entry.m_isMoving == isMoving && entry.m_bodyClass == bodyClass)
             {
                 return i;
             }
@@ -43,7 +44,7 @@ namespace JoltPhysics
 
         // Fill the entry before publishing it, so a reader that sees the new count also
         // sees a complete entry.
-        m_entries[count] = { collidesWithMask, collisionLayerIndex, isMoving };
+        m_entries[count] = { collidesWithMask, collisionLayerIndex, isMoving, bodyClass };
         m_count.store(static_cast<JPH::ObjectLayer>(count + 1), AZStd::memory_order_release);
         return count;
     }
@@ -118,6 +119,17 @@ namespace JoltPhysics
             return false;
         }
 
+        // Characters and cloth do not meet. See JoltBodyClass for why; the short version is
+        // that a character crushes cloth into faces Jolt cannot collide against, and the
+        // engine's own cloth is not in the physics scene at all.
+        const bool characterVsSoftBody =
+            (entry1.m_bodyClass == JoltBodyClass::Character && entry2.m_bodyClass == JoltBodyClass::SoftBody) ||
+            (entry1.m_bodyClass == JoltBodyClass::SoftBody && entry2.m_bodyClass == JoltBodyClass::Character);
+        if (characterVsSoftBody)
+        {
+            return false;
+        }
+
         // AzPhysics semantics: two bodies collide only if each one's collision group mask
         // contains the other one's collision layer.
         const AZ::u64 layerBit1 = AZ::u64(1) << entry1.m_collisionLayerIndex;
@@ -126,7 +138,10 @@ namespace JoltPhysics
     }
 
     JPH::ObjectLayer AcquireObjectLayer(
-        const AzPhysics::CollisionLayer& collisionLayer, const AzPhysics::CollisionGroups::Id& collisionGroupId, bool isMoving)
+        const AzPhysics::CollisionLayer& collisionLayer,
+        const AzPhysics::CollisionGroups::Id& collisionGroupId,
+        bool isMoving,
+        JoltBodyClass bodyClass)
     {
         auto* joltSystem = GetJoltSystem();
         if (!joltSystem)
@@ -138,10 +153,11 @@ namespace JoltPhysics
             joltSystem->GetJoltConfiguration().m_collisionConfig.m_collisionGroups.FindGroupById(collisionGroupId);
 
         return joltSystem->GetObjectLayerRegistry().Acquire(
-            group.GetMask(), static_cast<AZ::u8>(collisionLayer.GetIndex()), isMoving);
+            group.GetMask(), static_cast<AZ::u8>(collisionLayer.GetIndex()), isMoving, bodyClass);
     }
 
-    JPH::ObjectLayer AcquireObjectLayer(const Physics::ColliderConfiguration* colliderConfiguration, bool isMoving)
+    JPH::ObjectLayer AcquireObjectLayer(
+        const Physics::ColliderConfiguration* colliderConfiguration, bool isMoving, JoltBodyClass bodyClass)
     {
         if (!colliderConfiguration)
         {
@@ -149,7 +165,7 @@ namespace JoltPhysics
         }
 
         return AcquireObjectLayer(
-            colliderConfiguration->m_collisionLayer, colliderConfiguration->m_collisionGroupId, isMoving);
+            colliderConfiguration->m_collisionLayer, colliderConfiguration->m_collisionGroupId, isMoving, bodyClass);
     }
 
     bool ObjectLayerMatchesQueryMask(JPH::ObjectLayer objectLayer, AZ::u64 collisionGroupMask)

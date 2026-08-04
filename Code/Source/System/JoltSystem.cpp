@@ -31,10 +31,28 @@ namespace JoltPhysics
         }
 
 #ifdef JPH_ENABLE_ASSERTS
+        //! Report Jolt's asserts; do not break on them.
+        //!
+        //! Jolt's contract is that returning true triggers a breakpoint
+        //! (`Jolt/Core/IssueReporting.h`), and the macro is
+        //! `if (!(expr) && AssertFailedParamHelper(...)) JPH_BREAKPOINT;`. Returning true
+        //! here therefore turned every Jolt assert into a dead process - which is how a
+        //! zero-area cloth triangle took the editor down, when what it should have cost is
+        //! one contact resolved along a garbage direction for one frame.
+        //!
+        //! An assert is Jolt telling us we handed it something it cannot work with. That is
+        //! worth an error in the log, loudly, with the file and line - and it is worth
+        //! fixing, which is what the callers of this now do. It is not worth killing a
+        //! level the author is halfway through building, and it is certainly not worth
+        //! killing a shipped title: assertions are compiled into every configuration this
+        //! gem builds, so returning true broke in release too.
+        //!
+        //! A developer who does want to stop on the assert can attach a debugger and break
+        //! on AZ_Error, which is where the message already goes.
         static bool JoltAssertCallback(const char* expression, const char* message, const char* file, unsigned int line)
         {
             AZ_Error("JoltPhysics", false, "Jolt Assert: %s (%s) at %s:%u", expression, message ? message : "", file, line);
-            return true;
+            return false;
         }
 #endif
     }

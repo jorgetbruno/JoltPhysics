@@ -16,6 +16,7 @@
 #include <Shape/JoltMeshUtils.h>
 #include <System/CollisionLayerFilters.h>
 #include <Utils/Conversions.h>
+#include <Utils/JoltDiagnostics.h>
 
 #include <Jolt/Core/TempAllocator.h>
 
@@ -49,26 +50,13 @@ namespace JoltPhysics
             return JPH::Quat(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
         }
 
-        //! Two triangles per grid quad, wound counter-clockwise seen from +Z so the cloth's
-        //! front face points the same way the entity does.
-        void AddQuad(
-            JPH::SoftBodySharedSettings& settings,
-            AZStd::vector<AZ::u32>& indices,
-            AZ::u32 a,
-            AZ::u32 b,
-            AZ::u32 c,
-            AZ::u32 d)
-        {
-            settings.AddFace(JPH::SoftBodySharedSettings::Face(a, b, c));
-            settings.AddFace(JPH::SoftBodySharedSettings::Face(a, c, d));
-            indices.insert(indices.end(), { a, b, c, a, c, d });
-        }
-
         //! Jolt collides a convex shape against a soft body by walking its faces and seeding
         //! GJK with each triangle's normal - the raw cross product, not a normalised one -
         //! and it asserts if that seed is near zero, because a face with no area gives no
-        //! direction to separate along. CollideConvexVsTriangles.cpp does this, and its own
-        //! comment says a degenerate triangle is the likely cause when the assert fires.
+        //! direction to separate along. `SoftBodyShape::sCollideConvexVsSoftBody` walks the
+        //! faces, `CollideConvexVsTriangles::Collide` computes the normal, and the assert
+        //! itself is `JPH_ASSERT(!ioV.IsNearZero())` in `EPAPenetrationDepth.h`, whose
+        //! comment names a degenerate triangle as the likely cause.
         //!
         //! The tolerance is Vec3::IsNearZero's default of 1e-12 on the squared length, so a
         //! triangle is unusable to Jolt below about 5e-7 m^2 - roughly a millimetre on a
@@ -77,10 +65,15 @@ namespace JoltPhysics
         //!
         //! This matters because nothing is checked until something touches the body. A
         //! sliver sits there simulating quite happily until the first collision query
-        //! reaches it - a character controller stepping into the cloth is enough - and then
-        //! the process dies inside Jolt, in a stack that names neither the mesh nor us.
-        //! Art meshes carry slivers all the time: hair cards, crests, fans collapsed to a
-        //! point. So faces are filtered here, at the one place they are made.
+        //! reaches it, and Jolt then reports an assert from a stack that names neither the
+        //! mesh nor us. Art meshes carry slivers all the time: hair cards, crests, fans
+        //! collapsed to a point.
+        //!
+        //! Every face this gem builds goes through here - the procedural shapes via AddQuad
+        //! below as well as authored geometry - because the procedural ones are no more
+        //! immune than a mesh: a Cloth 1 mm on a side, or one whose Size has a zero
+        //! component, produces exactly the same unusable triangle from values the editor
+        //! is happy to offer.
         constexpr float MinFaceCrossLengthSq = 1.0e-12f;
 
         bool AddTriangle(
@@ -113,8 +106,27 @@ namespace JoltPhysics
             return true;
         }
 
+        //! Two triangles per grid quad, wound counter-clockwise seen from +Z so the cloth's
+        //! front face points the same way the entity does. Returns how many of the two were
+        //! unusable, so a caller building a whole surface can report the total.
+        size_t AddQuad(
+            JPH::SoftBodySharedSettings& settings,
+            AZStd::vector<AZ::u32>& indices,
+            AZ::u32 a,
+            AZ::u32 b,
+            AZ::u32 c,
+            AZ::u32 d)
+        {
+            size_t dropped = 0;
+            dropped += AddTriangle(settings, indices, a, b, c) ? 0 : 1;
+            dropped += AddTriangle(settings, indices, a, c, d) ? 0 : 1;
+            return dropped;
+        }
+
         //! Fills the triangle list from faces Jolt generated itself, for the shapes built by
-        //! a Jolt helper rather than here.
+        //! a Jolt helper rather than here. Jolt's own generators do not produce degenerate
+        //! faces, so this copies rather than filters; it is kept honest by
+        //! DropDegenerateFaces below, which the caller runs over the result.
         void CollectFaces(const JPH::SoftBodySharedSettings& settings, AZStd::vector<AZ::u32>& indices)
         {
             indices.clear();
@@ -123,6 +135,88 @@ namespace JoltPhysics
             {
                 indices.insert(indices.end(), { face.mVertex[0], face.mVertex[1], face.mVertex[2] });
             }
+        }
+
+        //! Rebuilds a face list keeping only what Jolt can collide against, for geometry
+        //! that arrived already assembled (Jolt's own shape generators, or a cooked mesh).
+        //! Returns the number dropped. Faces are rebuilt in place rather than erased one at
+        //! a time because Jolt's Face carries no removal API.
+        size_t DropDegenerateFaces(JPH::SoftBodySharedSettings& settings, AZStd::vector<AZ::u32>& indices)
+        {
+            JPH::Array<JPH::SoftBodySharedSettings::Face> kept;
+            kept.reserve(settings.mFaces.size());
+            AZStd::vector<AZ::u32> keptIndices;
+            keptIndices.reserve(indices.size());
+
+            size_t dropped = 0;
+            for (const JPH::SoftBodySharedSettings::Face& face : settings.mFaces)
+            {
+                const AZ::u32 a = face.mVertex[0];
+                const AZ::u32 b = face.mVertex[1];
+                const AZ::u32 c = face.mVertex[2];
+                const size_t vertexCount = settings.mVertices.size();
+                bool usable = a != b && b != c && a != c && a < vertexCount && b < vertexCount && c < vertexCount;
+                if (usable)
+                {
+                    const auto position = [&settings](AZ::u32 index)
+                    {
+                        const JPH::Float3& p = settings.mVertices[index].mPosition;
+                        return AZ::Vector3(p.x, p.y, p.z);
+                    };
+                    usable = (position(b) - position(a)).Cross(position(c) - position(a)).GetLengthSq() >
+                        MinFaceCrossLengthSq;
+                }
+
+                if (usable)
+                {
+                    kept.push_back(face);
+                    keptIndices.insert(keptIndices.end(), { a, b, c });
+                }
+                else
+                {
+                    ++dropped;
+                }
+            }
+
+            if (dropped > 0)
+            {
+                settings.mFaces = AZStd::move(kept);
+                indices = AZStd::move(keptIndices);
+            }
+            return dropped;
+        }
+
+        //! Particles that no surviving face refers to. Left free they would fall out of the
+        //! body forever - Jolt builds its edge, shear and bend constraints by walking faces,
+        //! so a particle with no face has no constraint holding it to anything, and gravity
+        //! is the only thing still acting on it. Their indices have to stay valid, because
+        //! JoltCloth maps render vertices onto particle indices and would scatter the whole
+        //! mesh wrong if this compacted the array, so they are pinned where they are instead
+        //! of removed.
+        size_t PinOrphanParticles(JPH::SoftBodySharedSettings& settings)
+        {
+            AZStd::vector<bool> referenced(settings.mVertices.size(), false);
+            for (const JPH::SoftBodySharedSettings::Face& face : settings.mFaces)
+            {
+                for (const JPH::uint32 vertex : face.mVertex)
+                {
+                    if (vertex < referenced.size())
+                    {
+                        referenced[vertex] = true;
+                    }
+                }
+            }
+
+            size_t orphans = 0;
+            for (size_t vertex = 0; vertex < settings.mVertices.size(); ++vertex)
+            {
+                if (!referenced[vertex] && settings.mVertices[vertex].mInvMass != 0.0f)
+                {
+                    settings.mVertices[vertex].mInvMass = 0.0f;
+                    ++orphans;
+                }
+            }
+            return orphans;
         }
 
         //! Spreads the requested total mass over the free particles. Jolt works in inverse
@@ -282,7 +376,9 @@ namespace JoltPhysics
 
         AttachToPhysicsSystem(
             scene->GetJoltPhysicsSystem(),
-            AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true));
+            AcquireObjectLayer(
+                m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true,
+                JoltBodyClass::SoftBody));
     }
 
     void JoltSoftBody::RemoveFromJoltWorld()
@@ -406,7 +502,9 @@ namespace JoltPhysics
         // lived in a separate gem; inside the gem that round trip buys nothing.
         // Soft bodies are always moving: there is no static variety.
         const JPH::ObjectLayer objectLayer =
-            AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true);
+            AcquireObjectLayer(
+                m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true,
+                JoltBodyClass::SoftBody);
 
         return AttachToPhysicsSystem(joltScene->GetJoltPhysicsSystem(), objectLayer);
     }
@@ -714,7 +812,9 @@ namespace JoltPhysics
 
     void JoltSoftBody::RefreshObjectLayer()
     {
-        m_objectLayer = AcquireObjectLayer(m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true);
+        m_objectLayer = AcquireObjectLayer(
+                m_settings.m_collisionLayer, m_settings.m_collisionGroupId, /*isMoving*/ true,
+                JoltBodyClass::SoftBody);
 
         if (m_physicsSystem && !m_bodyId.IsInvalid())
         {
@@ -1174,6 +1274,11 @@ namespace JoltPhysics
         outTriangleIndices.clear();
         outPerVertexInvMass = 1.0f;
 
+        // Counted across every branch and reported once at the end, so a Cloth built at a
+        // degenerate size is as visible as a mesh full of slivers.
+        size_t droppedFaces = 0;
+        size_t totalFaces = 0;
+
         const AZ::u32 resolution = AZ::GetMax(m_settings.m_resolution, 2u);
 
         if (m_settings.m_shape == JoltSoftBodyShape::Cube)
@@ -1199,7 +1304,12 @@ namespace JoltPhysics
 
             outPerVertexInvMass = DistributeMass(*settings, m_settings.m_mass);
             CollectFaces(*settings, outTriangleIndices);
-            return settings;
+            // sCreateCube is Jolt's own generator and does not make slivers, but a Cube of
+            // zero size would, and the check costs one cross product per face.
+            totalFaces = settings->mFaces.size();
+            droppedFaces = DropDegenerateFaces(*settings, outTriangleIndices);
+            ReportDegenerateFaces(droppedFaces, totalFaces, PinOrphanParticles(*settings));
+            return settings->mFaces.empty() ? nullptr : settings;
         }
 
         JPH::Ref<JPH::SoftBodySharedSettings> settings = new JPH::SoftBodySharedSettings();
@@ -1263,7 +1373,7 @@ namespace JoltPhysics
                 vertex.mInvMass = 1.0f;
                 settings->mVertices.push_back(vertex);
             }
-            size_t droppedFaces = 0;
+            totalFaces = weldedIndices.size() / 3;
             for (size_t i = 0; i + 2 < weldedIndices.size(); i += 3)
             {
                 if (!AddTriangle(
@@ -1273,17 +1383,9 @@ namespace JoltPhysics
                 }
             }
 
-            // Said out loud, because the alternative to dropping these was a crash: an
-            // author whose mesh loses faces should be able to find out why from the log
-            // rather than by noticing a hole in the cloth.
-            AZ_Warning("JoltPhysics", droppedFaces == 0,
-                "Dropped %zu of %zu faces from custom soft body geometry: they have no area for Jolt to work with. "
-                "Slivers and collapsed triangles are common in art meshes and crash Jolt's collision code, so they "
-                "cannot be simulated.",
-                droppedFaces, weldedIndices.size() / 3);
-
             if (settings->mFaces.empty())
             {
+                ReportDegenerateFaces(droppedFaces, totalFaces, 0);
                 return nullptr;
             }
         }
@@ -1332,7 +1434,8 @@ namespace JoltPhysics
             {
                 for (AZ::u32 x = 0; x + 1 < resolution; ++x)
                 {
-                    AddQuad(
+                    totalFaces += 2;
+                    droppedFaces += AddQuad(
                         *settings, outTriangleIndices, index(x, y), index(x + 1, y), index(x + 1, y + 1), index(x, y + 1));
                 }
             }
@@ -1383,15 +1486,17 @@ namespace JoltPhysics
             // it simply never inflates, with no warning.
             for (AZ::u32 segment = 0; segment < segments; ++segment)
             {
-                AddTriangle(
-                    *settings, outTriangleIndices, northPole, ringVertex(1, segment), ringVertex(1, segment + 1));
+                ++totalFaces;
+                droppedFaces += AddTriangle(
+                    *settings, outTriangleIndices, northPole, ringVertex(1, segment), ringVertex(1, segment + 1)) ? 0 : 1;
             }
 
             for (AZ::u32 ring = 1; ring + 1 < rings; ++ring)
             {
                 for (AZ::u32 segment = 0; segment < segments; ++segment)
                 {
-                    AddQuad(
+                    totalFaces += 2;
+                    droppedFaces += AddQuad(
                         *settings, outTriangleIndices, ringVertex(ring, segment), ringVertex(ring + 1, segment),
                         ringVertex(ring + 1, segment + 1), ringVertex(ring, segment + 1));
                 }
@@ -1399,9 +1504,10 @@ namespace JoltPhysics
 
             for (AZ::u32 segment = 0; segment < segments; ++segment)
             {
-                AddTriangle(
+                ++totalFaces;
+                droppedFaces += AddTriangle(
                     *settings, outTriangleIndices, southPole, ringVertex(rings - 1, segment + 1),
-                    ringVertex(rings - 1, segment));
+                    ringVertex(rings - 1, segment)) ? 0 : 1;
             }
         }
 
@@ -1422,6 +1528,11 @@ namespace JoltPhysics
         case JoltSoftBodyLraType::None:
             break;
         }
+        // Before CreateConstraints, which walks the faces: a particle pinned here takes no
+        // share of the mass below, which is what stops an orphan skewing the distribution.
+        const size_t orphans = PinOrphanParticles(*settings);
+        ReportDegenerateFaces(droppedFaces, totalFaces, orphans);
+
         settings->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
 
         // After the faces and constraints exist (the skinned-normal calculation reads
@@ -1431,6 +1542,28 @@ namespace JoltPhysics
         outPerVertexInvMass = DistributeMass(*settings, m_settings.m_mass);
         settings->Optimize();
         return settings;
+    }
+
+    void JoltSoftBody::ReportDegenerateFaces(size_t dropped, size_t total, size_t orphans) const
+    {
+        if (dropped == 0 && orphans == 0)
+        {
+            return;
+        }
+
+        // Named, because a level with fifty banners in it makes an anonymous warning close
+        // to useless - and because the author's next question is always "which one".
+        const AZStd::string where = Internal::NameClause(m_entityId);
+        AZ_Warning("JoltPhysics", dropped == 0,
+            "Soft body%s: dropped %zu of %zu faces, which have no area for Jolt to collide against. Slivers and "
+            "collapsed triangles are common in art meshes; Jolt cannot simulate them, so the surface has holes "
+            "where they were.",
+            where.c_str(), dropped, total);
+        AZ_Warning("JoltPhysics", orphans == 0,
+            "Soft body%s: %zu particles belong to no surviving face. Jolt builds its constraints from faces, so "
+            "these have nothing holding them and would fall away on their own; they are pinned where they are "
+            "instead.",
+            where.c_str(), orphans);
     }
 
     bool JoltSoftBody::CreateBody()

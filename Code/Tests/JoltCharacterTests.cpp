@@ -125,6 +125,22 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&configuration);
         }
 
+        //! A soft body lying flat and pinned at its corners, so its middle is free cloth
+        //! that something can actually land in.
+        AzPhysics::SimulatedBodyHandle CreateClothHammock(const AZ::Vector3& position)
+        {
+            JoltSoftBodyConfiguration configuration;
+            configuration.m_settings.m_shape = JoltSoftBodyShape::Cloth;
+            configuration.m_settings.m_size = AZ::Vector3(4.0f, 4.0f, 1.0f);
+            configuration.m_settings.m_resolution = 12;
+            configuration.m_settings.m_pinning = JoltSoftBodyPinning::Corners;
+            configuration.m_settings.m_allowSleeping = false;
+            configuration.m_position = position;
+            configuration.m_entityId = AZ::EntityId(0xC108);
+            configuration.m_debugName = "TestHammock";
+            return m_scene->AddSimulatedBody(&configuration);
+        }
+
         //! Requests the given velocity for the character each step and simulates.
         void WalkCharacter(JoltCharacter* character, const AZ::Vector3& velocity, float seconds)
         {
@@ -624,44 +640,84 @@ namespace JoltPhysics
     {
         // Cloth is not something you walk into, and the reason is not tidiness. A
         // CharacterVirtual sweeps and pushes itself out of penetration; cloth has nothing to
-        // push back with, so the particles pile up until a face has no area and Jolt asserts
-        // seeding GJK with its zero normal. Measured on the crest of a chicken, the smallest
-        // face fell from 1.97e-4 to 8.1e-7 in five frames and took the process with it.
+        // push back with, so the particles pile up until a face has no area and Jolt cannot
+        // seed GJK with its normal. Measured on the crest of a chicken, the smallest face
+        // fell from 1.97e-4 to 8.1e-7 in five frames.
         //
         // The engine's own cloth settles this: the NvCloth gem does not depend on PhysX at
         // all, so its cloth is never in the physics scene and a character cannot reach it.
         CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
-        CreateClothCurtain(AZ::Vector3(0.0f, 2.0f, 1.0f));
+        auto curtainHandle = CreateClothCurtain(AZ::Vector3(0.0f, 2.0f, 1.0f));
+
+        // Asserted, not assumed: with no cloth in the scene this test passes for the wrong
+        // reason and would go on passing after the behaviour it pins had been removed.
+        auto* curtain = azdynamic_cast<JoltSoftBody*>(m_scene->GetSimulatedBodyFromHandle(curtainHandle));
+        ASSERT_NE(curtain, nullptr);
+        const AZ::Aabb curtainBounds = curtain->GetWorldBounds();
+        ASSERT_TRUE(curtainBounds.IsValid());
 
         auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
         JoltCharacter* character = GetCharacter(characterHandle);
         ASSERT_NE(character, nullptr);
 
-        // Straight at the curtain, which spans y=2 and is far wider than the walk.
+        // The curtain has to actually be in the way, at the height the capsule occupies.
+        // A sheet that had swung aside, or hung above head height, would prove nothing.
+        EXPECT_LT(curtainBounds.GetMin().GetX(), -0.3f);
+        EXPECT_GT(curtainBounds.GetMax().GetX(), 0.3f);
+        EXPECT_LT(curtainBounds.GetMin().GetZ(), 1.5f);
+
         WalkCharacter(character, AZ::Vector3(0.0f, 2.0f, 0.0f), 3.0f);
 
-        EXPECT_GT(character->GetBasePosition().GetY(), 3.0f)
-            << "the character was stopped by cloth instead of passing through it";
+        // 2 m/s for 3 s is 6 m of unobstructed travel, and the curtain sits at y=2. The old
+        // bar of 3 m passed with the character stopped dead at the cloth for nearly half the
+        // run; this one needs it to have walked most of the way, so being briefly caught is
+        // a failure rather than a pass.
+        EXPECT_GT(character->GetBasePosition().GetY(), 5.0f)
+            << "the character was slowed or stopped by cloth instead of passing through it";
     }
 
-    TEST_F(JoltCharacterTests, ClothStillBlocksRigidBodiesAfterCharactersStopColliding)
+    TEST_F(JoltCharacterTests, TheRigidBodyCharacterBackendAlsoIgnoresCloth)
     {
-        // The exclusion is the character controller's alone. Rigid bodies interacting with
-        // cloth is a real capability - a crate resting on a sheet, a ball caught in a net -
-        // and one NvCloth cannot do at all, so it must survive keeping characters out.
-        CreateClothCurtain(AZ::Vector3(0.0f, 0.0f, 4.0f));
+        // The other backend. Jolt's rigid JPH::Character runs its own ground query every
+        // step through PostSimulation, with a body filter it hardcodes and gives no hook
+        // into - which is why the exclusion lives in the object layer pair filter rather
+        // than in a JPH::BodyFilter at the one call site that would accept one.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
+        auto curtainHandle = CreateClothCurtain(AZ::Vector3(0.0f, 2.0f, 1.0f));
+        ASSERT_NE(m_scene->GetSimulatedBodyFromHandle(curtainHandle), nullptr);
 
-        // Dropped from above onto the sheet rather than thrown at its edge.
-        auto boxHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 5.5f), 2.0f);
+        auto characterHandle = CreateRigidBodyCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        WalkCharacter(character, AZ::Vector3(0.0f, 2.0f, 0.0f), 3.0f);
+
+        EXPECT_GT(character->GetBasePosition().GetY(), 5.0f)
+            << "the rigid-body character was stopped by cloth";
+    }
+
+    TEST_F(JoltCharacterTests, ClothStillCatchesRigidBodiesAfterCharactersStopColliding)
+    {
+        // The exclusion is the character's alone. Rigid bodies interacting with cloth is a
+        // real capability - a crate riding a sheet, a ball caught in a net - and one NvCloth
+        // cannot do at all, so it must survive keeping characters out.
+        //
+        // Dropped into the middle of a hammock, deliberately: the earlier version of this
+        // test dropped onto a curtain's pinned top row, whose particles have infinite mass,
+        // so it only ever proved that static geometry stops boxes.
+        auto hammockHandle = CreateClothHammock(AZ::Vector3(0.0f, 0.0f, 4.0f));
+        ASSERT_NE(m_scene->GetSimulatedBodyFromHandle(hammockHandle), nullptr);
+
+        auto boxHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 5.0f), 0.5f);
         auto* box = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(boxHandle));
         ASSERT_NE(box, nullptr);
 
         SimulateSeconds(1.5f);
 
-        // In free fall from 5.5 m for 1.5 s a box is below z=-5. Anywhere near the sheet
-        // means the sheet caught it.
-        EXPECT_GT(box->GetPosition().GetZ(), 2.0f)
-            << "the cloth no longer stops rigid bodies; the filter reached further than the character";
+        // Free fall from z=5 for 1.5 s ends near z=-6. The hammock sags under the box, so
+        // the bar is well below where it started but far above where nothing caught it.
+        EXPECT_GT(box->GetPosition().GetZ(), 1.0f)
+            << "the cloth no longer catches rigid bodies; the exclusion reached past characters";
     }
 
 } // namespace JoltPhysics
