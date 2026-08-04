@@ -33,6 +33,36 @@ namespace JoltPhysics
         // Capsule fallback when the configuration carries no shape (1.8 m tall, 0.3 m radius).
         constexpr float DefaultCharacterHeight = 1.8f;
         constexpr float DefaultCharacterRadius = 0.3f;
+
+        //! Cloth is not something you walk into.
+        //!
+        //! A CharacterVirtual does not negotiate with what it hits - it sweeps, finds
+        //! penetration, and pushes itself out. Against a sheet of cloth it pushes the cloth
+        //! instead, and cloth has no rigidity to push back with: the particles pile up until
+        //! a triangle has no area left. Jolt then collides the next query against that
+        //! triangle, seeds GJK with its zero normal, and asserts. Measured on a character
+        //! standing in an unpinned cloth crest, the smallest face went from 1.97e-4 to
+        //! 8.1e-7 - below Jolt's 1e-6 threshold - in five frames, and the process died.
+        //!
+        //! So a character does not collide with soft bodies at all, which is also what the
+        //! engine's own cloth does. The NvCloth gem does not even depend on PhysX: its cloth
+        //! is never in the physics scene, and collides only against an explicit list of at
+        //! most 32 spheres and 32 capsules hung off named joints. Skeleton drives colliders,
+        //! colliders push cloth, and nothing pushes back.
+        //!
+        //! Rigid bodies are untouched by this - they still collide with cloth both ways,
+        //! which is a real thing our soft bodies can do and NvCloth's cannot. It is only the
+        //! character controller, which shoves rather than negotiates, that has to stay out.
+        class SoftBodiesAreNotWalkedInto final : public JPH::BodyFilter
+        {
+        public:
+            // Body type is not knowable from an ID, so the cheap pass lets everything by and
+            // the decision happens once the body is locked and can be asked what it is.
+            bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                return !body.IsSoftBody();
+            }
+        };
     }
 
     JoltCharacter::JoltCharacter(const Physics::CharacterConfiguration& configuration)
@@ -437,13 +467,14 @@ namespace JoltPhysics
         // layer / "collides with" group would only ever affect the inner body - the
         // character would still walk into everything.
         JPH::PhysicsSystem* physicsSystem = m_scene->GetJoltPhysicsSystem();
+        const SoftBodiesAreNotWalkedInto bodyFilter;
         m_character->ExtendedUpdate(
             deltaTime,
             Conversions::ToJolt(m_scene->GetGravity()),
             updateSettings,
             physicsSystem->GetDefaultBroadPhaseLayerFilter(m_objectLayer),
             physicsSystem->GetDefaultLayerFilter(m_objectLayer),
-            JPH::BodyFilter(),
+            bodyFilter,
             JPH::ShapeFilter(),
             *GetJoltSystem()->GetJoltAllocator());
 

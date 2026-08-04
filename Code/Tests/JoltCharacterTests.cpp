@@ -8,6 +8,7 @@
 #include <Configuration/JoltSettingsRegistryManager.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <Scene/JoltScene.h>
+#include <SoftBody/JoltSoftBody.h>
 #include <System/JoltSystem.h>
 
 #include <AzFramework/Physics/Common/PhysicsSimulatedBodyEvents.h>
@@ -105,6 +106,23 @@ namespace JoltPhysics
         JoltCharacter* GetCharacter(AzPhysics::SimulatedBodyHandle handle)
         {
             return azdynamic_cast<JoltCharacter*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        }
+
+        //! A soft body hung across the character's path, standing upright like a curtain.
+        AzPhysics::SimulatedBodyHandle CreateClothCurtain(const AZ::Vector3& position)
+        {
+            JoltSoftBodyConfiguration configuration;
+            configuration.m_settings.m_shape = JoltSoftBodyShape::Cloth;
+            configuration.m_settings.m_size = AZ::Vector3(2.0f, 2.0f, 1.0f);
+            configuration.m_settings.m_resolution = 8;
+            configuration.m_settings.m_pinning = JoltSoftBodyPinning::TopEdge;
+            configuration.m_settings.m_allowSleeping = false;
+            configuration.m_position = position;
+            // Stood on edge, so it hangs across the walk rather than lying underfoot.
+            configuration.m_orientation = AZ::Quaternion::CreateRotationX(AZ::Constants::HalfPi);
+            configuration.m_entityId = AZ::EntityId(0xC107);
+            configuration.m_debugName = "TestCurtain";
+            return m_scene->AddSimulatedBody(&configuration);
         }
 
         //! Requests the given velocity for the character each step and simulates.
@@ -600,6 +618,50 @@ namespace JoltPhysics
         // character stands, so it matches the surface it is standing on.
         EXPECT_NEAR(character->GetBasePosition().GetZ(), 0.0f, 0.05f);
         EXPECT_NEAR(character->GetTransform().GetTranslation().GetZ(), 0.0f, 0.05f);
+    }
+
+    TEST_F(JoltCharacterTests, ACharacterWalksThroughClothRatherThanIntoIt)
+    {
+        // Cloth is not something you walk into, and the reason is not tidiness. A
+        // CharacterVirtual sweeps and pushes itself out of penetration; cloth has nothing to
+        // push back with, so the particles pile up until a face has no area and Jolt asserts
+        // seeding GJK with its zero normal. Measured on the crest of a chicken, the smallest
+        // face fell from 1.97e-4 to 8.1e-7 in five frames and took the process with it.
+        //
+        // The engine's own cloth settles this: the NvCloth gem does not depend on PhysX at
+        // all, so its cloth is never in the physics scene and a character cannot reach it.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(40.0f, 40.0f, 1.0f));
+        CreateClothCurtain(AZ::Vector3(0.0f, 2.0f, 1.0f));
+
+        auto characterHandle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 0.0f));
+        JoltCharacter* character = GetCharacter(characterHandle);
+        ASSERT_NE(character, nullptr);
+
+        // Straight at the curtain, which spans y=2 and is far wider than the walk.
+        WalkCharacter(character, AZ::Vector3(0.0f, 2.0f, 0.0f), 3.0f);
+
+        EXPECT_GT(character->GetBasePosition().GetY(), 3.0f)
+            << "the character was stopped by cloth instead of passing through it";
+    }
+
+    TEST_F(JoltCharacterTests, ClothStillBlocksRigidBodiesAfterCharactersStopColliding)
+    {
+        // The exclusion is the character controller's alone. Rigid bodies interacting with
+        // cloth is a real capability - a crate resting on a sheet, a ball caught in a net -
+        // and one NvCloth cannot do at all, so it must survive keeping characters out.
+        CreateClothCurtain(AZ::Vector3(0.0f, 0.0f, 4.0f));
+
+        // Dropped from above onto the sheet rather than thrown at its edge.
+        auto boxHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 5.5f), 2.0f);
+        auto* box = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(boxHandle));
+        ASSERT_NE(box, nullptr);
+
+        SimulateSeconds(1.5f);
+
+        // In free fall from 5.5 m for 1.5 s a box is below z=-5. Anywhere near the sheet
+        // means the sheet caught it.
+        EXPECT_GT(box->GetPosition().GetZ(), 2.0f)
+            << "the cloth no longer stops rigid bodies; the filter reached further than the character";
     }
 
 } // namespace JoltPhysics

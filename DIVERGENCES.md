@@ -635,6 +635,26 @@ feature, trust the topic sections below the milestones.**
   colliding with everything and a warning is emitted. The count is per distinct
   (layer, group, moving) triple actually used, not per body.
 
+### Characters do not collide with cloth
+
+A character controller ignores soft bodies entirely, whatever the collision layers say.
+This is deliberate, and it is the same answer the engine gives: the **NvCloth** gem does
+not depend on PhysX at all, so its cloth is never in the physics scene and a PhysX
+character cannot reach it. NvCloth cloth collides only against an explicit list of at most
+32 spheres and 32 capsules hung off named joints (`IClothConfigurator`) - the skeleton
+drives the colliders, the colliders push the cloth, and nothing pushes back.
+
+The practical reason is that a `CharacterVirtual` does not negotiate: it sweeps, finds
+penetration and pushes itself out. Cloth has no rigidity to push back with, so it is the
+cloth that moves, and it keeps moving until a triangle has no area left - at which point
+the next collision query against that face seeds GJK with a zero normal and Jolt asserts.
+Measured on an unpinned crest with a character standing in it, the smallest face fell from
+1.97e-4 to 8.1e-7 across five frames and the process died.
+
+Rigid bodies are unaffected and still interact with cloth both ways, which is a real
+capability NvCloth does not have - a crate riding a sheet, a ball caught in a net. Only
+the character controller, which shoves rather than negotiates, is kept out.
+
 ## Force regions and wind
 
 - **`JoltForceRegionComponent` mirrors PhysX's force region**, which a migrating project

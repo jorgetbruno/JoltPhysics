@@ -64,11 +64,53 @@ namespace JoltPhysics
             indices.insert(indices.end(), { a, b, c, a, c, d });
         }
 
-        void AddTriangle(
+        //! Jolt collides a convex shape against a soft body by walking its faces and seeding
+        //! GJK with each triangle's normal - the raw cross product, not a normalised one -
+        //! and it asserts if that seed is near zero, because a face with no area gives no
+        //! direction to separate along. CollideConvexVsTriangles.cpp does this, and its own
+        //! comment says a degenerate triangle is the likely cause when the assert fires.
+        //!
+        //! The tolerance is Vec3::IsNearZero's default of 1e-12 on the squared length, so a
+        //! triangle is unusable to Jolt below about 5e-7 m^2 - roughly a millimetre on a
+        //! side. That is Jolt's limit rather than a threshold worth choosing, so match it
+        //! exactly and drop no more than it cannot handle.
+        //!
+        //! This matters because nothing is checked until something touches the body. A
+        //! sliver sits there simulating quite happily until the first collision query
+        //! reaches it - a character controller stepping into the cloth is enough - and then
+        //! the process dies inside Jolt, in a stack that names neither the mesh nor us.
+        //! Art meshes carry slivers all the time: hair cards, crests, fans collapsed to a
+        //! point. So faces are filtered here, at the one place they are made.
+        constexpr float MinFaceCrossLengthSq = 1.0e-12f;
+
+        bool AddTriangle(
             JPH::SoftBodySharedSettings& settings, AZStd::vector<AZ::u32>& indices, AZ::u32 a, AZ::u32 b, AZ::u32 c)
         {
+            if (a == b || b == c || a == c)
+            {
+                return false;
+            }
+            const size_t vertexCount = settings.mVertices.size();
+            if (a >= vertexCount || b >= vertexCount || c >= vertexCount)
+            {
+                return false;
+            }
+
+            const auto position = [&settings](AZ::u32 index)
+            {
+                const JPH::Float3& p = settings.mVertices[index].mPosition;
+                return AZ::Vector3(p.x, p.y, p.z);
+            };
+            const AZ::Vector3 edge1 = position(b) - position(a);
+            const AZ::Vector3 edge2 = position(c) - position(a);
+            if (edge1.Cross(edge2).GetLengthSq() <= MinFaceCrossLengthSq)
+            {
+                return false;
+            }
+
             settings.AddFace(JPH::SoftBodySharedSettings::Face(a, b, c));
             indices.insert(indices.end(), { a, b, c });
+            return true;
         }
 
         //! Fills the triangle list from faces Jolt generated itself, for the shapes built by
@@ -1221,9 +1263,28 @@ namespace JoltPhysics
                 vertex.mInvMass = 1.0f;
                 settings->mVertices.push_back(vertex);
             }
+            size_t droppedFaces = 0;
             for (size_t i = 0; i + 2 < weldedIndices.size(); i += 3)
             {
-                AddTriangle(*settings, outTriangleIndices, weldedIndices[i], weldedIndices[i + 1], weldedIndices[i + 2]);
+                if (!AddTriangle(
+                        *settings, outTriangleIndices, weldedIndices[i], weldedIndices[i + 1], weldedIndices[i + 2]))
+                {
+                    ++droppedFaces;
+                }
+            }
+
+            // Said out loud, because the alternative to dropping these was a crash: an
+            // author whose mesh loses faces should be able to find out why from the log
+            // rather than by noticing a hole in the cloth.
+            AZ_Warning("JoltPhysics", droppedFaces == 0,
+                "Dropped %zu of %zu faces from custom soft body geometry: they have no area for Jolt to work with. "
+                "Slivers and collapsed triangles are common in art meshes and crash Jolt's collision code, so they "
+                "cannot be simulated.",
+                droppedFaces, weldedIndices.size() / 3);
+
+            if (settings->mFaces.empty())
+            {
+                return nullptr;
             }
         }
         else if (m_settings.m_shape == JoltSoftBodyShape::Cloth)

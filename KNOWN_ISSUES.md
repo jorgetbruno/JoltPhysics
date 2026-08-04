@@ -6,6 +6,19 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
+- **A collapsed soft body face still asserts inside Jolt if anything collides a *shape*
+  against it.** Colliding a convex shape against a soft body walks its faces and seeds GJK
+  with each triangle's raw cross product, which asserts when that is near zero
+  (`EPAPenetrationDepth.h`, tolerance 1e-12 on the squared length). Cloth with little or
+  nothing pinned genuinely does collapse a face when something crushes it — measured on an
+  unpinned crest, the smallest face fell from 1.97e-4 to 8.1e-7 in five frames. Character
+  controllers no longer take that path (see DIVERGENCES.md, "Characters do not collide with
+  cloth"), and ordinary rigid-body simulation does not either: the soft body collides its
+  own particles against rigid shapes rather than the other way round, which is why crates
+  and balls rest on cloth in the demo without trouble. What is **not** covered is a user
+  scene query — a shape cast or overlap aimed at a soft body — which goes through the same
+  face-walking code. Pinning the cloth where it is anchored makes collapse far less likely,
+  but nothing prevents it outright, and Jolt offers no per-face guard to hook.
 - **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
   mesh editor colliders create static bodies in the editor scene (see resolved
   entries); the compound colliders deliberately do not (their children are separate

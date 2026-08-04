@@ -815,6 +815,69 @@ namespace JoltPhysics
         entity->Deactivate();
     }
 
+    TEST_F(JoltSoftBodyCustomGeometryTests, SliverFacesAreDroppedRatherThanHandedToJolt)
+    {
+        // A triangle with no area takes Jolt down. Colliding a convex shape against a soft
+        // body seeds GJK with each face's raw cross product and asserts if it is near zero,
+        // so a sliver simulates quietly until the first collision query reaches it and then
+        // kills the process from inside Jolt, in a stack that names neither the mesh nor
+        // this gem. Art meshes carry slivers routinely, so they must not reach Jolt at all.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        // Four distinct particles - no weld merges them - making one honest triangle and
+        // one whose three corners are collinear, which is the case index comparison misses.
+        const AZStd::vector<AZ::Vector3> vertices = {
+            AZ::Vector3(0.0f, 0.0f, 0.0f),
+            AZ::Vector3(1.0f, 0.0f, 0.0f),
+            AZ::Vector3(0.0f, 1.0f, 0.0f),
+            AZ::Vector3(0.5f, 0.0f, 0.0f),
+        };
+        const AZStd::vector<AZ::u32> indices = { 0, 1, 2, 0, 3, 1 };
+
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZ::u32 vertexCount = 0;
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, 4u) << "the sliver's corners are distinct positions and must survive welding";
+
+        AZStd::vector<AZ::u32> triangles;
+        JoltSoftBodyRequestBus::EventResult(triangles, entityId, &JoltSoftBodyRequests::GetTriangleIndices);
+        EXPECT_EQ(triangles.size(), 3u) << "the collinear face was kept; Jolt will assert the moment anything hits it";
+        if (triangles.size() == 3)
+        {
+            EXPECT_EQ(triangles[0], 0u);
+            EXPECT_EQ(triangles[1], 1u);
+            EXPECT_EQ(triangles[2], 2u);
+        }
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltSoftBodyCustomGeometryTests, EveryFaceBeingASliverLeavesNoBodyRatherThanABrokenOne)
+    {
+        // Nothing usable came out the other side, so there is no body - as opposed to an
+        // empty one that reports a vertex count and simulates nothing.
+        auto entity = CreateEmptyCustomBody(AZ::Vector3::CreateZero());
+        const AZ::EntityId entityId = entity->GetId();
+
+        const AZStd::vector<AZ::Vector3> vertices = {
+            AZ::Vector3(0.0f, 0.0f, 0.0f),
+            AZ::Vector3(1.0f, 0.0f, 0.0f),
+            AZ::Vector3(0.5f, 0.0f, 0.0f),
+        };
+        const AZStd::vector<AZ::u32> indices = { 0, 1, 2 };
+
+        // The warning this logs is the point of it, so it is left to print.
+        JoltSoftBodyRequestBus::Event(entityId, &JoltSoftBodyRequests::SetCustomGeometry, vertices, indices);
+
+        AZ::u32 vertexCount = 0;
+        JoltSoftBodyRequestBus::EventResult(vertexCount, entityId, &JoltSoftBodyRequests::GetVertexCount);
+        EXPECT_EQ(vertexCount, 0u) << "a body was built out of geometry with no usable face in it";
+
+        entity->Deactivate();
+    }
+
     TEST_F(JoltSoftBodyCustomGeometryTests, SuppliedGeometryIsSimulatedAndNotJustStored)
     {
         auto entity = CreateEmptyCustomBody(AZ::Vector3(0.0f, 0.0f, 10.0f));
