@@ -125,14 +125,26 @@ The physics gem is deliberately renderer-free. Features that need Atom, or that 
 provides and this gem does not wrap, live in sibling gems that reach the backend through
 `JoltPhysicsSystemRequests` — no changes to this gem required:
 
-> **One bounded exception, stated rather than left to be discovered.** The *editor* target
-> `JoltPhysics.Editor.Private.Object` links `Gem::CommonFeaturesAtom.Static`, for the one
-> thing it uses: `MeshComponentBus`, so the mesh collider component can offer the entity's
-> own render mesh when picking a collider asset. The runtime, API and client targets link
-> no Atom at all, which is the part that matters — a game running this gem needs no
-> renderer. An O3DE editor always has one. Removing it would cost the asset
-> auto-assignment and nothing else.
-
+> **One qualification, and it is inherited from PhysX rather than invented here.**
+> `gem.json` lists `CommonFeaturesAtom` in its `dependencies`, and
+> `o3de_add_variant_dependencies_for_gem_dependencies` turns that into a runtime dependency
+> of `JoltPhysics.Clients`, `.Servers` and `.Unified` — so a game client enabling this gem
+> loads the CommonFeaturesAtom module too. No link target outside the editor references
+> Atom, and no runtime source includes an Atom header, but the gem dependency is what
+> decides what a project ends up with, not the link list.
+>
+> The engine's own PhysX gem declares exactly the same thing —
+> `["PhysXCommon", "LmbrCentral", "CommonFeaturesAtom"]` — for exactly the same reason, and
+> its `EditorMeshColliderComponent.h` includes the same
+> `AtomLyIntegration/CommonFeatures/Mesh/MeshComponentBus.h` and derives from the same
+> `MeshComponentNotificationBus::Handler` that this gem's editor mesh collider does. The
+> feature is offering the entity's own render mesh when picking a collider asset. A gem
+> that is a drop-in replacement for PhysX matching PhysX here is the right answer; dropping
+> it would make this gem stricter than the thing it replaces, and cost an author a
+> convenience they arrive expecting.
+>
+> "Renderer-free" therefore means what it means for PhysX: no renderer in the physics code,
+> a tools convenience that reaches for one, and a gem dependency that follows.
 
 | Gem | Adds | Needs Atom |
 |---|---|---|
