@@ -33,6 +33,31 @@ deviations from PhysX behavior.
   configuration. The callback now returns false and the define is per-configuration. An
   assertion is a real defect worth fixing and it is logged as an error with Jolt's own file
   and line, but it no longer takes the level down with it.
+- **Nothing interpolates a body's transform between fixed physics steps.** The simulation
+  runs on a fixed-timestep accumulator (`JoltSystem::Simulate`, 1/60 s by default) and a
+  rigid body writes its entity transform only on the steps that actually run
+  (`JoltRigidBodyComponent`, at `TICK_PHYSICS`). Above the physics rate the frames and the
+  steps do not line up, so a moving body advances in a staircase: at 102 FPS against 60 Hz
+  physics, about four frames in ten redraw a body at exactly the pose it already had, and
+  the rest jump a whole step.
+  This is invisible with a fixed camera and obvious the moment anything moves smoothly
+  *relative* to the body. A chase camera that eases toward its target - interpolating its
+  own position every render frame while the car it follows moves in steps - puts the
+  difference dead centre in frame, where it reads as the car shaking. The camera is the
+  amplifier, not the cause; a rigid, uninterpolated follow camera moves in the same
+  staircase and shows nothing.
+  PhysX has the missing piece and this gem does not: `TransformForwardTimeInterpolator`
+  (`PhysX/Core/Code/Source/RigidBodyComponent.h`), driven by
+  `AzPhysics::RigidBodyConfiguration::m_interpolateMotion`. Note that flag defaults to
+  **false**, so interpolation is opt-in there rather than standard. This gem does not read
+  the field at all, and does not offer it in the editor - so nothing here claims to
+  interpolate and then fails to.
+  Until it is implemented, the ways round it are: follow the body without smoothing, so
+  the viewer moves in the same steps it does; raise the physics rate (a 1/120 fixed
+  timestep halves the step and costs twice the steps); or cap the frame rate to the
+  physics rate so the two line up. Implementing it means keeping each body's previous and
+  current pose and blending them by the leftover accumulator time when writing the entity
+  transform.
 - **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
   mesh editor colliders create static bodies in the editor scene (see resolved
   entries); the compound colliders deliberately do not (their children are separate
