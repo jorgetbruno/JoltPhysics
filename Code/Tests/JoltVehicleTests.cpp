@@ -267,6 +267,38 @@ namespace JoltPhysics
         EXPECT_GT(up.GetZ(), 0.9f) << rampDiag.c_str();
     }
 
+    TEST_F(JoltVehicleTests, AWheelTransformCarriesAUsableScale)
+    {
+        // Reported from a project as "the wheels disappear the moment the script runs".
+        // Nothing was out of place - every position the wheels reported was correct to the
+        // centimetre - because Conversions::FromJolt(RMat44) set translation and rotation
+        // on a default-constructed AZ::Transform and left the scale alone. That default
+        // constructor is `= default` on a type with no initialisers, so the scale was
+        // whatever happened to be on the stack. A caller applying it with SetWorldTM
+        // scaled the entity by that garbage; a zero collapses the mesh to nothing and the
+        // log fills with "GetInverseFull could not calculate inverse as determinant was
+        // zero".
+        //
+        // Asserted on every wheel because the fault was invisible in the two things anyone
+        // would check - the position and the orientation were both perfectly correct.
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        DriveSteps(1.0f, 0.2f, 0.0f, 60);
+
+        const AZ::u32 wheelCount = m_vehicle->GetWheelCount();
+        ASSERT_EQ(wheelCount, 4u);
+        for (AZ::u32 wheelIndex = 0; wheelIndex < wheelCount; ++wheelIndex)
+        {
+            AZ::Transform wheelTransform = AZ::Transform::CreateIdentity();
+            ASSERT_TRUE(m_vehicle->GetWheelTransform(wheelIndex, wheelTransform));
+
+            EXPECT_NEAR(wheelTransform.GetUniformScale(), 1.0f, 1e-4f)
+                << "wheel " << wheelIndex << " reports a scale of " << wheelTransform.GetUniformScale()
+                << "; anything but 1 resizes whatever mesh follows it, and 0 deletes it";
+            EXPECT_TRUE(wheelTransform.GetRotation().IsFinite());
+            EXPECT_TRUE(wheelTransform.GetTranslation().IsFinite());
+        }
+    }
+
     TEST_F(JoltVehicleTests, AVehicleWithFewerWheelsThanItsDriveIndicesStillDrives)
     {
         // Reported from a real project: a car built with one wheel while the drive indices

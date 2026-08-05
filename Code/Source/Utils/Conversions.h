@@ -50,12 +50,23 @@ namespace JoltPhysics
             return AZ::Quaternion(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
         }
 
+        //! Built through the factory rather than by assembling a default-constructed
+        //! transform, because AZ::Transform's default constructor is `= default` on a type
+        //! with no initialisers: the scale starts as whatever was on the stack. Setting
+        //! translation and rotation and leaving scale alone therefore returned a transform
+        //! that was correct in position and orientation and carried garbage scale - and a
+        //! caller that applied it with SetWorldTM scaled an entity by that garbage.
+        //!
+        //! Landing a zero there collapses the mesh to nothing and floods the log with
+        //! "GetInverseFull could not calculate inverse as determinant was zero". That is
+        //! what it did: a vehicle's wheel meshes, driven from GetWheelTransform, vanished
+        //! the moment anything read one, while every position they reported was correct.
+        //! Nothing was out of place; the meshes had no size.
         inline AZ::Transform FromJolt(const JPH::RMat44& m)
         {
-            AZ::Transform transform;
-            transform.SetTranslation(FromJolt(m.GetTranslation()));
-            transform.SetRotation(FromJolt(m.GetQuaternion()));
-            return transform;
+            // Jolt's transforms carry no scale, so a unit scale is the honest answer.
+            return AZ::Transform::CreateFromQuaternionAndTranslation(
+                FromJolt(m.GetQuaternion()), FromJolt(m.GetTranslation()));
         }
 
         inline JPH::Mat44 ToJolt(const AZ::Transform& t)
