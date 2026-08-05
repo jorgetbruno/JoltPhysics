@@ -267,6 +267,59 @@ namespace JoltPhysics
         EXPECT_GT(up.GetZ(), 0.9f) << rampDiag.c_str();
     }
 
+    TEST_F(JoltVehicleTests, AVehicleWithFewerWheelsThanItsDriveIndicesStillDrives)
+    {
+        // Reported from a real project: a car built with one wheel while the drive indices
+        // still named a four-wheeler's rear axle (2 and 3). The differential was dropped as
+        // unconnected, which left Jolt summing engine torque over no differentials at all -
+        // and its controller asserts that the sum is 1 on every step, so the log filled with
+        // 978 copies of the same assertion in one session and none of them said "wheel".
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_wheels.resize(1);
+        // Left where MakeCarConfiguration put them, naming wheels that no longer exist.
+        ASSERT_EQ(config.m_leftDriveWheel, 2);
+        ASSERT_EQ(config.m_rightDriveWheel, 3);
+
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+        auto* chassis = GetChassis();
+        ASSERT_NE(chassis, nullptr);
+
+        const AZ::Vector3 start = chassis->GetPosition();
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+        const AZ::Vector3 end = chassis->GetPosition();
+
+        // Driving the wheel it does have rather than the two it does not.
+        EXPECT_GT((end - start).GetLength(), 0.5f)
+            << "the vehicle did not move; the fallback differential is not driving anything";
+    }
+
+    TEST_F(JoltVehicleTests, EngineTorqueSplitIsRescaledToWhatJoltRequires)
+    {
+        // Jolt requires the engine torque ratio to sum to exactly 1 across the connected
+        // differentials. Two differentials both left at the default 1.0 sum to 2, and a
+        // split that added up in the editor stops adding up the moment one differential is
+        // dropped for naming a wheel that does not exist.
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        JoltVehicleDifferential front;
+        front.m_leftWheel = 0;
+        front.m_rightWheel = 1;
+        JoltVehicleDifferential rear;
+        rear.m_leftWheel = 2;
+        rear.m_rightWheel = 3;
+        // Both at the default, so they sum to 2 rather than 1.
+        config.m_differentials = { front, rear };
+
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+        auto* chassis = GetChassis();
+        ASSERT_NE(chassis, nullptr);
+
+        const AZ::Vector3 start = chassis->GetPosition();
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+        const AZ::Vector3 end = chassis->GetPosition();
+
+        EXPECT_GT((end - start).GetLength(), 0.5f) << "an all-wheel-drive split left the vehicle unable to drive";
+    }
+
     TEST_F(JoltVehicleTests, VehicleConfigurationSerializationRoundTrip)
     {
         AZ::SerializeContext serializeContext;

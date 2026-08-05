@@ -365,11 +365,57 @@ namespace JoltPhysics
             controllerSettings->mDifferentials.push_back(differential);
         }
 
-        if (controllerSettings->mDifferentials.empty())
+        // Jolt's wheeled controller sums the engine torque ratio over the differentials it
+        // was given and asserts that the total is 1
+        // (`WheeledVehicleController::PreCollide`). Zero differentials sums to zero, so an
+        // unconnected vehicle does not merely fail to drive - it reports that assertion on
+        // every step, for as long as the level runs, from a stack that says nothing about
+        // wheel indices. Give it the wheels the vehicle actually has instead.
+        if (controllerSettings->mDifferentials.empty() && wheelCount > 0)
+        {
+            JPH::VehicleDifferentialSettings fallback;
+            fallback.mLeftWheel = wheelCount > 1 ? wheelCount - 2 : -1;
+            fallback.mRightWheel = wheelCount - 1;
+            fallback.mDifferentialRatio = configuration.m_differentialRatio;
+            controllerSettings->mDifferentials.push_back(fallback);
+
+            AZ_Warning("JoltPhysics", false,
+                "Vehicle%s had no differential connected to a wheel that exists, so it is driving wheels %d and %d "
+                "instead. Set the drive wheel indices to wheels this vehicle has - the defaults name a four-wheeled "
+                "car's rear axle, which is wrong for any other layout.",
+                Internal::NameClause(configuration.m_debugName).c_str(), fallback.mLeftWheel, fallback.mRightWheel);
+        }
+        else if (controllerSettings->mDifferentials.empty())
         {
             AZ_Warning("JoltPhysics", false,
-                "Vehicle%s has no connected differential and will not drive.",
+                "Vehicle%s has no wheels, so it has nothing to drive.",
                 Internal::NameClause(configuration.m_debugName).c_str());
+        }
+
+        // The same invariant, from the other side: the ratios have to sum to 1 across the
+        // differentials that were *connected*, not the ones that were authored. Dropping an
+        // unconnected differential above silently breaks a split that added up in the
+        // editor, and two differentials both left at the default 1.0 never added up at all.
+        float torqueRatioSum = 0.0f;
+        for (const JPH::VehicleDifferentialSettings& differential : controllerSettings->mDifferentials)
+        {
+            torqueRatioSum += differential.mEngineTorqueRatio;
+        }
+        if (!controllerSettings->mDifferentials.empty() && AZ::GetAbs(torqueRatioSum - 1.0f) > 1.0e-6f)
+        {
+            AZ_Warning("JoltPhysics", false,
+                "Vehicle%s splits %.2f of the engine's torque across its connected differentials; Jolt requires "
+                "exactly 1. Rescaling to keep their proportions. Check the Engine Torque Ratio on each differential.",
+                Internal::NameClause(configuration.m_debugName).c_str(), torqueRatioSum);
+
+            const float scale = torqueRatioSum > 1.0e-6f
+                ? 1.0f / torqueRatioSum
+                : 1.0f / static_cast<float>(controllerSettings->mDifferentials.size());
+            for (JPH::VehicleDifferentialSettings& differential : controllerSettings->mDifferentials)
+            {
+                differential.mEngineTorqueRatio =
+                    torqueRatioSum > 1.0e-6f ? differential.mEngineTorqueRatio * scale : scale;
+            }
         }
 
         settings.mController = controllerSettings;
