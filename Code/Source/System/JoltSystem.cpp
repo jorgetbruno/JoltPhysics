@@ -188,6 +188,24 @@ namespace JoltPhysics
         AZLOG_INFO("JoltPhysics: System shut down");
     }
 
+    float JoltSystem::GetInterpolationAlpha() const
+    {
+        const float fixedDeltaTime = m_systemConfig.m_fixedTimestep;
+        if (fixedDeltaTime <= 0.0f)
+        {
+            return 0.0f;
+        }
+        // Clamped rather than trusted: the accumulator is bounded by m_maxTimestep, which
+        // a project may configure below the fixed step, and an alpha past 1 would
+        // extrapolate a body beyond where the simulation has actually put it.
+        return AZ::GetClamp(m_accumulatedTime / fixedDeltaTime, 0.0f, 1.0f);
+    }
+
+    AZ::u64 JoltSystem::GetStepCount() const
+    {
+        return m_stepCount;
+    }
+
     void JoltSystem::Simulate(float deltaTime)
     {
         if (m_state != State::Initialized)
@@ -236,6 +254,7 @@ namespace JoltPhysics
                 }
             }
             m_accumulatedTime -= fixedDeltaTime;
+            ++m_stepCount;
         }
 
         m_simulating = false;

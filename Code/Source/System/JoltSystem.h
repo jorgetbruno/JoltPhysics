@@ -81,6 +81,21 @@ namespace JoltPhysics
         ObjectLayerPairFilterImpl& GetObjectLayerPairFilter();
         JoltObjectLayerRegistry& GetObjectLayerRegistry();
 
+        //! How far the current frame sits between the last fixed step and the next, in
+        //! [0, 1]. Physics advances in fixed steps while frames are drawn whenever they
+        //! are ready, so above the physics rate a body's pose is stale by this much of a
+        //! step by the time it is drawn. Blending the last two poses by this fraction is
+        //! what turns a staircase back into motion. Zero when a step has just run.
+        float GetInterpolationAlpha() const;
+
+        //! Fixed steps run since startup. A body's pose pair has to advance when a step
+        //! runs, not when the body's pose changes: those differ for anything that has come
+        //! to rest, and telling them apart by comparing transforms is impossible - a body
+        //! that has not moved looks identical to a frame where no step ran at all. Without
+        //! this a settled body is drawn forever between the last pose it moved through and
+        //! the one it stopped at, a fraction of a step away from its own collider.
+        AZ::u64 GetStepCount() const;
+
     private:
         AZStd::vector<AZ::u64> m_collisionGroupMasks;
         JoltSystemConfiguration m_systemConfig;
@@ -106,6 +121,7 @@ namespace JoltPhysics
         AZStd::vector<AzPhysics::SceneIndex> m_sceneSlotsPendingRelease;
 
         float m_accumulatedTime = 0.0f;
+        AZ::u64 m_stepCount = 0;
 
         enum class State : AZ::u8
         {

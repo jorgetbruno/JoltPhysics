@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzFramework/Physics/Common/PhysicsEvents.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/EntityBus.h>
 #include <AzCore/Component/TickBus.h>
@@ -134,6 +135,29 @@ namespace JoltPhysics
         //! nothing to sync; a pose that differs while asleep (a restored snapshot, a
         //! teleport) still gets through.
         AZ::Transform m_lastSyncedTransform = AZ::Transform::CreateIdentity();
+
+        //! Whether the entity's transform should be blended between the last two steps
+        //! rather than snapped to the newest, and the pose pair that makes that possible.
+        bool ShouldInterpolate(const AzPhysics::RigidBody& body) const;
+        AZ::Transform InterpolatedTransform() const;
+
+        //! Forgets the pose pair, so the next frame starts fresh from this pose. Called
+        //! when something moves the body outside the simulation.
+        void ResetPoseHistory(const AZ::Transform& transform);
+
+        //! Shifts the pose pair on, once per fixed step.
+        void RecordStepPose();
+
+        //! The poses the last two physics steps left, in that order. Rendering a frame
+        //! between two steps means drawing somewhere between these, and drawing the newest
+        //! on every frame is what makes a body advance in a staircase at frame rates above
+        //! the physics rate.
+        AZ::Transform m_previousBodyTransform = AZ::Transform::CreateIdentity();
+        AZ::Transform m_previousBodyTransform2 = AZ::Transform::CreateIdentity();
+        bool m_hasPoseHistory = false; //!< One pose recorded.
+        bool m_hasPosePair = false;    //!< Two, which is the minimum to blend between.
+        //! Records a pose per fixed step. Only connected while interpolating.
+        AzPhysics::SceneEvents::OnSceneSimulationFinishHandler m_sceneFinishHandler;
         bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.
     };
 } // namespace JoltPhysics

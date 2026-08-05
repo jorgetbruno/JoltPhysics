@@ -667,6 +667,41 @@ characters are excluded, and the exclusion is not configurable: there is no sett
 a character push cloth, because the failure it prevents is a physics-library assertion
 rather than a gameplay preference.
 
+## Motion interpolation
+
+`AzPhysics::RigidBodyConfiguration::m_interpolateMotion` is honoured, with PhysX's default:
+**off**. Turned on, a body's entity transform is blended between the poses of the last two
+fixed steps instead of snapped to the newest.
+
+It matters above the physics rate. The simulation advances in fixed steps while frames are
+drawn whenever they are ready, so at 102 FPS against 60 Hz physics about four frames in ten
+redraw a body at exactly the pose it already had and the rest jump a whole step. That is
+invisible with a fixed camera and obvious to anything that moves smoothly relative to the
+body - a chase camera that eases toward its target puts the difference dead centre in frame,
+where it reads as the followed body shaking.
+
+Two details are worth knowing because both were wrong in the first implementation and the
+tests caught them:
+
+- **The pose pair advances per fixed step, not per frame.** A frame can run zero steps or
+  two, so recording on the tick blends across the wrong interval - measured on a body
+  falling at 1.5 steps per frame, it came out exactly as uneven as not interpolating at all.
+  The poses are recorded from the scene's own simulation-finish event.
+- **The sync gate compares more tightly while interpolating.** Its default tolerance is a
+  millimetre, which is coarser than the last correction a body makes as it comes to rest: a
+  box settling while still creeping a fraction of a millimetre per step was drawn
+  permanently short of where it stopped, because the write that would have closed the gap
+  looked like no change at all. This costs nothing - an interpolating body's rendered pose
+  moves every frame anyway, so the gate never fired for it.
+
+Kinematic bodies are excluded: they are driven by whoever sets their target, usually the
+entity transform itself, and blending that would fight the driver and lag it by a step. A
+teleport or any entity-driven move restarts the pose history, so nothing is drawn sliding
+across the level to its new home.
+
+Only rigid bodies interpolate. Characters move themselves during the step and soft bodies
+have no single pose to blend.
+
 ## Force regions and wind
 
 - **`JoltForceRegionComponent` mirrors PhysX's force region**, which a migrating project

@@ -184,11 +184,188 @@ namespace JoltPhysics
             }
         }
 
+        //! Frames driven through the *system*, so the fixed-timestep accumulator runs.
+        //! SimulateSeconds above steps the scene directly and leaves the accumulator at
+        //! zero, which is fine for everything else and useless for interpolation: the whole
+        //! question is what happens on a frame that does not land on a step boundary.
+        void SimulateFrames(float frameDeltaTime, int frames)
+        {
+            for (int i = 0; i < frames; ++i)
+            {
+                m_system->Simulate(frameDeltaTime);
+                AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, frameDeltaTime, AZ::ScriptTimePoint());
+            }
+        }
+
+        //! Where the entity is drawn, as opposed to where the simulation put the body.
+        static AZ::Vector3 EntityPosition(AZ::EntityId entityId)
+        {
+            AZ::Vector3 position = AZ::Vector3::CreateZero();
+            AZ::TransformBus::EventResult(position, entityId, &AZ::TransformBus::Events::GetWorldTranslation);
+            return position;
+        }
+
         AZStd::unique_ptr<JoltSystem> m_system;
         AzPhysics::SceneHandle m_sceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
         AZStd::unique_ptr<TestDefaultWorldHandler> m_defaultWorldHandler;
     };
+
+    //! A body falling with a frame rate that does not divide into the physics rate, which
+    //! is the only situation where interpolation changes anything.
+    class JoltMotionInterpolationTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        //! 1.5 physics steps per frame, so every other frame lands mid-step. A whole
+        //! number of steps per frame would leave the accumulator at zero and prove nothing.
+        static constexpr float FixedTimestep = 1.0f / 60.0f;
+        static constexpr float FrameDeltaTime = FixedTimestep * 1.5f;
+
+        AZStd::unique_ptr<AZ::Entity> CreateFallingBody(bool interpolateMotion)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("FallingBody");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+            collider->GetShapeConfiguration().m_dimensions = AZ::Vector3(1.0f, 1.0f, 1.0f);
+            auto* rigidBody = entity->CreateComponent<JoltRigidBodyComponent>();
+            rigidBody->GetConfiguration().m_interpolateMotion = interpolateMotion;
+
+            entity->Init();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, AZ::Vector3(0.0f, 0.0f, 20.0f));
+            entity->Activate();
+            return entity;
+        }
+
+        AzPhysics::RigidBody* BodyOf(AZ::EntityId entityId)
+        {
+            AzPhysics::SimulatedBody* body = nullptr;
+            AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
+                body, entityId, &AzPhysics::SimulatedBodyComponentRequests::GetSimulatedBody);
+            return azdynamic_cast<AzPhysics::RigidBody*>(body);
+        }
+    };
+
+    TEST_F(JoltMotionInterpolationTests, MotionIsNotInterpolatedUnlessAsked)
+    {
+        // The default has to stay exactly what it was: PhysX ships m_interpolateMotion
+        // false, and a project that never heard of this should get the same poses it
+        // always did, to the bit.
+        auto entity = CreateFallingBody(/*interpolateMotion*/ false);
+        SimulateFrames(FrameDeltaTime, 12);
+
+        auto* body = BodyOf(entity->GetId());
+        ASSERT_NE(body, nullptr);
+        EXPECT_TRUE(EntityPosition(entity->GetId()).IsClose(body->GetPosition(), 1e-5f))
+            << "the entity was not drawn where the simulation put the body";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltMotionInterpolationTests, AnInterpolatedBodyIsDrawnBetweenTheLastTwoSteps)
+    {
+        auto entity = CreateFallingBody(/*interpolateMotion*/ true);
+        // An odd number of 1.5-step frames, so the accumulator is left half a step in
+        // rather than on a boundary.
+        SimulateFrames(FrameDeltaTime, 11);
+
+        auto* body = BodyOf(entity->GetId());
+        ASSERT_NE(body, nullptr);
+
+        const float drawnZ = EntityPosition(entity->GetId()).GetZ();
+        const float simulatedZ = body->GetPosition().GetZ();
+
+        // The body is falling, so the previous step is above the current one and a blend
+        // between them sits above the current one too. Drawn *behind* the simulation by a
+        // fraction of a step is exactly what interpolation trades for smoothness.
+        EXPECT_GT(drawnZ, simulatedZ) << "the entity was snapped to the newest step, not blended";
+
+        // But never further back than a whole step: at 20 m up and ~9.8 m/s/s, one step is
+        // a couple of centimetres, and being off by more would mean blending the wrong pair.
+        EXPECT_LT(drawnZ - simulatedZ, 0.1f) << "the entity lags the simulation by more than one step";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltMotionInterpolationTests, InterpolationEvensOutTheStaircaseTheFixedStepLeaves)
+    {
+        // The point of the feature, measured rather than asserted. A body falling under
+        // gravity covers a slightly larger distance each step, so per-frame movement should
+        // grow smoothly. Without interpolation the frames that run no step move it *zero*
+        // and the next moves it double, and that alternation is what the eye reads as
+        // shaking. The test compares how uneven the two look.
+        auto uneven = [this](bool interpolate)
+        {
+            auto entity = CreateFallingBody(interpolate);
+            SimulateFrames(FrameDeltaTime, 10); // let it get moving
+
+            float previousZ = EntityPosition(entity->GetId()).GetZ();
+            AZStd::vector<float> steps;
+            for (int frame = 0; frame < 30; ++frame)
+            {
+                SimulateFrames(FrameDeltaTime, 1);
+                const float z = EntityPosition(entity->GetId()).GetZ();
+                steps.push_back(previousZ - z);
+                previousZ = z;
+            }
+            entity->Deactivate();
+
+            // Mean absolute change between one frame's movement and the next: near zero for
+            // smooth motion, large when frames alternate between standing still and jumping.
+            float total = 0.0f;
+            for (size_t i = 1; i < steps.size(); ++i)
+            {
+                total += AZ::GetAbs(steps[i] - steps[i - 1]);
+            }
+            return total / static_cast<float>(steps.size() - 1);
+        };
+
+        const float snapped = uneven(false);
+        const float interpolated = uneven(true);
+
+        EXPECT_LT(interpolated, snapped * 0.5f)
+            << "interpolated motion is not measurably smoother: " << interpolated << " vs " << snapped;
+    }
+
+    TEST_F(JoltMotionInterpolationTests, AnInterpolatedBodyEndsExactlyWhereItSettles)
+    {
+        // Interpolation must not leave a permanent offset. Once the body stops moving both
+        // ends of the blend are the same pose, so the entity has to land on it exactly -
+        // otherwise every settled object in a level would sit slightly off its collider.
+        auto entity = CreateFallingBody(/*interpolateMotion*/ true);
+
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(50.0f, 50.0f, 1.0f);
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_position = AZ::Vector3(0.0f, 0.0f, -0.5f);
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        // Run until Jolt puts it to sleep, rather than for a fixed time. A box that has
+        // landed but is still resolving penetration moves a fraction of a millimetre per
+        // step, and being drawn one step behind *that* is interpolation working correctly,
+        // not an offset - an earlier version of this test read that as a failure.
+        auto* body = BodyOf(entity->GetId());
+        ASSERT_NE(body, nullptr);
+        for (int frame = 0; frame < 2000 && body->IsAwake(); ++frame)
+        {
+            SimulateFrames(FrameDeltaTime, 1);
+        }
+        ASSERT_FALSE(body->IsAwake()) << "the box never came to rest, so there is nothing to check";
+
+        // Two more steps, so both ends of the pair are the resting pose.
+        SimulateFrames(FrameDeltaTime, 2);
+
+        const AZ::Vector3 drawn = EntityPosition(entity->GetId());
+        const AZ::Vector3 simulated = body->GetPosition();
+        EXPECT_TRUE(drawn.IsClose(simulated, 1e-5f))
+            << "a sleeping body is drawn away from where it rests: drawn ("
+            << drawn.GetX() << ", " << drawn.GetY() << ", " << drawn.GetZ() << ") vs simulated ("
+            << simulated.GetX() << ", " << simulated.GetY() << ", " << simulated.GetZ() << ")";
+
+        entity->Deactivate();
+    }
 
     TEST_F(JoltComponentBodyCreationTests, CapsuleComponentProducesZUpCapsule)
     {

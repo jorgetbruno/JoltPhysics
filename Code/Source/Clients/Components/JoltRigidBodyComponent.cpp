@@ -1,5 +1,6 @@
 #include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <System/JoltSystem.h>
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/RTTI/BehaviorContext.h>
@@ -144,6 +145,14 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_maxAngularVelocity,
                         "Maximum angular velocity", "Upper limit on the angular velocity of the rigid body.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
+                    ->DataElement(AZ::Edit::UIHandlers::Default,
+                        &AzPhysics::RigidBodyConfiguration::m_interpolateMotion,
+                        "Interpolate motion",
+                        "Draws the body between the last two physics steps instead of snapping it to the newest. "
+                        "Physics runs at a fixed rate while frames are drawn whenever they are ready, so above "
+                        "that rate a moving body advances in a staircase - invisible with a fixed camera, obvious "
+                        "to anything that follows it smoothly. Costs a blend per moving body per frame. Off by "
+                        "default, matching PhysX.")
                     ;
             }
         }
@@ -169,6 +178,17 @@ namespace JoltPhysics
     void JoltRigidBodyComponent::Activate()
     {
         Physics::DefaultWorldBus::BroadcastResult(m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
+
+        // Only interpolating bodies pay for the per-step handler; everything else runs
+        // exactly the code it ran before this feature existed.
+        if (m_configuration.m_interpolateMotion)
+        {
+            m_sceneFinishHandler = AzPhysics::SceneEvents::OnSceneSimulationFinishHandler(
+                [this]([[maybe_unused]] AzPhysics::SceneHandle sceneHandle, [[maybe_unused]] float fixedDeltaTime)
+                {
+                    RecordStepPose();
+                });
+        }
 
         Physics::RigidBodyRequestBus::Handler::BusConnect(GetEntityId());
         AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusConnect(GetEntityId());
@@ -199,6 +219,8 @@ namespace JoltPhysics
         AZ::TransformNotificationBus::Handler::BusDisconnect();
         AzPhysics::SimulatedBodyComponentRequestsBus::Handler::BusDisconnect();
         Physics::RigidBodyRequestBus::Handler::BusDisconnect();
+
+        m_sceneFinishHandler.Disconnect();
 
         DestroyRigidBody();
 
@@ -240,15 +262,89 @@ namespace JoltPhysics
         // render mesh and every attached child stayed behind. Entity-driven moves record
         // the pose as they go (see OnTransformChanged), so this does not fight them.
         const AZ::Transform bodyTransform = body->GetTransform();
-        if (bodyTransform.IsClose(m_lastSyncedTransform))
+
+        const bool interpolating = ShouldInterpolate(*body);
+        const AZ::Transform renderTransform = interpolating ? InterpolatedTransform() : bodyTransform;
+
+        // Interpolating asks a finer question than snapping did. The default tolerance on
+        // IsClose is a millimetre, which is a sensible "did this body move" test but far
+        // coarser than the last correction a body makes as it comes to rest: a box that
+        // settles while still creeping a fraction of a millimetre per step ends up drawn
+        // permanently short of where it stopped, because the write that would have closed
+        // the gap looks like no change at all.
+        //
+        // This costs nothing. While a body is genuinely interpolating its rendered pose
+        // moves every frame anyway, so the gate never fired for it; the tight comparison
+        // only matters on the frame it settles, and once settled both poses are identical
+        // and the gate goes back to skipping every frame.
+        const float syncTolerance = interpolating ? 1.0e-6f : AZ::Constants::Tolerance;
+        if (renderTransform.IsClose(m_lastSyncedTransform, syncTolerance))
         {
             return;
         }
-        m_lastSyncedTransform = bodyTransform;
+        m_lastSyncedTransform = renderTransform;
 
         m_syncingTransformFromBody = true;
-        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTM, bodyTransform);
+        AZ::TransformBus::Event(GetEntityId(), &AZ::TransformBus::Events::SetWorldTM, renderTransform);
         m_syncingTransformFromBody = false;
+    }
+
+    void JoltRigidBodyComponent::RecordStepPose()
+    {
+        // One call per fixed step, which is the whole reason this is not done on the tick.
+        // A frame can run zero steps or two; the pair has to mean "the poses either side of
+        // the interval being blended", and only the simulation knows when that interval
+        // ends. Measured on a body falling at 1.5 steps per frame, shifting per frame
+        // instead left the motion exactly as uneven as not interpolating at all.
+        AzPhysics::RigidBody* body = GetRigidBody();
+        if (body == nullptr)
+        {
+            return;
+        }
+
+        m_previousBodyTransform = m_previousBodyTransform2;
+        m_previousBodyTransform2 = body->GetTransform();
+        m_hasPosePair = m_hasPoseHistory;
+        m_hasPoseHistory = true;
+    }
+
+    void JoltRigidBodyComponent::ResetPoseHistory(const AZ::Transform& transform)
+    {
+        m_previousBodyTransform = transform;
+        m_previousBodyTransform2 = transform;
+        m_hasPoseHistory = true;
+        m_hasPosePair = false;
+    }
+
+    bool JoltRigidBodyComponent::ShouldInterpolate(const AzPhysics::RigidBody& body) const
+    {
+        if (!m_configuration.m_interpolateMotion || !m_hasPosePair)
+        {
+            return false;
+        }
+
+        // A kinematic body is driven by whoever sets its target, usually the entity
+        // transform itself. Blending that would fight the driver and lag it by a step.
+        return !body.IsKinematic();
+    }
+
+    AZ::Transform JoltRigidBodyComponent::InterpolatedTransform() const
+    {
+        auto* joltSystem = GetJoltSystem();
+        const float alpha = joltSystem ? joltSystem->GetInterpolationAlpha() : 0.0f;
+
+        // Rotation slerped rather than lerped: a lerp of two quaternions shortens through
+        // the arc, so a fast-spinning wheel would visibly slow at the middle of every step
+        // and snap at the ends.
+        const AZ::Vector3 translation = m_previousBodyTransform.GetTranslation().Lerp(
+            m_previousBodyTransform2.GetTranslation(), alpha);
+        const AZ::Quaternion rotation = m_previousBodyTransform.GetRotation().Slerp(
+            m_previousBodyTransform2.GetRotation(), alpha);
+
+        AZ::Transform interpolated = AZ::Transform::CreateFromQuaternionAndTranslation(rotation, translation);
+        // Scale is not simulated, so it is carried through rather than blended.
+        interpolated.SetUniformScale(m_previousBodyTransform2.GetUniformScale());
+        return interpolated;
     }
 
     int JoltRigidBodyComponent::GetTickOrder()
@@ -279,6 +375,11 @@ namespace JoltPhysics
             // next tick would see the body agreeing with a stale cache and write the same
             // transform straight back.
             m_lastSyncedTransform = world;
+
+            // And the pose history restarts here. Blending a teleport against where the
+            // body used to be would draw it sliding across the level to its new home over
+            // the next step, which is exactly what teleporting is meant to avoid.
+            ResetPoseHistory(world);
         }
     }
 
@@ -332,6 +433,17 @@ namespace JoltPhysics
             if (AzPhysics::Scene* scene = physicsSystem->GetScene(m_attachedSceneHandle))
             {
                 m_bodyHandle = scene->AddSimulatedBody(&m_configuration);
+
+                // The per-step pose recorder goes on here, with the scene in hand and a
+                // body to record. Registered on the scene rather than through
+                // AzPhysics::SceneInterface: that interface is installed by the system
+                // component, so it is absent wherever the system is built directly - unit
+                // tests among them - and going through it made this quietly do nothing in
+                // the one place that would have caught it.
+                if (m_configuration.m_interpolateMotion && !m_sceneFinishHandler.IsConnected())
+                {
+                    scene->RegisterSceneSimulationFinishHandler(m_sceneFinishHandler);
+                }
             }
         }
     }
