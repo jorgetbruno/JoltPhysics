@@ -12,6 +12,8 @@
 #include <Clients/Components/JoltCapsuleColliderComponent.h>
 #include <Clients/Components/JoltColliderComponentBase.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
+#include <JoltPhysics/JoltPhysicsBus.h>
+#include <Clients/Components/JoltVehicleComponent.h>
 #include <Clients/Components/JoltSoftBodyAttachmentComponent.h>
 #include <JoltPhysics/JoltSoftBodyBus.h>
 #include <Clients/Components/JoltSoftBodyComponent.h>
@@ -325,6 +327,64 @@ namespace JoltPhysics
 
         EXPECT_LT(interpolated, snapped * 0.5f)
             << "interpolated motion is not measurably smoother: " << interpolated << " vs " << snapped;
+    }
+
+    TEST_F(JoltMotionInterpolationTests, WheelsRideTheChassisPoseThatIsDrawn)
+    {
+        // Interpolating the chassis moved the staircase onto the wheels rather than
+        // removing it: the body was drawn between two steps while GetWheelTransform kept
+        // reporting the pose the constraint was last simulated at, so the wheels slid
+        // against a car that was moving smoothly. Reported straight after the feature
+        // landed, and the reason wheel transforms are now composed from the entity.
+        //
+        // The invariant is that a wheel's offset *from the chassis entity* does not change
+        // between physics steps. It may change across them - suspension travels, wheels
+        // steer and spin - so this samples within one step's worth of frames.
+        auto entity = AZStd::make_unique<AZ::Entity>("InterpolatedVehicle");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+        collider->GetShapeConfiguration().m_dimensions = AZ::Vector3(2.0f, 1.0f, 0.5f);
+        auto* rigidBody = entity->CreateComponent<JoltRigidBodyComponent>();
+        rigidBody->GetConfiguration().m_interpolateMotion = true;
+        rigidBody->GetConfiguration().m_mass = 1200.0f;
+        entity->CreateComponent<JoltVehicleComponent>();
+
+        entity->Init();
+        AZ::TransformBus::Event(
+            entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, AZ::Vector3(0.0f, 0.0f, 5.0f));
+        entity->Activate();
+
+        SimulateFrames(FrameDeltaTime, 20);
+
+        AZ::u32 wheelCount = 0;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        ASSERT_GT(wheelCount, 0u);
+
+        auto offsetFromChassis = [&entity]()
+        {
+            AZ::Transform chassis = AZ::Transform::CreateIdentity();
+            AZ::TransformBus::EventResult(chassis, entity->GetId(), &AZ::TransformBus::Events::GetWorldTM);
+            AZ::Transform wheel = AZ::Transform::CreateIdentity();
+            JoltVehicleRequestBus::EventResult(
+                wheel, entity->GetId(), &JoltVehicleRequests::GetWheelTransform, 0u);
+            return (chassis.GetInverse() * wheel).GetTranslation();
+        };
+
+        // Frames small enough that several land inside one physics step, which is exactly
+        // where the chassis interpolates and the wheel used to fail to.
+        const AZ::Vector3 first = offsetFromChassis();
+        float worst = 0.0f;
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            SimulateFrames(FixedTimestep * 0.25f, 1);
+            worst = AZ::GetMax(worst, (offsetFromChassis() - first).GetLength());
+        }
+
+        EXPECT_LT(worst, 1.0e-3f)
+            << "the wheel drifted " << worst << " m from the chassis between steps; it is being placed from the "
+            << "simulated pose while the chassis is drawn interpolated";
+
+        entity->Deactivate();
     }
 
     TEST_F(JoltMotionInterpolationTests, AnInterpolatedBodyEndsExactlyWhereItSettles)

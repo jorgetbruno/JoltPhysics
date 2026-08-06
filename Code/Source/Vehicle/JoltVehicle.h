@@ -81,6 +81,9 @@ namespace JoltPhysics
         //! false for an out-of-range index, leaving outTransform untouched.
         bool GetWheelTransform(AZ::u32 wheelIndex, AZ::Transform& outTransform) const;
 
+        //! The same wheel, relative to the chassis body rather than the world.
+        bool GetWheelLocalTransform(AZ::u32 wheelIndex, AZ::Transform& outTransform) const;
+
         //! Current suspension extension (m), for driving a visual suspension.
         float GetSuspensionLength(AZ::u32 wheelIndex) const;
 

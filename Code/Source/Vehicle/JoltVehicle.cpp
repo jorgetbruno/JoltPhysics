@@ -781,6 +781,25 @@ namespace JoltPhysics
         return true;
     }
 
+    bool JoltVehicle::GetWheelLocalTransform(AZ::u32 wheelIndex, AZ::Transform& outTransform) const
+    {
+        if (!m_constraint || !m_chassisBody || wheelIndex >= GetWheelCount())
+        {
+            return false;
+        }
+
+        // The wheel relative to the chassis body, so a caller can put it back on whatever
+        // pose the chassis is being *drawn* at rather than the one it was last simulated
+        // at. Those are the same thing until the body interpolates, and then they are a
+        // fraction of a step apart - which is small in metres and glaring on screen, since
+        // it is the wheels sliding against a car that is moving smoothly.
+        const AZ::Transform bodyWorld = Conversions::FromJolt(m_chassisBody->GetWorldTransform());
+        const AZ::Transform wheelWorld = Conversions::FromJolt(
+            m_constraint->GetWheelWorldTransform(wheelIndex, JPH::Vec3::sAxisY(), JPH::Vec3::sAxisZ()));
+        outTransform = bodyWorld.GetInverse() * wheelWorld;
+        return true;
+    }
+
     float JoltVehicle::GetSuspensionLength(AZ::u32 wheelIndex) const
     {
         if (!m_constraint || wheelIndex >= GetWheelCount())

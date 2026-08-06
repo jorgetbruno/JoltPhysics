@@ -1,3 +1,4 @@
+#include <AzCore/Component/TransformBus.h>
 #include <Utils/JoltComponentUtils.h>
 #include <Clients/Components/JoltVehicleComponent.h>
 
@@ -480,12 +481,21 @@ namespace JoltPhysics
 
     AZ::Transform JoltVehicleComponent::GetWheelTransform(AZ::u32 wheelIndex) const
     {
-        AZ::Transform wheelTransform = AZ::Transform::CreateIdentity();
-        if (m_vehicle)
+        // Built from the chassis's *entity* transform rather than from the body's, so a
+        // wheel rides whatever pose the car is being drawn at. With motion interpolation on
+        // the two differ by a fraction of a step, and taking the body's pose here left the
+        // wheels stepping against a car that was moving smoothly - the same staircase the
+        // interpolation was added to remove, just moved onto the wheels.
+        //
+        // Identical to the body's pose when interpolation is off, so nothing changes there.
+        AZ::Transform wheelLocal = AZ::Transform::CreateIdentity();
+        if (m_vehicle && m_vehicle->GetWheelLocalTransform(wheelIndex, wheelLocal))
         {
-            m_vehicle->GetWheelTransform(wheelIndex, wheelTransform);
+            AZ::Transform chassisWorld = AZ::Transform::CreateIdentity();
+            AZ::TransformBus::EventResult(chassisWorld, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+            return chassisWorld * wheelLocal;
         }
-        return wheelTransform;
+        return AZ::Transform::CreateIdentity();
     }
 
     float JoltVehicleComponent::GetSuspensionLength(AZ::u32 wheelIndex) const

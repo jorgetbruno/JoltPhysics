@@ -699,6 +699,15 @@ entity transform itself, and blending that would fight the driver and lag it by 
 teleport or any entity-driven move restarts the pose history, so nothing is drawn sliding
 across the level to its new home.
 
+A vehicle's wheels follow the chassis's *drawn* pose, not its simulated one.
+`GetWheelTransform` composes the wheel's chassis-relative transform with the entity's
+current world transform, so a wheel rides whatever the car is being drawn at. Taking the
+wheel straight from the constraint - which is what it used to do - did not remove the
+staircase when interpolation was turned on, it moved it onto the wheels: measured, a wheel
+drifted 6 cm from its own car between two steps, which is the car gliding smoothly while
+its wheels advance in jumps. With interpolation off the two poses are identical and nothing
+changes.
+
 Only rigid bodies interpolate. Characters move themselves during the step and soft bodies
 have no single pose to blend.
 
