@@ -86,8 +86,9 @@ namespace JoltPhysics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<JoltRigidBodyComponent, AZ::Component>()
-                ->Version(1)
+                ->Version(2)
                 ->Field("RigidBodyConfiguration", &JoltRigidBodyComponent::m_configuration)
+                ->Field("MotionInterpolation", &JoltRigidBodyComponent::m_motionInterpolation)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -103,6 +104,16 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltRigidBodyComponent::m_configuration,
                         "Configuration", "Rigid body configuration")
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &JoltRigidBodyComponent::m_motionInterpolation,
+                        "Interpolate motion",
+                        "Whether this body is drawn between physics steps rather than snapped to the newest. "
+                        "Above the physics rate a moving body otherwise advances in a staircase, invisible "
+                        "against a fixed camera and obvious to anything that follows it smoothly. It costs up to "
+                        "one step of latency, so the project-wide setting is usually the right answer and this is "
+                        "for the exceptions.")
+                        ->EnumAttribute(JoltMotionInterpolation::UseProjectDefault, "Use project default")
+                        ->EnumAttribute(JoltMotionInterpolation::On, "On")
+                        ->EnumAttribute(JoltMotionInterpolation::Off, "Off")
                     ;
 
                 editContext->Class<AzPhysics::RigidBodyConfiguration>("Jolt Rigid Body Configuration", "")
@@ -145,14 +156,6 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_maxAngularVelocity,
                         "Maximum angular velocity", "Upper limit on the angular velocity of the rigid body.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
-                    ->DataElement(AZ::Edit::UIHandlers::Default,
-                        &AzPhysics::RigidBodyConfiguration::m_interpolateMotion,
-                        "Interpolate motion",
-                        "Draws the body between the last two physics steps instead of snapping it to the newest. "
-                        "Physics runs at a fixed rate while frames are drawn whenever they are ready, so above "
-                        "that rate a moving body advances in a staircase - invisible with a fixed camera, obvious "
-                        "to anything that follows it smoothly. Costs a blend per moving body per frame. Off by "
-                        "default, matching PhysX.")
                     ;
             }
         }
@@ -175,9 +178,30 @@ namespace JoltPhysics
         required.push_back(AZ_CRC_CE("JoltColliderService"));
     }
 
+    bool JoltRigidBodyComponent::ResolveInterpolateMotion() const
+    {
+        switch (m_motionInterpolation)
+        {
+        case JoltMotionInterpolation::On:
+            return true;
+        case JoltMotionInterpolation::Off:
+            return false;
+        case JoltMotionInterpolation::UseProjectDefault:
+        default:
+            // The AzPhysics flag still wins if it was set directly. That is how PhysX
+            // content carries the setting, and how this gem carried it before the project
+            // default existed, so honouring it here means neither is quietly dropped.
+            return InterpolateMotionByDefault() || m_configuration.m_interpolateMotion;
+        }
+    }
+
     void JoltRigidBodyComponent::Activate()
     {
         Physics::DefaultWorldBus::BroadcastResult(m_attachedSceneHandle, &Physics::DefaultWorldRequests::GetDefaultSceneHandle);
+
+        // Resolved once, and written back, so every later read - the handler registration,
+        // ShouldInterpolate, anything asking the configuration - sees the same answer.
+        m_configuration.m_interpolateMotion = ResolveInterpolateMotion();
 
         // Only interpolating bodies pay for the per-step handler; everything else runs
         // exactly the code it ran before this feature existed.

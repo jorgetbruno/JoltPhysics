@@ -669,9 +669,30 @@ rather than a gameplay preference.
 
 ## Motion interpolation
 
-`AzPhysics::RigidBodyConfiguration::m_interpolateMotion` is honoured, with PhysX's default:
-**off**. Turned on, a body's entity transform is blended between the poses of the last two
-fixed steps instead of snapped to the newest.
+Interpolation is a **project setting** with a per-body override, which PhysX has no
+equivalent of - it offers only `AzPhysics::RigidBodyConfiguration::m_interpolateMotion`,
+per body and off by default.
+
+`JoltSystemConfiguration::m_interpolateMotion` is the project default, and each rigid body
+carries a three-way `JoltMotionInterpolation`: *use project default*, *on*, *off*. Both
+default to off, so nothing changes for a project that ignores them.
+
+The project setting exists because smoothness against a step of latency is one decision for
+a game rather than one per crate, and because a per-body-only flag has a bad failure mode:
+it is silently missing on whatever was forgotten, and a scene where some objects interpolate
+and others do not looks worse than one where none do, since the eye compares them. That was
+not hypothetical - it is how a car came to be interpolated while its own wheels were not.
+
+The per-body override earns its place at both ends: *off* for whatever the player steers,
+where up to a step of latency costs more than the smoothness buys, and *on* for a single
+followed object in a project that leaves the rest alone.
+
+A body whose `m_interpolateMotion` was ticked directly is honoured even on *use project
+default*, so PhysX content - and content authored against this gem before the project
+setting existed - does not quietly lose the setting.
+
+Turned on, a body's entity transform is blended between the poses of the last two fixed
+steps instead of snapped to the newest.
 
 It matters above the physics rate. The simulation advances in fixed steps while frames are
 drawn whenever they are ready, so at 102 FPS against 60 Hz physics about four frames in ten

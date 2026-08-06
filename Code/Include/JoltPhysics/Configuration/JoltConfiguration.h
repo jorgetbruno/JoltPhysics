@@ -70,6 +70,18 @@ namespace JoltPhysics
         //! characters. Static bodies gain nothing from carrying the flag themselves.
         bool m_enhancedInternalEdgeRemoval = true;
 
+        //! Whether rigid bodies are drawn between physics steps by default.
+        //!
+        //! Physics runs at a fixed rate while frames are drawn whenever they are ready, so
+        //! above that rate a moving body advances in a staircase. Interpolating smooths it,
+        //! at the cost of drawing up to one step behind the simulation - about 17 ms at the
+        //! default 60 Hz. That trade is a project-wide decision far more often than a
+        //! per-body one, which is why it lives here; a body that disagrees can still say so
+        //! (see JoltMotionInterpolation on the rigid body component).
+        //!
+        //! Off by default, matching PhysX's own m_interpolateMotion.
+        bool m_interpolateMotion = false;
+
         //! How close two vertices must be before the edge-removal algorithm treats them as
         //! the same vertex, and therefore the edge between them as shared (m). Jolt stores
         //! this squared; it is exposed unsquared because that is the unit an author can

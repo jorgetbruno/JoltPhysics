@@ -13,6 +13,22 @@
 
 namespace JoltPhysics
 {
+    //! Whether this body is drawn between physics steps.
+    //!
+    //! Three-way rather than a checkbox, because the interesting answer is almost always
+    //! "whatever the project says". Smoothness against a step of latency is one decision
+    //! for a game, not one per crate - and a per-body-only flag has a bad failure mode: it
+    //! is silently missing on whatever you forgot, and a scene where some objects
+    //! interpolate and others do not looks worse than one where none do, because the eye
+    //! compares them.
+    enum class JoltMotionInterpolation : AZ::u8
+    {
+        UseProjectDefault, //!< Follow the physics configuration's Interpolate Motion.
+        On,                //!< Always interpolate, whatever the project says.
+        Off,               //!< Never interpolate - for anything a player steers, where a
+                           //!< step of latency costs more than the smoothness buys.
+    };
+
     //! Component used to register an entity as a dynamic rigid body in the Jolt simulation.
     class JoltRigidBodyComponent
         : public AZ::Component
@@ -91,6 +107,17 @@ namespace JoltPhysics
         AzPhysics::SimulatedBody* GetSimulatedBody() override;
         AzPhysics::SimulatedBodyHandle GetSimulatedBodyHandle() const override;
 
+        JoltMotionInterpolation& GetMotionInterpolation()
+        {
+            return m_motionInterpolation;
+        }
+
+        //! Resolves the three-way setting against the project default, and against the
+        //! AzPhysics flag: a body whose m_interpolateMotion was ticked directly - which is
+        //! how PhysX content carries it - is honoured even on UseProjectDefault, so
+        //! importing that content does not quietly lose the setting.
+        bool ResolveInterpolateMotion() const;
+
         AzPhysics::RigidBodyConfiguration& GetConfiguration()
         {
             return m_configuration;
@@ -156,6 +183,8 @@ namespace JoltPhysics
         AZ::Transform m_previousBodyTransform2 = AZ::Transform::CreateIdentity();
         bool m_hasPoseHistory = false; //!< One pose recorded.
         bool m_hasPosePair = false;    //!< Two, which is the minimum to blend between.
+
+        JoltMotionInterpolation m_motionInterpolation = JoltMotionInterpolation::UseProjectDefault;
         //! Records a pose per fixed step. Only connected while interpolating.
         AzPhysics::SceneEvents::OnSceneSimulationFinishHandler m_sceneFinishHandler;
         bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.

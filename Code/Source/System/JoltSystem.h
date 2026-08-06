@@ -156,4 +156,7 @@ namespace JoltPhysics
     //! available, which is the case for tests that build bodies against a bare scene.
     bool UseEnhancedInternalEdgeRemoval();
 
+    //! The project-wide default for drawing rigid bodies between physics steps.
+    bool InterpolateMotionByDefault();
+
 } // namespace JoltPhysics

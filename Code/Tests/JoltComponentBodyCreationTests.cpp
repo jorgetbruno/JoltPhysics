@@ -329,6 +329,71 @@ namespace JoltPhysics
             << "interpolated motion is not measurably smoother: " << interpolated << " vs " << snapped;
     }
 
+    TEST_F(JoltMotionInterpolationTests, TheProjectDefaultDecidesUnlessABodyDisagrees)
+    {
+        // The whole reason for a project-wide setting: smoothness against a step of
+        // latency is one decision for a game, and a per-body-only flag is silently missing
+        // on whatever was forgotten. So the default has to actually reach bodies that were
+        // never touched, and a body that disagrees has to be able to say so.
+        auto interpolatesWith = [this](bool projectDefault, JoltMotionInterpolation mode)
+        {
+            JoltSystemConfiguration config = m_system->GetJoltConfiguration();
+            config.m_interpolateMotion = projectDefault;
+            m_system->UpdateConfiguration(&config);
+
+            auto entity = AZStd::make_unique<AZ::Entity>("Body");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+            collider->GetShapeConfiguration().m_dimensions = AZ::Vector3::CreateOne();
+            auto* rigidBody = entity->CreateComponent<JoltRigidBodyComponent>();
+            rigidBody->GetMotionInterpolation() = mode;
+            entity->Init();
+            AZ::TransformBus::Event(
+                entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, AZ::Vector3(0.0f, 0.0f, 20.0f));
+            entity->Activate();
+
+            const bool resolved = rigidBody->ResolveInterpolateMotion();
+            entity->Deactivate();
+            return resolved;
+        };
+
+        using MI = JoltMotionInterpolation;
+        EXPECT_FALSE(interpolatesWith(false, MI::UseProjectDefault)) << "a project that wants none got some";
+        EXPECT_TRUE(interpolatesWith(true, MI::UseProjectDefault)) << "the project default never reached the body";
+        EXPECT_TRUE(interpolatesWith(false, MI::On)) << "a body could not opt in";
+        EXPECT_FALSE(interpolatesWith(true, MI::Off))
+            << "a body could not opt out - which is what anything the player steers needs, since interpolation "
+               "costs it a step of latency";
+    }
+
+    TEST_F(JoltMotionInterpolationTests, AnExplicitAzPhysicsFlagIsNotQuietlyDropped)
+    {
+        // PhysX content carries this setting as RigidBodyConfiguration::m_interpolateMotion,
+        // and so did this gem before the project default existed. A body arriving with it
+        // ticked must keep interpolating even though its three-way setting says "use the
+        // project default" - otherwise adding the project setting silently turned the
+        // feature off for everyone who had already found it.
+        JoltSystemConfiguration config = m_system->GetJoltConfiguration();
+        config.m_interpolateMotion = false;
+        m_system->UpdateConfiguration(&config);
+
+        auto entity = AZStd::make_unique<AZ::Entity>("ImportedBody");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+        collider->GetShapeConfiguration().m_dimensions = AZ::Vector3::CreateOne();
+        auto* rigidBody = entity->CreateComponent<JoltRigidBodyComponent>();
+        rigidBody->GetConfiguration().m_interpolateMotion = true;
+        ASSERT_EQ(rigidBody->GetMotionInterpolation(), JoltMotionInterpolation::UseProjectDefault);
+
+        entity->Init();
+        entity->Activate();
+
+        EXPECT_TRUE(rigidBody->ResolveInterpolateMotion())
+            << "a body that asked for interpolation directly stopped getting it when the project default arrived";
+
+        entity->Deactivate();
+    }
+
     TEST_F(JoltMotionInterpolationTests, WheelsRideTheChassisPoseThatIsDrawn)
     {
         // Interpolating the chassis moved the staircase onto the wheels rather than

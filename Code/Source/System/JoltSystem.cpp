@@ -601,6 +601,15 @@ namespace JoltPhysics
         return static_cast<JoltSystem*>(AZ::Interface<AzPhysics::SystemInterface>::Get());
     }
 
+    bool InterpolateMotionByDefault()
+    {
+        if (auto* joltSystem = GetJoltSystem())
+        {
+            return joltSystem->GetJoltConfiguration().m_interpolateMotion;
+        }
+        return JoltSystemConfiguration().m_interpolateMotion;
+    }
+
     bool UseEnhancedInternalEdgeRemoval()
     {
         if (auto* joltSystem = GetJoltSystem())
@@ -666,6 +675,7 @@ namespace JoltPhysics
                 ->Field("DeterministicSimulation", &JoltSystemConfiguration::m_deterministicSimulation)
                 ->Field("CollisionSteps", &JoltSystemConfiguration::m_collisionSteps)
                 ->Field("EnhancedInternalEdgeRemoval", &JoltSystemConfiguration::m_enhancedInternalEdgeRemoval)
+                ->Field("InterpolateMotion", &JoltSystemConfiguration::m_interpolateMotion)
                 ->Field("InternalEdgeRemovalTolerance", &JoltSystemConfiguration::m_internalEdgeRemovalTolerance)
                 ;
 
@@ -730,6 +740,13 @@ namespace JoltPhysics
                         "behavior at proportional CPU cost.")
                         ->Attribute(AZ::Edit::Attributes::Min, 1)
                         ->Attribute(AZ::Edit::Attributes::Max, 8)
+                    ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSystemConfiguration::m_interpolateMotion,
+                        "Interpolate Motion",
+                        "Draw rigid bodies between physics steps rather than snapping them to the newest. Above "
+                        "the physics rate a moving body otherwise advances in a staircase, which is invisible "
+                        "against a fixed camera and obvious to anything that follows it smoothly. Costs up to one "
+                        "step of latency - about 17 ms at 60 Hz - so leave it off for whatever the player is "
+                        "steering if that matters more than smoothness. Individual bodies can override this.")
                     ->DataElement(AZ::Edit::UIHandlers::CheckBox, &JoltSystemConfiguration::m_enhancedInternalEdgeRemoval,
                         "Enhanced Internal Edge Removal",
                         "Suppress ghost contacts against the internal edges of meshes and heightfields, so bodies "
