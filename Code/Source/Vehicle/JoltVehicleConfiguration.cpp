@@ -5,6 +5,12 @@
 
 namespace JoltPhysics
 {
+    AZStd::span<const float> DefaultGearRatios()
+    {
+        static constexpr float ratios[] = { 2.66f, 1.78f, 1.3f, 1.0f, 0.74f };
+        return AZStd::span<const float>(ratios, AZStd::size(ratios));
+    }
+
     void JoltWheelConfiguration::Reflect(AZ::ReflectContext* context)
     {
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -348,7 +354,8 @@ namespace JoltPhysics
                         ->EnumAttribute(JoltVehicleTransmissionMode::Automatic, "Automatic")
                         ->EnumAttribute(JoltVehicleTransmissionMode::Manual, "Manual")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_gearRatios,
-                        "Gear ratios", "Forward gear ratios, from first gear to top.")
+                        "Gear ratios", "Forward gear ratios, from first gear to top. Empty gives a five-speed "
+                        "box (2.66, 1.78, 1.3, 1.0, 0.74).")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_reverseGearRatio,
                         "Reverse gear ratio", "Reverse gear ratio (negative).")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleConfiguration::m_gearSwitchTime,

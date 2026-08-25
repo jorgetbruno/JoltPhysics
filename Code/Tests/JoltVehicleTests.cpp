@@ -267,6 +267,51 @@ namespace JoltPhysics
         EXPECT_GT(up.GetZ(), 0.9f) << rampDiag.c_str();
     }
 
+    TEST_F(JoltVehicleTests, NoContainerInTheConfigurationIsPreFilled)
+    {
+        // Reported from a project as gear ratios that kept multiplying - 35 entries, the
+        // five defaults seven times over. A container member with a non-empty default
+        // duplicates itself: the prefab system applies the stored elements onto a freshly
+        // constructed object, and for a container that appends rather than replaces, so
+        // every save-and-load cycle adds another copy. Jolt would have driven that as a
+        // 35-speed gearbox.
+        //
+        // Asserted across every list rather than just the gear one, because the fault is a
+        // property of the declaration and the next person adding a list with a sensible
+        // default would reintroduce it in a different field.
+        const JoltVehicleConfiguration config;
+        EXPECT_TRUE(config.m_gearRatios.empty()) << "gear ratios are pre-filled and will duplicate on every save";
+        EXPECT_TRUE(config.m_engineTorqueCurve.empty());
+        EXPECT_TRUE(config.m_wheels.empty());
+        EXPECT_TRUE(config.m_antiRollBars.empty());
+        EXPECT_TRUE(config.m_differentials.empty());
+
+        const JoltWheelConfiguration wheel;
+        EXPECT_TRUE(wheel.m_longitudinalFrictionCurve.empty());
+        EXPECT_TRUE(wheel.m_lateralFrictionCurve.empty());
+    }
+
+    TEST_F(JoltVehicleTests, AnEmptyGearListStillGivesTheDefaultBox)
+    {
+        // The other half of the fix: emptying the member must not leave vehicles with no
+        // gears at all. Empty means the default box, the same way an empty torque curve
+        // keeps Jolt's own.
+        ASSERT_EQ(DefaultGearRatios().size(), 5u);
+
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        ASSERT_TRUE(config.m_gearRatios.empty());
+
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+        auto* chassis = GetChassis();
+        ASSERT_NE(chassis, nullptr);
+
+        const AZ::Vector3 start = chassis->GetPosition();
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+
+        EXPECT_GT((chassis->GetPosition() - start).GetLength(), 0.5f)
+            << "a vehicle with no gear ratios authored did not drive; the default box is not being applied";
+    }
+
     TEST_F(JoltVehicleTests, AWheelTransformCarriesAUsableScale)
     {
         // Reported from a project as "the wheels disappear the moment the script runs".

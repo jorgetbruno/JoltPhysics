@@ -80,7 +80,13 @@ namespace JoltPhysics
             transmission.mMode = configuration.m_transmissionMode == JoltVehicleTransmissionMode::Manual
                 ? JPH::ETransmissionMode::Manual
                 : JPH::ETransmissionMode::Auto;
-            transmission.mGearRatios.assign(configuration.m_gearRatios.begin(), configuration.m_gearRatios.end());
+            // Empty means the default box, the same way an empty torque curve keeps Jolt's.
+            // The alternative - pre-filling the member - is what made a gear list grow by
+            // five entries on every save.
+            const AZStd::span<const float> gearRatios = configuration.m_gearRatios.empty()
+                ? DefaultGearRatios()
+                : AZStd::span<const float>(configuration.m_gearRatios.data(), configuration.m_gearRatios.size());
+            transmission.mGearRatios.assign(gearRatios.begin(), gearRatios.end());
             transmission.mReverseGearRatios.assign({ configuration.m_reverseGearRatio });
             transmission.mSwitchTime = configuration.m_gearSwitchTime;
             transmission.mClutchReleaseTime = configuration.m_clutchReleaseTime;

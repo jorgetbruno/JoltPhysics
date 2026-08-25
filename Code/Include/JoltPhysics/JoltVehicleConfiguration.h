@@ -5,6 +5,7 @@
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/RTTI/RTTI.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/containers/span.h>
 #include <AzCore/std/string/string.h>
 
 namespace JoltPhysics
@@ -186,7 +187,17 @@ namespace JoltPhysics
 
         // Transmission (JPH::VehicleTransmissionSettings).
         JoltVehicleTransmissionMode m_transmissionMode = JoltVehicleTransmissionMode::Automatic;
-        AZStd::vector<float> m_gearRatios = { 2.66f, 1.78f, 1.3f, 1.0f, 0.74f };
+        //! Forward gear ratios, top gear first. **Empty means the default five-speed box**
+        //! (see DefaultGearRatios), which is why this is not pre-filled here.
+        //!
+        //! A container member with a non-empty default duplicates itself: the prefab system
+        //! applies the stored elements onto a freshly constructed object, and for a
+        //! container that appends rather than replaces, so every save-and-load cycle adds
+        //! another copy of the defaults. Reported from a project as a gear list that had
+        //! reached 35 entries - the five defaults, seven times over - which Jolt would
+        //! happily have driven as a 35-speed gearbox. Every other list in this
+        //! configuration already defaults empty; this one was the exception.
+        AZStd::vector<float> m_gearRatios;
         float m_reverseGearRatio = -2.9f;
         float m_gearSwitchTime = 0.5f; //!< Seconds a gear change takes (automatic mode).
         float m_clutchReleaseTime = 0.3f; //!< Seconds to re-engage the clutch after a shift.
@@ -237,4 +248,14 @@ namespace JoltPhysics
         AZ::Crc32 GetMotorcycleSettingsVisibility() const;
         AZ::Crc32 GetTrackedSettingsVisibility() const;
     };
+    //! The five-speed box a vehicle gets when its gear list is left empty. A function
+    //! rather than a default member value, because a pre-filled container is duplicated by
+    //! the prefab system every time it is saved and loaded.
+    //!
+    //! A span over static storage rather than a static vector: a function-local static
+    //! container allocates from the SystemAllocator on first use and is still holding that
+    //! allocation when the allocator's leak check runs, which reports it as a leak and
+    //! leaves the destructor running against an allocator that may already be gone.
+    AZStd::span<const float> DefaultGearRatios();
+
 } // namespace JoltPhysics
