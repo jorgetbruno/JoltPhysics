@@ -226,12 +226,19 @@ feature, trust the topic sections below the milestones.**
   defaults are Y-up, which would read O3DE's ground as a wall); the cylinder tester
   takes none, reading the orientation off the constraint. An earlier note here said
   the cylinder tester found no contacts - that was wrong.
-- **The pitch/roll limit defaults to 60 degrees**, not Jolt's unlimited 180.
-  Without it a vehicle powers itself over: the default tank has enough drive torque
-  to pop a wheelie, and with the suspension still pushing from the vertical it lands
-  on its back and drives on there. This only became visible once the wheels had real
-  grip - with the ray tester they slipped enough to hide it. Both cases are pinned by
-  tests.
+- **[corrected 2026-08-26 - no longer a divergence]** *The pitch/roll limit defaults to
+  60 degrees, not Jolt's unlimited 180.* It now matches Jolt and is off by default. The
+  reasoning for 60 was real - the default tank has enough drive torque to pop a wheelie,
+  and with the suspension still pushing past the vertical it lands on its back and drives
+  on there, which only became visible once the wheels had real grip - but the cure was
+  worse than the disease as a default: a limit in force means no vehicle can be knocked
+  over at all, and nothing in the viewport says a constraint is holding the chassis up.
+  It reads as a vehicle with no physics. Both cases are still pinned by tests, which set
+  the limit explicitly rather than leaning on the default; a third test pins the default
+  itself. Set 60 on a vehicle whose drive can out-torque its own wheelbase.
+  - **This changes behaviour for existing vehicles.** The old default was never
+    serialized (defaults are omitted), so every vehicle authored before this picks up
+    180 and can now roll.
 - **Anti-roll bars are wrapped** (`JoltVehicleConfiguration::m_antiRollBars`), each
   naming the two wheels it couples and a stiffness, validated against the wheel count
   at creation. They are opt-in and empty by default: they cure suspension roll, which

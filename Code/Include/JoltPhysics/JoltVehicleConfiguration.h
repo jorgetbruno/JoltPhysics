@@ -149,14 +149,16 @@ namespace JoltPhysics
         AZStd::vector<JoltVehicleAntiRollBar> m_antiRollBars;
 
         //! How far the chassis may pitch or roll away from world up before the suspension
-        //! stops pushing (degrees; 180 disables the limit, which is Jolt's own default).
+        //! stops pushing (degrees; 180 disables the limit).
         //!
-        //! 60 here, matching Jolt's samples, because without a limit a vehicle powers
-        //! itself right over: the default tank has enough torque to pop a wheelie, and
-        //! with nothing to stop it the suspension keeps driving from the vertical until
-        //! it lands on its back. The limit costs nothing on a slope a vehicle could
-        //! actually climb.
-        float m_maxPitchRollAngleDegrees = 60.0f;
+        //! Off by default, as Jolt ships it. This used to default to 60, which stops the
+        //! default tank powering itself onto its back - it has enough torque to pop a
+        //! wheelie, and with the suspension still pushing past the vertical it lands
+        //! upside down and drives on there. But a limit on every vehicle by default also
+        //! means no vehicle can be knocked over, which reads as absent physics and is
+        //! invisible in the viewport: nothing says a constraint is holding the chassis
+        //! up. Set it to 60 on a vehicle whose drive can out-torque its own wheelbase.
+        float m_maxPitchRollAngleDegrees = 180.0f;
 
         float m_chassisMass = 1200.0f; //!< Absolute chassis mass in kg (0 = keep the rigid body's mass).
 

@@ -172,3 +172,10 @@ deviations from PhysX behavior.
   configuration is also scriptable (behavior-context reflected, carried by the bus),
   per-vehicle gravity override and solver/collision-test knobs are exposed, and the
   editor component previews the suspension rest pose without entering game mode.
+- **The default tracked drive out-torques its own wheelbase.** At full throttle from
+  standstill on flat ground, a tracked vehicle on the default 500 Nm engine and the
+  default eight-wheel layout pops a wheelie and lands on its back. This was masked
+  until 2026-08-26 by the pitch/roll limit defaulting to 60 degrees; now that the limit
+  matches Jolt and is off by default, it is visible. The engine torque default is shared
+  by every vehicle type and sizing it per type (as the motorcycle already is) is the
+  real fix; until then, set `Max pitch/roll angle` to 60 on a tracked vehicle.

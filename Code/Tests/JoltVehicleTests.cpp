@@ -120,6 +120,13 @@ namespace JoltPhysics
             JoltVehicleConfiguration config;
             config.m_vehicleType = JoltVehicleType::Tracked;
             config.m_chassisMass = 2000.0f;
+            // Explicit since the gem stopped limiting pitch/roll by default: the default
+            // 500 Nm engine out-torques this layout's wheelbase, so at full throttle the
+            // tank pops a wheelie and, with the suspension still pushing past the
+            // vertical, drives on its back. That is a real defect in the default tracked
+            // drive (see KNOWN_ISSUES) rather than something the tests should hide - the
+            // limit is set here so the driving tests measure driving.
+            config.m_maxPitchRollAngleDegrees = 60.0f;
             return config; // empty wheel list -> the default eight-wheel layout
         }
 
@@ -607,7 +614,7 @@ namespace JoltPhysics
             SetUp();
             CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 200.0f, 1.0f));
             JoltVehicleConfiguration config = MakeTrackedConfiguration();
-            config.m_maxPitchRollAngleDegrees = pitchLimitDegrees;
+            config.m_maxPitchRollAngleDegrees = pitchLimitDegrees; // overrides the helper
             CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), config, AZ::Vector3(3.0f, 1.6f, 0.6f), 2000.0f);
             DriveSteps(0.0f, 0.0f, 0.0f, 60);
             DriveSteps(1.0f, 0.0f, 0.0f, 180);
@@ -616,6 +623,16 @@ namespace JoltPhysics
 
         EXPECT_LT(DriveAndReportUpZ(180.0f), 0.5f);  // unlimited: tipped past horizontal
         EXPECT_GT(DriveAndReportUpZ(60.0f), 0.9f);   // limited: still upright
+    }
+
+    TEST_F(JoltVehicleTests, ThePitchRollLimitIsOffByDefaultAsJoltShipsIt)
+    {
+        // The limit is a real Jolt feature but an intrusive default: with one in force no
+        // vehicle can be knocked over, and nothing in the viewport says why. The gem used
+        // to default to 60 degrees; it now matches Jolt, and the tank case above is opted
+        // into rather than assumed.
+        const JoltVehicleConfiguration defaults;
+        EXPECT_FLOAT_EQ(defaults.m_maxPitchRollAngleDegrees, 180.0f);
     }
 
     TEST_F(JoltVehicleTests, AnAntiRollBarKeepsTheChassisFlatterThroughACorner)
