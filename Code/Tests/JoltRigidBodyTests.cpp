@@ -231,6 +231,164 @@ namespace JoltPhysics
         EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 9.5f, 0.05f);
     }
 
+    //! Helper for the configuration-driven tests below: a 1m box body built from a
+    //! configuration the caller has already tuned, rather than from the defaults.
+    static AzPhysics::RigidBody* AddConfiguredBox(AzPhysics::Scene* scene, AzPhysics::RigidBodyConfiguration& config)
+    {
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+        auto handle = scene->AddSimulatedBody(&config);
+        return static_cast<AzPhysics::RigidBody*>(scene->GetSimulatedBodyFromHandle(handle));
+    }
+
+    TEST_F(JoltRigidBodyTests, AComOffsetIsIgnoredWhileComputeComIsSet)
+    {
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3(0.0f, 0.0f, 10.0f);
+        ASSERT_TRUE(config.m_computeCenterOfMass) << "the engine default this test depends on has changed";
+        config.m_centerOfMassOffset = AZ::Vector3(0.0f, 0.0f, 1.0f);
+
+        auto* body = AddConfiguredBox(m_scene, config);
+        ASSERT_NE(body, nullptr);
+
+        // The shapes decide the centre of mass, so the stale offset must not move it.
+        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 10.0f, 0.05f);
+    }
+
+    TEST_F(JoltRigidBodyTests, AComOffsetAppliesOnceComputeComIsUnticked)
+    {
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3(0.0f, 0.0f, 10.0f);
+        config.m_computeCenterOfMass = false;
+        config.m_centerOfMassOffset = AZ::Vector3(0.0f, 0.0f, 1.0f);
+
+        auto* body = AddConfiguredBox(m_scene, config);
+        ASSERT_NE(body, nullptr);
+
+        // Same Jolt-native semantics as SetCenterOfMassOffset: geometry shifts by -offset.
+        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 9.0f, 0.05f);
+    }
+
+    TEST_F(JoltRigidBodyTests, ALockedLinearAxisDoesNotTranslate)
+    {
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_gravityEnabled = false;
+        config.m_lockLinearX = true;
+
+        auto* body = AddConfiguredBox(m_scene, config);
+        ASSERT_NE(body, nullptr);
+
+        // The default 1m box weighs ~1000kg, so the impulse has to be scaled to match or
+        // the "free axis moved" half of the assertion measures nothing.
+        body->ApplyLinearImpulse(AZ::Vector3(10000.0f, 10000.0f, 0.0f));
+        SimulateSeconds(0.5f);
+
+        EXPECT_NEAR(body->GetPosition().GetX(), 0.0f, 0.01f) << "the locked axis moved";
+        EXPECT_GT(body->GetPosition().GetY(), 1.0f) << "the free axis should still move";
+    }
+
+    TEST_F(JoltRigidBodyTests, ALockedAngularAxisDoesNotRotate)
+    {
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_gravityEnabled = false;
+        config.m_lockAngularZ = true;
+
+        auto* body = AddConfiguredBox(m_scene, config);
+        ASSERT_NE(body, nullptr);
+
+        body->ApplyAngularImpulse(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        SimulateSeconds(0.5f);
+
+        EXPECT_NEAR(body->GetAngularVelocity().GetZ(), 0.0f, 0.01f) << "the locked axis span up";
+    }
+
+    TEST_F(JoltRigidBodyTests, EveryAxisLockedLeavesTheBodySimulatableRatherThanCrashing)
+    {
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_lockLinearX = config.m_lockLinearY = config.m_lockLinearZ = true;
+        config.m_lockAngularX = config.m_lockAngularY = config.m_lockAngularZ = true;
+
+        // Jolt documents EAllowedDOFs::None as invalid and crashing, so the gem warns and
+        // ignores the locks instead of handing that to Jolt.
+        AZ_TEST_START_TRACE_SUPPRESSION;
+        auto* body = AddConfiguredBox(m_scene, config);
+        AZ_TEST_STOP_TRACE_SUPPRESSION_NO_COUNT;
+
+        ASSERT_NE(body, nullptr);
+        SimulateSeconds(0.25f);
+        SUCCEED();
+    }
+
+    TEST_F(JoltRigidBodyTests, AnAuthoredInertiaTensorResistsRotationMoreThanTheComputedOne)
+    {
+        AzPhysics::RigidBodyConfiguration computedConfig;
+        computedConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+        computedConfig.m_gravityEnabled = false;
+        auto* computedBody = AddConfiguredBox(m_scene, computedConfig);
+        ASSERT_NE(computedBody, nullptr);
+
+        AzPhysics::RigidBodyConfiguration authoredConfig;
+        authoredConfig.m_position = AZ::Vector3(10.0f, 0.0f, 0.0f);
+        authoredConfig.m_gravityEnabled = false;
+        authoredConfig.m_computeInertiaTensor = false;
+        // Has to be well above the ~167 kg*m^2 Jolt computes for a 1000kg 1m box, or the
+        // authored body spins up faster and the assertion below measures the wrong sign.
+        constexpr float AuthoredInertia = 100000.0f;
+        authoredConfig.m_inertiaTensor =
+            AZ::Matrix3x3::CreateDiagonal(AZ::Vector3(AuthoredInertia, AuthoredInertia, AuthoredInertia));
+        auto* authoredBody = AddConfiguredBox(m_scene, authoredConfig);
+        ASSERT_NE(authoredBody, nullptr);
+
+        const AZ::Vector3 impulse(0.0f, 0.0f, 1.0f);
+        computedBody->ApplyAngularImpulse(impulse);
+        authoredBody->ApplyAngularImpulse(impulse);
+
+        // Same impulse, far larger tensor: the authored body must spin up much slower, and
+        // its rate must be the one the tensor implies rather than the geometry's.
+        EXPECT_LT(
+            AZStd::abs(authoredBody->GetAngularVelocity().GetZ()),
+            AZStd::abs(computedBody->GetAngularVelocity().GetZ()) * 0.1f)
+            << "the authored inertia tensor was not applied";
+        EXPECT_NEAR(authoredBody->GetAngularVelocity().GetZ(), 1.0f / AuthoredInertia, 1e-6f);
+    }
+
+    TEST_F(JoltRigidBodyTests, IncludeAllShapesCountsQueryOnlyCollidersTowardsTheMass)
+    {
+        // Two colliders on one body: a simulated 1m box and a query-only 1m box. With the
+        // flag off only the simulated one weighs anything, which is the engine default.
+        auto makeBody = [this](bool includeAll, const AZ::Vector3& position)
+        {
+            auto simulatedCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto simulatedShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+            auto queryOnlyCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+            queryOnlyCollider->m_isSimulated = false;
+            auto queryOnlyShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+            AzPhysics::RigidBodyConfiguration config;
+            config.m_position = position;
+            config.m_includeAllShapesInMassCalculation = includeAll;
+            config.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{
+                AzPhysics::ShapeColliderPair(simulatedCollider, simulatedShape),
+                AzPhysics::ShapeColliderPair(queryOnlyCollider, queryOnlyShape)
+            };
+            auto handle = m_scene->AddSimulatedBody(&config);
+            return static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        };
+
+        auto* excluded = makeBody(false, AZ::Vector3::CreateZero());
+        auto* included = makeBody(true, AZ::Vector3(10.0f, 0.0f, 0.0f));
+        ASSERT_NE(excluded, nullptr);
+        ASSERT_NE(included, nullptr);
+
+        EXPECT_NEAR(included->GetMass(), excluded->GetMass() * 2.0f, excluded->GetMass() * 0.05f)
+            << "the query-only collider did not contribute its share of the mass";
+    }
+
     TEST_F(JoltRigidBodyTests, AttachingAShapeLeavesConvexHullGeometryWhereItWas)
     {
         // Rebuilding a body's compound has to undo Jolt's sub-shape storage exactly:

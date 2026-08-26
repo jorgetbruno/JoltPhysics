@@ -126,6 +126,10 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_computeMass,
                         "Compute mass", "Derive the mass from the collider volumes and their material densities. "
                         "Untick to author a mass directly.")
+                        // Without this the ReadOnly attribute below is never re-evaluated,
+                        // so Mass stays greyed after the box is unticked and the field looks
+                        // broken until the entity is reselected.
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::AttributesAndValues)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_mass,
                         "Mass", "Mass of the rigid body in kilograms. Read-only while Compute mass is ticked, "
                         "because the geometry decides it.")
@@ -134,6 +138,38 @@ namespace JoltPhysics
                         // missing feature, while a greyed one with the checkbox above it
                         // says who is in charge of the value.
                         ->Attribute(AZ::Edit::Attributes::ReadOnly, &AzPhysics::RigidBodyConfiguration::m_computeMass)
+                    ->DataElement(AZ::Edit::UIHandlers::Default,
+                        &AzPhysics::RigidBodyConfiguration::m_includeAllShapesInMassCalculation,
+                        "Include all shapes in mass", "Count colliders that are not simulated (trigger and "
+                        "query-only volumes) towards the computed mass as well. Ignored while a mass is "
+                        "authored by hand.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_computeCenterOfMass,
+                        "Compute COM", "Derive the centre of mass from the colliders. Untick to place it by hand.")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::AttributesAndValues)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_centerOfMassOffset,
+                        "Centre of mass offset", "Local-space offset of the centre of mass from the entity's "
+                        "origin. Drawn in the viewport while Compute COM is unticked.")
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &AzPhysics::RigidBodyConfiguration::m_computeCenterOfMass)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_computeInertiaTensor,
+                        "Compute inertia", "Derive the inertia tensor from the collider geometry and the resolved "
+                        "mass. Untick to author a tensor directly.")
+                        ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ::Edit::PropertyRefreshLevels::AttributesAndValues)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_inertiaTensor,
+                        "Inertia tensor", "Local-space inertia tensor in kg*m^2. Jolt diagonalises it when the "
+                        "body is created.")
+                        ->Attribute(AZ::Edit::Attributes::ReadOnly, &AzPhysics::RigidBodyConfiguration::m_computeInertiaTensor)
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockLinearX,
+                        "Lock linear X", "Prevent the body from moving along the world X axis.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockLinearY,
+                        "Lock linear Y", "Prevent the body from moving along the world Y axis.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockLinearZ,
+                        "Lock linear Z", "Prevent the body from moving along the world Z axis.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockAngularX,
+                        "Lock angular X", "Prevent the body from rotating around the world X axis.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockAngularY,
+                        "Lock angular Y", "Prevent the body from rotating around the world Y axis.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_lockAngularZ,
+                        "Lock angular Z", "Prevent the body from rotating around the world Z axis.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_initialLinearVelocity,
                         "Initial linear velocity", "Initial linear velocity of the rigid body when it is activated.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &AzPhysics::RigidBodyConfiguration::m_initialAngularVelocity,

@@ -77,5 +77,19 @@ namespace JoltPhysics
             );
         }
 
+        //! An inertia tensor in the shape Jolt's MassProperties wants. The engine stores a
+        //! local-space 3x3; Jolt carries it in a Mat44 whose fourth column is the identity's,
+        //! because the same struct also holds transforms. Deliberately not an overload of
+        //! ToJolt: a Matrix3x3 is a rotation just as often as it is a tensor, and picking
+        //! the wrong one by argument type would be silent.
+        inline JPH::Mat44 ToJoltInertia(const AZ::Matrix3x3& inertia)
+        {
+            return JPH::Mat44(
+                JPH::Vec4(inertia.GetElement(0, 0), inertia.GetElement(1, 0), inertia.GetElement(2, 0), 0.0f),
+                JPH::Vec4(inertia.GetElement(0, 1), inertia.GetElement(1, 1), inertia.GetElement(2, 1), 0.0f),
+                JPH::Vec4(inertia.GetElement(0, 2), inertia.GetElement(1, 2), inertia.GetElement(2, 2), 0.0f),
+                JPH::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        }
+
     } // namespace Conversions
 } // namespace JoltPhysics

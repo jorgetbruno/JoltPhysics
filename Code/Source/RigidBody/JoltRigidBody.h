@@ -7,6 +7,7 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Reference.h>
+#include <Jolt/Physics/Body/AllowedDOFs.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeID.h>
 
@@ -176,6 +177,17 @@ namespace JoltPhysics
         //! Returns 0 when nothing has volume - an empty body, or one whose only geometry is
         //! a triangle mesh - so callers can fall back to the configured mass.
         float ComputeMassFromGeometry() const;
+
+        //! Whether the authored center of mass offset should be applied to the shape.
+        //! With Compute COM ticked the shapes decide where the center of mass sits, so a
+        //! stale offset left on the configuration must not move it.
+        bool UsesCenterOfMassOffset() const;
+
+        //! The body's allowed degrees of freedom, from the six lock flags on the
+        //! configuration. Jolt crashes on a body with no degrees of freedom at all, so an
+        //! all-locked configuration warns and stays free - a body that should not move is
+        //! a static or kinematic body, not a dynamic one with every axis locked.
+        JPH::EAllowedDOFs ResolveAllowedDofs() const;
     };
 
 } // namespace JoltPhysics

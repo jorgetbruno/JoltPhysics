@@ -935,6 +935,32 @@ have no single pose to blend.
   asked to compute — which made the documented default call,
   `UpdateMassProperties()`, set a body to 1 kg with identity inertia and a zero
   center of mass instead of recomputing any of them.
+- **Per-collider densities only actually reached the body from 2026-08-26.** The mass
+  was resolved in `Create` before `m_colliderMaterials` was populated, so the sum ran
+  over an empty list, returned zero, and left Jolt to weigh the body at its own default
+  density. That agrees with volume x density exactly while every collider uses the
+  default 1000 kg/m3 material, which is why it went unnoticed and why no test caught
+  it. Resolution now happens after the collider list is built.
+- **`Include all shapes in mass` is honored.** Colliders with Simulated unticked are
+  query-only and add no weight by default, matching the engine's `INCLUDE_ALL_SHAPES`
+  flag being off; ticking it counts them.
+- **`Compute COM` is honored.** The authored `m_centerOfMassOffset` is applied only
+  while `Compute COM` is unticked; with it ticked the shapes decide, and a stale offset
+  left on the configuration no longer moves the mass frame. `SetCenterOfMassOffset` at
+  runtime unticks it, because asking for an offset is asking not to have one computed.
+  The offset's *meaning* is still Jolt-native - see the centre-of-mass entry below.
+- **`Compute inertia` and the authored inertia tensor are honored.** With it unticked
+  the body is created with `MassAndInertiaProvided` from `m_inertiaTensor`. Jolt stores
+  a diagonal local inertia, so off-diagonal terms are discarded when the tensor is
+  diagonalised.
+- **The six axis-lock flags are honored**, as Jolt `EAllowedDOFs` on the body rather
+  than as constraints, so they cost nothing per step. Locking all six is refused: Jolt
+  documents `EAllowedDOFs::None` as invalid and crashing, so the gem warns and leaves
+  the body free - a body that must not move is a static or kinematic body.
+- **Not exposed, because Jolt has no equivalent:** `m_ccdMinAdvanceCoefficient` and
+  `m_ccdFrictionEnabled`. Jolt's continuous collision is a linear cast motion quality
+  with no advance-coefficient or friction knobs. `m_interpolateMotion` is deliberately
+  superseded by this gem's own three-state `Interpolate motion` on the component.
 - **Per-collider densities are respected** on multi-collider bodies: each collider
   contributes its own volume × its own material's density. Jolt itself carries
   density on the shape, but shapes are shared and cached here (a cooked mesh caches
