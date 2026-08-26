@@ -35,14 +35,22 @@ feature, trust the topic sections below the milestones.**
 
 ## M2 (stabilization)
 
-- **`SetCenterOfMassOffset` semantics follow Jolt's model, not PhysX's.** PhysX moves
-  the mass frame by +offset while keeping collision geometry fixed relative to the
-  actor frame. Jolt cannot express that (its body frame and mass frame are coupled to
-  the shape's geometric center), so the gem shifts the collision geometry by -offset
-  around the actor frame instead: the actor/entity frame stays put, geometry and the
-  mass frame move by -offset. Rotation behavior about the offset point is equivalent;
-  what differs is that the collision geometry physically moves relative to the entity
-  (a raycast will find the shape displaced by -offset).
+- **[corrected 2026-08-26 - this is no longer a divergence]** *`SetCenterOfMassOffset`
+  semantics follow Jolt's model, not PhysX's.* The claim underneath it - that Jolt cannot
+  express PhysX's "geometry fixed, mass frame moved" model - was simply wrong. Jolt ships
+  `JPH::OffsetCenterOfMassShape` for exactly that (`GetCenterOfMass()` returns the inner
+  shape's plus the offset, and the geometry is untouched). The gem had been wrapping the
+  shape in a `RotatedTranslatedShape` at -offset, which moved the collision geometry: a
+  raycast found the shape displaced, and nudging a vehicle's mass backwards walked its
+  collision hulls off the vehicle. It now uses `OffsetCenterOfMassShape`, so the mass
+  frame moves by +offset and the geometry stays where it is, matching PhysX and the
+  engine's documented meaning of the field.
+  - **This changes behaviour for content authored before it.** A body carrying a
+    non-zero offset had its geometry displaced by -offset; it now sits where the entity
+    puts it, and the mass frame moves instead. Scenes tuned around the old behaviour
+    will need their offsets revisited.
+  - The editor's centre-of-mass marker was drawn at +offset all along, so it had been
+    disagreeing with the simulation and is now correct without a change.
 - **Friction/restitution combine uses Jolt's built-in rules** (friction: geometric
   mean, restitution: max) rather than PhysX's average/min/max/multiply combine-mode
   properties. The `FrictionCombineMode`/`RestitutionCombineMode` material properties
@@ -948,7 +956,8 @@ have no single pose to blend.
   while `Compute COM` is unticked; with it ticked the shapes decide, and a stale offset
   left on the configuration no longer moves the mass frame. `SetCenterOfMassOffset` at
   runtime unticks it, because asking for an offset is asking not to have one computed.
-  The offset's *meaning* is still Jolt-native - see the centre-of-mass entry below.
+  The offset moves the mass frame and leaves the geometry alone - see the corrected
+  centre-of-mass entry under M2.
 - **`Compute inertia` and the authored inertia tensor are honored.** With it unticked
   the body is created with `MassAndInertiaProvided` from `m_inertiaTensor`. Jolt stores
   a diagonal local inertia, so off-diagonal terms are discarded when the tensor is

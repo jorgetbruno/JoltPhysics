@@ -215,20 +215,21 @@ namespace JoltPhysics
 
         body->SetCenterOfMassOffset(AZ::Vector3(0.0f, 0.0f, 1.0f));
 
-        // Jolt-native semantics: the actor frame stays put while the collision
-        // geometry (and with it the mass frame) shifts by -offset. Jolt cannot
-        // express PhysX's "geometry fixed, mass frame moved" model.
-        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 9.0f, 0.05f);
+        // The mass frame moves by +offset; the geometry does not move at all. This test
+        // used to assert the opposite (geometry displaced by -offset), because the gem
+        // wrapped the shape in a RotatedTranslatedShape rather than Jolt's
+        // OffsetCenterOfMassShape - the test agreed with the bug.
+        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 11.0f, 0.05f);
         EXPECT_NEAR(body->GetPosition().GetZ(), 10.0f, 0.05f);
 
-        // The 1m box now spans z in [8.5, 9.5], so a ray down from above hits z=9.5.
+        // The 1m box still spans z in [9.5, 10.5], so a ray down from above hits z=10.5.
         AzPhysics::RayCastRequest request;
         request.m_start = AZ::Vector3(0.0f, 0.0f, 20.0f);
         request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
         request.m_distance = 50.0f;
         AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
         ASSERT_EQ(hits.m_hits.size(), 1u);
-        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 9.5f, 0.05f);
+        EXPECT_NEAR(hits.m_hits[0].m_position.GetZ(), 10.5f, 0.05f);
     }
 
     //! Helper for the configuration-driven tests below: a 1m box body built from a
@@ -266,8 +267,8 @@ namespace JoltPhysics
         auto* body = AddConfiguredBox(m_scene, config);
         ASSERT_NE(body, nullptr);
 
-        // Same Jolt-native semantics as SetCenterOfMassOffset: geometry shifts by -offset.
-        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 9.0f, 0.05f);
+        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 11.0f, 0.05f);
+        EXPECT_NEAR(body->GetPosition().GetZ(), 10.0f, 0.05f) << "the entity frame should not move";
     }
 
     TEST_F(JoltRigidBodyTests, ALockedLinearAxisDoesNotTranslate)

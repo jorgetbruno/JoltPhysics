@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -90,8 +91,12 @@ namespace JoltPhysics
 
         if (UsesCenterOfMassOffset())
         {
-            shape = new JPH::RotatedTranslatedShape(
-                Conversions::ToJolt(-m_configuration.m_centerOfMassOffset), JPH::Quat::sIdentity(), m_baseShape);
+            // OffsetCenterOfMassShape moves the mass frame and leaves the geometry where it
+            // is, which is what the engine (and PhysX) mean by this field. This used to be a
+            // RotatedTranslatedShape at -offset, which moved the collision hulls instead:
+            // nudging a truck's mass backwards walked its colliders off the truck.
+            shape = new JPH::OffsetCenterOfMassShape(
+                m_baseShape, Conversions::ToJolt(m_configuration.m_centerOfMassOffset));
         }
 
         JPH::EMotionType motionType = m_isKinematic
@@ -634,10 +639,8 @@ namespace JoltPhysics
             return;
         }
 
-        // Jolt-native semantics: the collision geometry is shifted by -offset around
-        // the body pivot (which is also the center of mass Jolt integrates around).
-        // NOTE: Jolt cannot express PhysX's "geometry fixed, mass frame moved" model;
-        // see DIVERGENCES.md.
+        // The mass frame moves by +offset and the collision geometry stays put, matching
+        // what the engine documents the field to mean.
         ApplyBaseShapeToBody();
     }
 
@@ -1006,8 +1009,8 @@ namespace JoltPhysics
         JPH::RefConst<JPH::Shape> shape = m_baseShape;
         if (UsesCenterOfMassOffset())
         {
-            shape = new JPH::RotatedTranslatedShape(
-                Conversions::ToJolt(-m_configuration.m_centerOfMassOffset), JPH::Quat::sIdentity(), m_baseShape);
+            shape = new JPH::OffsetCenterOfMassShape(
+                m_baseShape, Conversions::ToJolt(m_configuration.m_centerOfMassOffset));
         }
 
         // Recompute the inertia for the new geometry, then set the mass the body should
