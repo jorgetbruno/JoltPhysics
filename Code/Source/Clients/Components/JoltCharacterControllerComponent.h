@@ -124,11 +124,6 @@ namespace JoltPhysics
         AZStd::vector<AZStd::shared_ptr<Physics::Shape>> BuildAttachedColliderShapes() const;
         void TryCreateCharacter();
 
-        //! Accumulates the scene's gravity into m_fallingVelocity and asks the character
-        //! to move by it. Jolt's character has gravity of its own, disabled on purpose:
-        //! this character is driven entirely by requested velocity, so gravity has to
-        //! arrive as a request like everything else or the two would fight.
-        void ApplyGravity(float deltaTime);
 
         Physics::CharacterConfiguration m_characterConfig;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfig;

@@ -248,6 +248,62 @@ namespace JoltPhysics
         }
     };
 
+    //! A character driven through the real component, so gravity runs where it really runs.
+    class JoltCharacterFrameRateTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        AZStd::unique_ptr<AZ::Entity> CreateCharacter(const AZ::Vector3& position)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("FallingCharacter");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* controller = entity->CreateComponent<JoltCharacterControllerComponent>();
+            controller->GetShapeConfiguration() = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+
+            entity->Init();
+            AZ::TransformBus::Event(entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, position);
+            entity->Activate();
+            return entity;
+        }
+
+        //! How far the character falls in one second of *simulation*, driven at the given
+        //! frame rate. The answer must not depend on the frame rate.
+        float FallDistanceAtFrameRate(float framesPerSecond)
+        {
+            auto entity = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 50.0f));
+            const float frameDeltaTime = 1.0f / framesPerSecond;
+
+            // A tick is needed before the first step for the component to build its
+            // character; the drop is measured from wherever it starts after that.
+            AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, frameDeltaTime, AZ::ScriptTimePoint());
+            const float startZ = EntityPosition(entity->GetId()).GetZ();
+
+            SimulateFrames(frameDeltaTime, static_cast<int>(framesPerSecond));
+            const float fallen = startZ - EntityPosition(entity->GetId()).GetZ();
+
+            entity->Deactivate();
+            return fallen;
+        }
+    };
+
+    TEST_F(JoltCharacterFrameRateTests, ACharacterFallsAtTheSameRateWhateverTheFrameRate)
+    {
+        // Reported from a project as a 1.8 m jump clearing 25 m. Gravity is integrated and
+        // submitted once per *game tick*, while the scene applied and cleared the
+        // accumulated request once per *physics step*. Above the physics rate several ticks
+        // land inside one step, so the step was handed the sum of all of them - as many
+        // times too much vertical speed as there were ticks in the step.
+        //
+        // Measured over a second of simulation, which is frame-rate independent by
+        // construction: gravity does not care how often anyone looked.
+        const float at60 = FallDistanceAtFrameRate(60.0f);
+        const float at240 = FallDistanceAtFrameRate(240.0f);
+
+        EXPECT_NEAR(at60, 4.9f, 1.0f) << "a second of falling should be about half of g";
+        EXPECT_NEAR(at240, at60, 0.5f)
+            << "the character fell " << at240 << " m at 240fps against " << at60
+            << " m at 60fps; gravity is being applied per frame instead of per step";
+    }
+
     TEST_F(JoltMotionInterpolationTests, MotionIsNotInterpolatedUnlessAsked)
     {
         // The default has to stay exactly what it was: PhysX ships m_interpolateMotion

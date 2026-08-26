@@ -85,6 +85,20 @@ namespace JoltPhysics
         void AddVelocityForTick(const AZ::Vector3& velocity) override;
         void AddVelocityForPhysicsTimestep(const AZ::Vector3& velocity) override;
         void ApplyRequestedVelocity(float deltaTime) override;
+        //! Gravity, integrated on the physics clock.
+        //!
+        //! It used to be integrated and submitted once per *game tick* by the character
+        //! controller component, while the scene applied and cleared the accumulated
+        //! request once per *physics step*. Above the physics rate several ticks land
+        //! inside one step, so the step was handed the sum of all of them - measured, a
+        //! character fell 19.2 m in the second it should have fallen 4.99 m, because four
+        //! ticks fitted in every step at 240fps. Gravity is physics; it belongs on the
+        //! physics clock, where the timestep is fixed and nobody's frame rate can reach it.
+        void SetGravityMultiplier(float multiplier);
+        float GetGravityMultiplier() const;
+        void SetFallingVelocity(const AZ::Vector3& velocity);
+        const AZ::Vector3& GetFallingVelocity() const;
+
         void ResetRequestedVelocityForTick() override;
         void ResetRequestedVelocityForPhysicsTimestep() override;
         void Move(const AZ::Vector3& requestedMovement, float deltaTime) override;
@@ -173,6 +187,11 @@ namespace JoltPhysics
 
         AZ::Quaternion m_orientation = AZ::Quaternion::CreateIdentity();
         AZ::Vector3 m_requestedVelocityForTick = AZ::Vector3::CreateZero();
+        //! Adds one step's worth of gravity to the falling velocity.
+        void IntegrateGravity(float deltaTime);
+
+        AZ::Vector3 m_fallingVelocity = AZ::Vector3::CreateZero();
+        float m_gravityMultiplier = 1.0f;
         AZ::Vector3 m_requestedVelocityForPhysicsTimestep = AZ::Vector3::CreateZero();
         AZ::Vector3 m_observedVelocity = AZ::Vector3::CreateZero();
         float m_stepHeight = 0.5f;

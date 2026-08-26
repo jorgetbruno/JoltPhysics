@@ -132,6 +132,13 @@ namespace JoltPhysics
         bodySettings.mAngularDamping = m_configuration.m_angularDamping;
         bodySettings.mMaxAngularVelocity = m_configuration.m_maxAngularVelocity;
         bodySettings.mGravityFactor = m_configuration.m_gravityEnabled ? 1.0f : 0.0f;
+        // Continuous collision, from the configuration the editor has always shown. The
+        // flag was read by nothing: SetCCDEnabled existed and was never called, so every
+        // body was Discrete however the checkbox was set, and anything fast enough passed
+        // through anything thin enough. Reported from a project as rounds tunnelling
+        // through crates at 45 m/s.
+        bodySettings.mMotionQuality =
+            m_configuration.m_ccdEnabled ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
         // Only the moving body needs the flag: Jolt ORs it across the contact pair, so
         // this covers a dynamic body sliding over a static mesh or heightfield.
         bodySettings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();

@@ -381,9 +381,64 @@ namespace JoltPhysics
         m_requestedVelocityForPhysicsTimestep += velocity;
     }
 
+    void JoltCharacter::SetGravityMultiplier(float multiplier)
+    {
+        if (multiplier == 0.0f)
+        {
+            // Off means off, including the accumulation: a character switched to
+            // animation-driven mid-fall should not find a stale velocity waiting for it
+            // when gravity is switched back on.
+            m_fallingVelocity = AZ::Vector3::CreateZero();
+        }
+        m_gravityMultiplier = multiplier;
+    }
+
+    float JoltCharacter::GetGravityMultiplier() const
+    {
+        return m_gravityMultiplier;
+    }
+
+    void JoltCharacter::SetFallingVelocity(const AZ::Vector3& velocity)
+    {
+        m_fallingVelocity = velocity;
+    }
+
+    const AZ::Vector3& JoltCharacter::GetFallingVelocity() const
+    {
+        return m_fallingVelocity;
+    }
+
+    void JoltCharacter::IntegrateGravity(float deltaTime)
+    {
+        if (m_gravityMultiplier == 0.0f || deltaTime <= 0.0f || m_scene == nullptr)
+        {
+            m_fallingVelocity = AZ::Vector3::CreateZero();
+            return;
+        }
+
+        const AZ::Vector3 gravity = m_scene->GetGravity() * m_gravityMultiplier;
+
+        if (IsOnGround())
+        {
+            // Standing: shed what gravity had built, but only the part pulling into the
+            // ground. Zeroing all of it would eat a jump on the frame it starts, which is
+            // the frame the character is still touching the floor.
+            if (m_fallingVelocity.Dot(gravity) > 0.0f)
+            {
+                m_fallingVelocity = AZ::Vector3::CreateZero();
+            }
+        }
+
+        m_fallingVelocity += gravity * deltaTime;
+    }
+
     void JoltCharacter::ApplyRequestedVelocity(float deltaTime)
     {
-        AZ::Vector3 velocity = m_requestedVelocityForTick + m_requestedVelocityForPhysicsTimestep;
+        // Once per step, with the step's own fixed delta, before the request is read.
+        IntegrateGravity(deltaTime);
+
+        AZ::Vector3 velocity =
+            m_requestedVelocityForTick + m_requestedVelocityForPhysicsTimestep + m_fallingVelocity;
         const float speed = velocity.GetLength();
         if (speed > m_maximumSpeed && speed > 0.0f)
         {

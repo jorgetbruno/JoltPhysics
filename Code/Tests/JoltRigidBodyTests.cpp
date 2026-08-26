@@ -503,4 +503,59 @@ namespace JoltPhysics
         EXPECT_EQ(body->RayCast(request).m_bodyHandle, body->m_bodyHandle);
     }
 
+    //! A small fast body fired at a thin wall - the case continuous collision exists for.
+    class JoltContinuousCollisionTests : public JoltRigidBodyTests
+    {
+    protected:
+        //! Fires a 0.1 m bullet at 200 m/s along +x at a 0.05 m thick wall two metres away,
+        //! and reports whether it was stopped. At that speed a step advances it 3.3 m, so a
+        //! discrete body is past the wall before anything is tested.
+        bool BulletIsStoppedByThinWall(bool ccdEnabled)
+        {
+            auto wallCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto wallShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+            wallShape->m_dimensions = AZ::Vector3(0.05f, 4.0f, 4.0f);
+            AzPhysics::StaticRigidBodyConfiguration wallConfig;
+            wallConfig.m_position = AZ::Vector3(2.0f, 0.0f, 0.0f);
+            wallConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(wallCollider, wallShape);
+            m_scene->AddSimulatedBody(&wallConfig);
+
+            auto bulletCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto bulletShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+            bulletShape->m_dimensions = AZ::Vector3(0.1f, 0.1f, 0.1f);
+            AzPhysics::RigidBodyConfiguration bulletConfig;
+            bulletConfig.m_position = AZ::Vector3::CreateZero();
+            bulletConfig.m_gravityEnabled = false;
+            bulletConfig.m_ccdEnabled = ccdEnabled;
+            bulletConfig.m_initialLinearVelocity = AZ::Vector3(200.0f, 0.0f, 0.0f);
+            bulletConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(bulletCollider, bulletShape);
+            auto handle = m_scene->AddSimulatedBody(&bulletConfig);
+            auto* bullet = static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+
+            SimulateSeconds(0.5f);
+            return bullet->GetPosition().GetX() < 2.0f;
+        }
+    };
+
+    TEST_F(JoltContinuousCollisionTests, ACcdBodyDoesNotTunnelThroughAThinWall)
+    {
+        // The CCD Enabled flag on the rigid body configuration was read by nothing.
+        // SetCCDEnabled existed, was an override, and was never called from anywhere - so
+        // every body was created Discrete whatever the checkbox said, and the editor showed
+        // a setting that did nothing at all. Reported from a project as rounds tunnelling
+        // through crates at 45 m/s, worked around there by making the rounds wider and
+        // slower than the game wanted them.
+        EXPECT_TRUE(BulletIsStoppedByThinWall(/*ccdEnabled*/ true))
+            << "a body with CCD enabled passed straight through a wall thinner than one step of its travel";
+    }
+
+    TEST_F(JoltContinuousCollisionTests, ADiscreteBodyStillTunnels)
+    {
+        // The other half, so the test above is known to be measuring CCD rather than a
+        // wall that would have stopped anything. Discrete bodies tunnel; that is what the
+        // flag is for, and leaving it off must still behave that way.
+        EXPECT_FALSE(BulletIsStoppedByThinWall(/*ccdEnabled*/ false))
+            << "the wall stopped a discrete body, so this pair proves nothing about CCD";
+    }
+
 } // namespace JoltPhysics

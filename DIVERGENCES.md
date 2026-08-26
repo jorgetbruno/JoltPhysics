@@ -423,9 +423,20 @@ feature, trust the topic sections below the milestones.**
 - **Landing sheds only the part of the velocity pulling into the ground.** Zeroing all
   of it would eat a jump on the frame it starts, which is a frame the character is still
   touching the floor.
-- **Gravity is applied per tick, as a velocity request**, not through Jolt's own
-  character gravity. Requested velocities are what the scene applies and clears each
-  step, so gravity arrives the same way everything else does and cannot fight it.
+- **Gravity is integrated once per physics step**, not through Jolt's own character
+  gravity and not on the frame clock. It used to be integrated and submitted once per game
+  tick, which is only equivalent while the frame rate matches the physics rate: the scene
+  applies and clears accumulated velocity requests once per *step*, so at 240fps four ticks
+  landed inside every step and the step was handed four helpings of gravity. Measured, a
+  character fell 19.2 m in the second it should have fallen 4.99 m, and a 4.5 m/s jump -
+  whose apex is v^2/2g, about a metre - cleared far more than that, because the same
+  multiplication applied to the upward velocity a jump sets.
+  The character now owns the falling velocity and integrates it inside
+  `ApplyRequestedVelocity`, which the scene calls once per step with the fixed timestep.
+  Nobody's frame rate can reach it. The gameplay bus surface is unchanged - the multiplier
+  and the falling velocity still get and set through `JoltCharacterGameplayRequestBus` -
+  and the component forwards to the character, keeping its authored value as the seed for
+  a character that has not been created yet.
 
 ## Joint bus addressing
 

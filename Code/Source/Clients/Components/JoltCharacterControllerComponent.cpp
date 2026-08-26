@@ -150,8 +150,10 @@ namespace JoltPhysics
             return;
         }
 
-        ApplyGravity(deltaTime);
-
+        // Gravity is not applied here any more. It is integrated by the character once per
+        // physics step, where the timestep is fixed - doing it per game tick meant a step
+        // was handed one helping of gravity per tick that fitted inside it, so a character
+        // fell four times too fast at 240fps and a 1.8 m jump cleared 25 m.
         if (AzPhysics::SimulatedBody* body = GetSimulatedBody())
         {
             m_syncingTransformFromCharacter = true;
@@ -160,43 +162,6 @@ namespace JoltPhysics
         }
     }
 
-    void JoltCharacterControllerComponent::ApplyGravity(float deltaTime)
-    {
-        if (m_gravityMultiplier == 0.0f || deltaTime <= 0.0f)
-        {
-            // Off means off, including the accumulation: a character switched to
-            // animation-driven mid-fall should not find a stale velocity waiting for it
-            // when gravity is switched back on.
-            m_fallingVelocity = AZ::Vector3::CreateZero();
-            return;
-        }
-
-        auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get();
-        AzPhysics::Scene* scene = physicsSystem ? physicsSystem->GetScene(m_attachedSceneHandle) : nullptr;
-        if (scene == nullptr)
-        {
-            return;
-        }
-
-        const AZ::Vector3 gravity = scene->GetGravity() * m_gravityMultiplier;
-
-        if (IsOnGround())
-        {
-            // Standing: shed what gravity had built, but only the part pulling into the
-            // ground. Zeroing all of it would eat a jump on the frame it starts, which is
-            // the frame the character is still touching the floor.
-            if (m_fallingVelocity.Dot(gravity) > 0.0f)
-            {
-                m_fallingVelocity = AZ::Vector3::CreateZero();
-            }
-        }
-
-        m_fallingVelocity += gravity * deltaTime;
-
-        // As a request, like every other velocity this character is given. The scene
-        // applies and clears requests each step, so this is asked for every tick.
-        AddVelocityForTick(m_fallingVelocity);
-    }
 
     int JoltCharacterControllerComponent::GetTickOrder()
     {
@@ -259,6 +224,14 @@ namespace JoltPhysics
             if (AzPhysics::Scene* scene = physicsSystem->GetScene(m_attachedSceneHandle))
             {
                 m_bodyHandle = scene->AddSimulatedBody(&joltConfig);
+
+                // The authored multiplier is a seed; from here the character owns it, and
+                // integrates it on the physics clock rather than the frame clock.
+                if (auto* character = azdynamic_cast<JoltCharacter*>(GetSimulatedBody()))
+                {
+                    character->SetGravityMultiplier(m_gravityMultiplier);
+                    character->SetFallingVelocity(m_fallingVelocity);
+                }
             }
         }
     }
@@ -464,24 +437,44 @@ namespace JoltPhysics
         return false;
     }
 
+    //! The character owns gravity now, so these forward to it and keep the authored value
+    //! as the seed for a character that has not been created yet.
     float JoltCharacterControllerComponent::GetGravityMultiplier() const
     {
+        if (auto* character = azdynamic_cast<JoltCharacter*>(
+                const_cast<JoltCharacterControllerComponent*>(this)->GetSimulatedBody()))
+        {
+            return character->GetGravityMultiplier();
+        }
         return m_gravityMultiplier;
     }
 
     void JoltCharacterControllerComponent::SetGravityMultiplier(float gravityMultiplier)
     {
         m_gravityMultiplier = gravityMultiplier;
+        if (auto* character = azdynamic_cast<JoltCharacter*>(GetSimulatedBody()))
+        {
+            character->SetGravityMultiplier(gravityMultiplier);
+        }
     }
 
     AZ::Vector3 JoltCharacterControllerComponent::GetFallingVelocity() const
     {
+        if (auto* character = azdynamic_cast<JoltCharacter*>(
+                const_cast<JoltCharacterControllerComponent*>(this)->GetSimulatedBody()))
+        {
+            return character->GetFallingVelocity();
+        }
         return m_fallingVelocity;
     }
 
     void JoltCharacterControllerComponent::SetFallingVelocity(const AZ::Vector3& fallingVelocity)
     {
         m_fallingVelocity = fallingVelocity;
+        if (auto* character = azdynamic_cast<JoltCharacter*>(GetSimulatedBody()))
+        {
+            character->SetFallingVelocity(fallingVelocity);
+        }
     }
 
     AZ::Vector3 JoltCharacterControllerComponent::GetGroundNormal() const
