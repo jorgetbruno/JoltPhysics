@@ -18,6 +18,15 @@ namespace JPH
 
 namespace JoltPhysics
 {
+    //! The highest the ground can sit in chassis space and still be reachable by every
+    //! wheel at full compression: min over wheels of (attachment - minSuspension - radius).
+    float ComputeHighestReachableGround(const JoltVehicleConfiguration& configuration);
+
+    //! How far the chassis collider hangs below that reach, or 0 when it clears. A positive
+    //! value is the distance the collider has to be raised for the wheels to carry the car.
+    float ComputeChassisColliderOvershoot(
+        const JPH::Shape& shape, const JoltVehicleConfiguration& configuration);
+
     class JoltScene;
 
     //! Owns a JPH::VehicleConstraint attached to an existing chassis rigid body, driven

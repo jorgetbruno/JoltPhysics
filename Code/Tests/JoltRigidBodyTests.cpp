@@ -321,6 +321,37 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 0.0f, 0.02f);
     }
 
+    TEST_F(JoltRigidBodyTests, ComputeComLeavesTheCentreOfMassOnTheGeometry)
+    {
+        // COMPUTE_COM means "let the shapes decide", so the centre of mass must land on
+        // the collider, not on the entity origin. Routing this through
+        // SetCenterOfMassOffset used to pin it to the origin, because that setter reads an
+        // offset as "stop computing" and the shape was built before the flag was restored.
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        colliderConfig->m_position = AZ::Vector3(2.0f, 0.0f, 1.0f);
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_computeCenterOfMass = false;
+        config.m_centerOfMassOffset = AZ::Vector3(0.0f, 0.0f, 0.25f);
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* body = static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(body, nullptr);
+        ASSERT_NEAR(body->GetCenterOfMassWorld().GetZ(), 0.25f, 0.02f) << "the authored offset should apply first";
+
+        body->UpdateMassProperties(
+            AzPhysics::MassComputeFlags::COMPUTE_COM | AzPhysics::MassComputeFlags::COMPUTE_MASS |
+            AzPhysics::MassComputeFlags::COMPUTE_INERTIA);
+
+        // The collider sits at (2, 0, 1), so that is where the geometry puts the mass.
+        const AZ::Vector3 com = body->GetCenterOfMassWorld();
+        EXPECT_NEAR(com.GetX(), 2.0f, 0.02f);
+        EXPECT_NEAR(com.GetZ(), 1.0f, 0.02f);
+    }
+
     TEST_F(JoltRigidBodyTests, ALockedLinearAxisDoesNotTranslate)
     {
         AzPhysics::RigidBodyConfiguration config;

@@ -250,6 +250,18 @@ feature, trust the topic sections below the milestones.**
   - **This changes behaviour for existing vehicles.** The old default was never
     serialized (defaults are omitted), so every vehicle authored before this picks up
     180 and can now roll.
+- **A chassis collider hanging below the wheels is reported at creation.** The highest
+  the ground can sit in chassis space is where a fully compressed wheel touches it
+  (`attachment - suspensionMinLength - radius`); a collider reaching below that line means
+  the body rests on its own shape rather than on its wheels, the suspension is driven past
+  its stop, and penetration recovery throws the vehicle back up. It presents as bouncing or
+  as a collapsed suspension, and nothing in the viewport says the collider is the reason -
+  it cost most of a day in a project before it was named. The warning gives the two heights
+  and the distance to raise by. The arithmetic is `ComputeHighestReachableGround` /
+  `ComputeChassisColliderOvershoot`, which is where the tests are: the trace-suppression
+  counter used by the vehicle fixture does not count warnings, so the message itself is not
+  covered - only the decision to emit it.
+
 - **Anti-roll bars are wrapped** (`JoltVehicleConfiguration::m_antiRollBars`), each
   naming the two wheels it couples and a stiffness, validated against the wheel count
   at creation. They are opt-in and empty by default: they cure suspension roll, which

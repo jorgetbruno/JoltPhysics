@@ -21,6 +21,33 @@
 
 namespace JoltPhysics
 {
+    float ComputeHighestReachableGround(const JoltVehicleConfiguration& configuration)
+    {
+        // The highest the ground can ever sit in chassis space: every wheel, at its most
+        // compressed, still has to be able to touch it.
+        float highest = -AZStd::numeric_limits<float>::max();
+        for (const JoltWheelConfiguration& wheel : configuration.m_wheels)
+        {
+            highest = AZStd::max(
+                highest, wheel.m_position.GetZ() - wheel.m_suspensionMinLength - wheel.m_radius);
+        }
+        return highest;
+    }
+
+    float ComputeChassisColliderOvershoot(
+        const JPH::Shape& shape, const JoltVehicleConfiguration& configuration)
+    {
+        if (configuration.m_wheels.empty())
+        {
+            return 0.0f;
+        }
+        // Jolt's local bounds are relative to the shape's centre of mass, which is not the
+        // entity origin once a centre-of-mass offset is in play; put them back into the
+        // frame the wheel positions are authored in.
+        const float colliderBottom = shape.GetLocalBounds().mMin.GetZ() + shape.GetCenterOfMass().GetZ();
+        return AZStd::max(0.0f, ComputeHighestReachableGround(configuration) - colliderBottom);
+    }
+
     namespace
     {
         //! Fills in the base (type-independent) wheel settings from a wheel configuration.
@@ -176,6 +203,35 @@ namespace JoltPhysics
         //! chassis roll inertia. Jolt's defaults suit a particular bike; left on a much
         //! lighter one they overcorrect hard enough to throw it into the air, which is
         //! hard to attribute to a spring constant. Warn with a workable value instead.
+        //! A chassis collider that hangs below the wheels grounds out: the body rests on
+        //! its own shape, the suspension is driven past its stop, and penetration recovery
+        //! throws the vehicle back up. It reads as bouncing or as a collapsed suspension,
+        //! and nothing in the viewport says the collider is the reason - so say it here.
+        void WarnOnColliderBelowWheelReach(
+            const JoltVehicleConfiguration& configuration, const JPH::Body& chassisBody)
+        {
+            const JPH::Shape* shape = chassisBody.GetShape();
+            if (!shape)
+            {
+                return;
+            }
+            const float overshoot = ComputeChassisColliderOvershoot(*shape, configuration);
+            if (overshoot <= 0.0f)
+            {
+                return;
+            }
+
+            const float ground = ComputeHighestReachableGround(configuration);
+            AZ_Warning("JoltPhysics", false,
+                "Vehicle%s%s has a chassis collider reaching down to %.2f m, below the %.2f m its wheels can "
+                "reach when fully compressed. The chassis will rest on its own collider instead of on its "
+                "wheels, and bounce as the contact is resolved. Raise the collider by at least %.2f m, lower "
+                "the wheel attachment points, or use a simpler chassis shape.",
+                configuration.m_debugName.empty() ? "" : " ",
+                configuration.m_debugName.c_str(),
+                ground - overshoot, ground, overshoot);
+        }
+
         void WarnOnImplausibleLeanGains(const JoltVehicleConfiguration& configuration, const JPH::Body& chassisBody)
         {
             const JPH::MotionProperties* motionProperties = chassisBody.GetMotionProperties();
@@ -279,6 +335,8 @@ namespace JoltPhysics
         {
             WarnOnImplausibleLeanGains(effectiveConfiguration, *m_chassisBody);
         }
+
+        WarnOnColliderBelowWheelReach(effectiveConfiguration, *m_chassisBody);
 
         settings.mNumVelocityStepsOverride = effectiveConfiguration.m_numVelocityStepsOverride;
         settings.mNumPositionStepsOverride = effectiveConfiguration.m_numPositionStepsOverride;

@@ -625,6 +625,53 @@ namespace JoltPhysics
         EXPECT_GT(DriveAndReportUpZ(60.0f), 0.9f);   // limited: still upright
     }
 
+    TEST_F(JoltVehicleTests, ChassisColliderOvershootIsMeasuredAgainstFullCompression)
+    {
+        // The highest the ground can be, in chassis space, is where a fully compressed
+        // wheel touches it. A collider below that line carries the car instead of the
+        // wheels do - the failure reads as bouncing or a collapsed suspension, and nothing
+        // in the viewport names the collider as the reason.
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        for (JoltWheelConfiguration& wheel : config.m_wheels)
+        {
+            wheel.m_position.SetZ(0.5f); // 0.5 - 0.15 - 0.35 = 0.0
+        }
+        EXPECT_NEAR(ComputeHighestReachableGround(config), 0.0f, 1e-4f);
+
+        // A 2m box centred on the entity hangs to -1.0: a metre of overshoot.
+        JPH::BoxShapeSettings deepSettings(JPH::Vec3(1.0f, 0.5f, 1.0f));
+        deepSettings.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult deep = deepSettings.Create();
+        ASSERT_FALSE(deep.HasError());
+        EXPECT_NEAR(ComputeChassisColliderOvershoot(*deep.Get(), config), 1.0f, 1e-3f);
+
+        // A 0.2m box centred on the entity hangs to -0.1: still short of the line.
+        JPH::BoxShapeSettings shallowSettings(JPH::Vec3(1.0f, 0.5f, 0.1f));
+        shallowSettings.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult shallow = shallowSettings.Create();
+        ASSERT_FALSE(shallow.HasError());
+        EXPECT_NEAR(ComputeChassisColliderOvershoot(*shallow.Get(), config), 0.1f, 1e-3f);
+
+        // Drop the wheels and the same shallow box clears with room to spare.
+        for (JoltWheelConfiguration& wheel : config.m_wheels)
+        {
+            wheel.m_position.SetZ(0.0f); // reach is now -0.5
+        }
+        EXPECT_NEAR(ComputeChassisColliderOvershoot(*shallow.Get(), config), 0.0f, 1e-4f)
+            << "a collider above the wheels' reach must report no overshoot";
+    }
+
+    TEST_F(JoltVehicleTests, ChassisColliderOvershootIgnoresAVehicleWithNoWheels)
+    {
+        JoltVehicleConfiguration config;
+        config.m_wheels.clear();
+        JPH::BoxShapeSettings settings(JPH::Vec3(1.0f, 0.5f, 1.0f));
+        settings.SetEmbedded();
+        JPH::ShapeSettings::ShapeResult shape = settings.Create();
+        ASSERT_FALSE(shape.HasError());
+        EXPECT_NEAR(ComputeChassisColliderOvershoot(*shape.Get(), config), 0.0f, 1e-4f);
+    }
+
     TEST_F(JoltVehicleTests, ThePitchRollLimitIsOffByDefaultAsJoltShipsIt)
     {
         // The limit is a real Jolt feature but an intrusive default: with one in force no

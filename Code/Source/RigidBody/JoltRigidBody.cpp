@@ -1146,12 +1146,15 @@ namespace JoltPhysics
         const bool computeInertia = isSet(AzPhysics::MassComputeFlags::COMPUTE_INERTIA);
         const bool computeMass = isSet(AzPhysics::MassComputeFlags::COMPUTE_MASS);
 
-        // Computing the centre of mass means letting the geometry decide it, which in this
-        // backend is the absence of an offset (see the centre-of-mass entry in DIVERGENCES).
-        SetCenterOfMassOffset(computeCenterOfMass ? AZ::Vector3::CreateZero() : centerOfMassOffsetOverride);
-        // SetCenterOfMassOffset reads an offset as "do not compute this"; say what the
-        // caller actually asked for, or COMPUTE_COM would leave the flag unticked.
+        // Set the state, then push it to the body once. Deliberately not routed through
+        // SetCenterOfMassOffset: that reads an offset as "stop computing this" and clears
+        // the flag, so applying the shape through it left COMPUTE_COM with its centre of
+        // mass pinned to the entity origin - the flag was restored on the next line, but
+        // the shape had already been built from the cleared one and was never rebuilt.
         m_configuration.m_computeCenterOfMass = computeCenterOfMass;
+        m_configuration.m_centerOfMassOffset =
+            computeCenterOfMass ? AZ::Vector3::CreateZero() : centerOfMassOffsetOverride;
+        ApplyBaseShapeToBody();
 
         const float geometryMass = ComputeMassFromGeometry();
         const float mass = computeMass ? (geometryMass > 0.0f ? geometryMass : m_configuration.m_mass)
