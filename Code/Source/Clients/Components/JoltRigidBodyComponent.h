@@ -118,6 +118,18 @@ namespace JoltPhysics
         //! importing that content does not quietly lose the setting.
         bool ResolveInterpolateMotion() const;
 
+        //! Set by the editor component in BuildGameEntity: the editor never instantiates
+        //! this component, so the setting has to travel across rather than be edited here.
+        JoltMotionInterpolation GetMotionInterpolation() const
+        {
+            return m_motionInterpolation;
+        }
+
+        void SetMotionInterpolation(JoltMotionInterpolation interpolation)
+        {
+            m_motionInterpolation = interpolation;
+        }
+
         AzPhysics::RigidBodyConfiguration& GetConfiguration()
         {
             return m_configuration;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Clients/Components/JoltRigidBodyComponent.h>
+
 #include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 
@@ -32,11 +34,21 @@ namespace JoltPhysics
         void Deactivate() override;
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
+        //! Tests only: the field is authored through the inspector, not in code.
+        void SetMotionInterpolationForTesting(JoltMotionInterpolation interpolation)
+        {
+            m_motionInterpolation = interpolation;
+        }
+
     private:
         // AzFramework::EntityDebugDisplayEvents
         void DisplayEntityViewport(
             const AzFramework::ViewportInfo& viewportInfo, AzFramework::DebugDisplayRequests& debugDisplay) override;
 
         AzPhysics::RigidBodyConfiguration m_configuration;
+        //! Mirrors JoltRigidBodyComponent::m_motionInterpolation. Held here because the
+        //! editor never shows the runtime component, so a setting reflected only there is
+        //! unreachable - which is how a body could be interpolating with no way to see it.
+        JoltMotionInterpolation m_motionInterpolation = JoltMotionInterpolation::UseProjectDefault;
     };
 } // namespace JoltPhysics

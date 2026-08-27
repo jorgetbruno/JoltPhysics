@@ -15,5 +15,6 @@ set(FILES
     Tests/JoltVehicleComponentModeTests.cpp
     Tests/JoltEditorVehicleSettleTests.cpp
     Tests/JoltEditorHeightfieldDrawTests.cpp
+    Tests/JoltEditorRigidBodyReflectionTests.cpp
     Tests/JoltEditorSoftBodyPreviewTests.cpp
 )

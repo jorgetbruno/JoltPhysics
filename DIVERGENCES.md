@@ -1357,6 +1357,16 @@ have no single pose to blend.
   wrapped by `GenericComponentWrapper` in the editor and instantiate into the game
   entity as before).
 
+- **`Interpolate motion` is on the editor component too, from 2026-08-27.** It had been
+  reflected only on the runtime `JoltRigidBodyComponent`, which the editor never
+  instantiates - so the three-state setting existed, was resolved every frame, and could
+  not be seen or changed in the inspector. A body carrying the engine's own
+  `RigidBodyConfiguration::m_interpolateMotion` (which the gem does not reflect, and which
+  wins through the `||` in `ResolveInterpolateMotion`) was therefore interpolating with no
+  UI saying so and no way to stop it short of hand-editing the prefab. Found from a project
+  where a stationary car appeared to jump: the physics body was still to within 3 mm/s
+  while its rendered transform sawtoothed 8 cm every physics step.
+
 ## Component modes
 
 - **The primitive colliders use AzToolsFramework's own component modes** rather

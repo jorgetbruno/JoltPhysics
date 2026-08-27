@@ -14,8 +14,9 @@ namespace JoltPhysics
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
         {
             serializeContext->Class<EditorJoltRigidBodyComponent, AzToolsFramework::Components::EditorComponentBase>()
-                ->Version(1)
+                ->Version(2) // v2: MotionInterpolation, previously only on the runtime component
                 ->Field("RigidBodyConfiguration", &EditorJoltRigidBodyComponent::m_configuration)
+                ->Field("MotionInterpolation", &EditorJoltRigidBodyComponent::m_motionInterpolation)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -31,6 +32,15 @@ namespace JoltPhysics
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &EditorJoltRigidBodyComponent::m_configuration,
                         "Configuration", "Rigid body configuration")
+                    ->DataElement(AZ::Edit::UIHandlers::ComboBox, &EditorJoltRigidBodyComponent::m_motionInterpolation,
+                        "Interpolate motion",
+                        "Whether this body is drawn between physics steps rather than snapped to the newest. "
+                        "Above the physics rate a moving body otherwise advances in a staircase. It costs up to "
+                        "one step of latency, so the project-wide setting is usually the right answer and this "
+                        "is for the exceptions.")
+                        ->EnumAttribute(JoltMotionInterpolation::UseProjectDefault, "Use project default")
+                        ->EnumAttribute(JoltMotionInterpolation::On, "On")
+                        ->EnumAttribute(JoltMotionInterpolation::Off, "Off")
                     ;
             }
         }
@@ -58,6 +68,7 @@ namespace JoltPhysics
         if (auto* component = gameEntity->CreateComponent<JoltRigidBodyComponent>())
         {
             component->GetConfiguration() = m_configuration;
+            component->SetMotionInterpolation(m_motionInterpolation);
         }
     }
 
