@@ -199,6 +199,13 @@ namespace JoltPhysics
         JoltMotionInterpolation m_motionInterpolation = JoltMotionInterpolation::UseProjectDefault;
         //! Records a pose per fixed step. Only connected while interpolating.
         AzPhysics::SceneEvents::OnSceneSimulationFinishHandler m_sceneFinishHandler;
-        bool m_rebuildPending = false; //!< True when the collider set changed and the body must be rebuilt on the next tick.
+        bool m_rebuildPending = false;
+
+        //! Diagnostics for the two paths that move a body without integrating velocity:
+        //! an entity-driven teleport and a rebuild. Both are rare in normal running, and
+        //! a body doing either repeatedly is a bug worth seeing, so they log the first
+        //! few and then go quiet rather than being silent or spamming.
+        int m_teleportLogsRemaining = 20;
+        int m_rebuildLogsRemaining = 20; //!< True when the collider set changed and the body must be rebuilt on the next tick.
     };
 } // namespace JoltPhysics

@@ -422,6 +422,18 @@ namespace JoltPhysics
 
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
+            if (m_teleportLogsRemaining > 0)
+            {
+                --m_teleportLogsRemaining;
+                const AZ::Vector3 from = body->GetTransform().GetTranslation();
+                const AZ::Vector3 to = world.GetTranslation();
+                AZ_TracePrintf("JoltPhysics",
+                    "Rigid body '%s' teleported by an entity transform change: %.3f -> %.3f on z (dz %+.3f), "
+                    "velocity z %+.3f. Physics motion is discarded by this.\n",
+                    m_configuration.m_debugName.c_str(), from.GetZ(), to.GetZ(),
+                    to.GetZ() - from.GetZ(), body->GetLinearVelocity().GetZ());
+            }
+
             if (body->IsKinematic())
             {
                 body->SetKinematicTarget(world);
@@ -555,7 +567,18 @@ namespace JoltPhysics
 
         CreateRigidBody();
 
-        if (AzPhysics::RigidBody* newBody = GetRigidBody())
+        AzPhysics::RigidBody* newBody = GetRigidBody();
+        if (m_rebuildLogsRemaining > 0)
+        {
+            --m_rebuildLogsRemaining;
+            AZ_TracePrintf("JoltPhysics",
+                "Rigid body '%s' rebuilt. Velocity z %+.3f is %s; the body is at z %.3f.\n",
+                m_configuration.m_debugName.c_str(), linearVelocity.GetZ(),
+                newBody != nullptr ? "restored" : "LOST - the new body could not be found",
+                newBody != nullptr ? newBody->GetTransform().GetTranslation().GetZ() : 0.0f);
+        }
+
+        if (newBody != nullptr)
         {
             newBody->SetLinearVelocity(linearVelocity);
             newBody->SetAngularVelocity(angularVelocity);
