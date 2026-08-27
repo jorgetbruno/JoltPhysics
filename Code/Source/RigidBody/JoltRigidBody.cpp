@@ -96,7 +96,7 @@ namespace JoltPhysics
             // RotatedTranslatedShape at -offset, which moved the collision hulls instead:
             // nudging a truck's mass backwards walked its colliders off the truck.
             shape = new JPH::OffsetCenterOfMassShape(
-                m_baseShape, Conversions::ToJolt(m_configuration.m_centerOfMassOffset));
+                m_baseShape, ResolveCenterOfMassShapeOffset());
         }
 
         JPH::EMotionType motionType = m_isKinematic
@@ -924,7 +924,27 @@ namespace JoltPhysics
 
     bool JoltRigidBody::UsesCenterOfMassOffset() const
     {
-        return !m_configuration.m_computeCenterOfMass && !m_configuration.m_centerOfMassOffset.IsZero();
+        // Deliberately not also testing the offset for zero. The field is the absolute
+        // local position of the centre of mass, so an offset of zero on a shape whose
+        // geometry sits away from the entity origin still means something: put the mass
+        // frame on the origin, not on the geometry.
+        return !m_configuration.m_computeCenterOfMass;
+    }
+
+    JPH::Vec3 JoltRigidBody::ResolveCenterOfMassShapeOffset() const
+    {
+        // PhysX reads m_centerOfMassOffset as the absolute local position of the centre of
+        // mass (setCMassLocalPose takes it verbatim), and the engine documents it that way.
+        // Jolt's OffsetCenterOfMassShape adds its offset to the child's own centre of mass,
+        // so the absolute position has to be turned into a delta here.
+        //
+        // The two are identical whenever the collider is centred on the entity, which is
+        // why a box collider behaved correctly and a mesh collider - a compound whose
+        // centroid is wherever the geometry happens to be - put the mass frame at
+        // geometry + offset. On a vehicle that lifted the centre of mass above the
+        // suspension mounts and made the car unstable.
+        const JPH::Vec3 authored = Conversions::ToJolt(m_configuration.m_centerOfMassOffset);
+        return m_baseShape != nullptr ? authored - m_baseShape->GetCenterOfMass() : authored;
     }
 
     JPH::EAllowedDOFs JoltRigidBody::ResolveAllowedDofs() const
@@ -1027,8 +1047,7 @@ namespace JoltPhysics
         JPH::RefConst<JPH::Shape> shape = m_baseShape;
         if (UsesCenterOfMassOffset())
         {
-            shape = new JPH::OffsetCenterOfMassShape(
-                m_baseShape, Conversions::ToJolt(m_configuration.m_centerOfMassOffset));
+            shape = new JPH::OffsetCenterOfMassShape(m_baseShape, ResolveCenterOfMassShapeOffset());
         }
 
         // Recompute the inertia for the new geometry, then set the mass the body should

@@ -51,6 +51,17 @@ feature, trust the topic sections below the milestones.**
     will need their offsets revisited.
   - The editor's centre-of-mass marker was drawn at +offset all along, so it had been
     disagreeing with the simulation and is now correct without a change.
+  - **The offset is the absolute local position of the centre of mass**, matching PhysX
+    (`setCMassLocalPose` takes it verbatim). Jolt's `OffsetCenterOfMassShape` adds its
+    offset to the child shape's own centre of mass, so the gem converts. The first cut of
+    this fix passed the authored value straight through, which is identical whenever the
+    collider is centred on the entity - a box - and wrong for a mesh collider, whose
+    compound centroid sits wherever the geometry does: the mass frame landed at
+    geometry + offset. On a vehicle that put the centre of mass above the suspension
+    mounts and made the car unstable, while the same car on a box collider was fine.
+    Both cases are pinned by tests now; every test the first cut had used a centred box.
+  - An offset of zero is meaningful: with Compute COM unticked it means the mass frame
+    sits on the entity origin, not on the geometry.
 - **Friction/restitution combine uses Jolt's built-in rules** (friction: geometric
   mean, restitution: max) rather than PhysX's average/min/max/multiply combine-mode
   properties. The `FrictionCombineMode`/`RestitutionCombineMode` material properties

@@ -183,6 +183,10 @@ namespace JoltPhysics
         //! stale offset left on the configuration must not move it.
         bool UsesCenterOfMassOffset() const;
 
+        //! The authored centre of mass as a delta from the shape's own centre of mass,
+        //! which is the form OffsetCenterOfMassShape wants.
+        JPH::Vec3 ResolveCenterOfMassShapeOffset() const;
+
         //! The body's allowed degrees of freedom, from the six lock flags on the
         //! configuration. Jolt crashes on a body with no degrees of freedom at all, so an
         //! all-locked configuration warns and stays free - a body that should not move is

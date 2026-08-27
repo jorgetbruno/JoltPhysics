@@ -271,6 +271,56 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetPosition().GetZ(), 10.0f, 0.05f) << "the entity frame should not move";
     }
 
+    TEST_F(JoltRigidBodyTests, TheComOffsetIsAbsoluteEvenWhenTheGeometryIsNotCentred)
+    {
+        // Every other test here uses a collider centred on the entity, where the shape's
+        // own centre of mass is zero and "absolute" and "delta" are the same number. A
+        // mesh collider is a compound sitting whereever the geometry is, and the offset
+        // used to be added to that - putting a car's mass frame at geometry + offset,
+        // above its suspension mounts, and making it unstable.
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        colliderConfig->m_position = AZ::Vector3(2.0f, 0.0f, 1.0f); // geometry well off the origin
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3(0.0f, 0.0f, 10.0f);
+        config.m_computeCenterOfMass = false;
+        config.m_centerOfMassOffset = AZ::Vector3(0.0f, 0.0f, 0.25f);
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* body = static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(body, nullptr);
+
+        // The centre of mass is at the entity origin plus the authored offset - it does
+        // not pick up the collider's own displacement of (2, 0, 1).
+        const AZ::Vector3 com = body->GetCenterOfMassWorld();
+        EXPECT_NEAR(com.GetX(), 0.0f, 0.02f);
+        EXPECT_NEAR(com.GetY(), 0.0f, 0.02f);
+        EXPECT_NEAR(com.GetZ(), 10.25f, 0.02f);
+    }
+
+    TEST_F(JoltRigidBodyTests, AZeroComOffsetStillPinsTheMassFrameToTheOrigin)
+    {
+        // Zero is a meaningful value once the field is absolute: with Compute COM off it
+        // means "put the mass frame on the entity origin", not "leave it on the geometry".
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        colliderConfig->m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_position = AZ::Vector3::CreateZero();
+        config.m_computeCenterOfMass = false;
+        config.m_centerOfMassOffset = AZ::Vector3::CreateZero();
+        config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        auto* body = static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(body, nullptr);
+
+        EXPECT_NEAR(body->GetCenterOfMassWorld().GetZ(), 0.0f, 0.02f);
+    }
+
     TEST_F(JoltRigidBodyTests, ALockedLinearAxisDoesNotTranslate)
     {
         AzPhysics::RigidBodyConfiguration config;
