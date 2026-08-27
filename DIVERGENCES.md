@@ -944,6 +944,12 @@ have no single pose to blend.
     weigh one kilogram.
   - Triangle meshes enclose no volume and contribute no mass; a body whose geometry
     is entirely non-volumetric falls back to its configured mass.
+  - **A dynamic body on a triangle mesh now warns at creation.** `MeshShape::MustBeStatic()`
+    is true and Jolt returns deliberately invalid mass properties for one, but it only
+    asserts about the combination - and asserts are compiled out of profile builds, so the
+    body was created and simply misbehaved: nonsense inertia, a vehicle that jitters and
+    launches itself, and nothing in the log. The warning names the body and says to export
+    the collider as Convex (or decompose it). It does not veto the content.
 - **`UpdateMassProperties` flags mean "compute", not "override".** The engine
   documents each override parameter as ignored when its matching `COMPUTE_` flag is
   set. The gem previously read this backwards — applying an override precisely when

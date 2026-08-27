@@ -221,6 +221,24 @@ namespace JoltPhysics
 
         bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);
 
+        // A triangle mesh (and a heightfield) encloses no volume, so Jolt returns
+        // deliberately invalid mass properties for it and refuses to simulate one on
+        // anything but a static body - MeshShape::MustBeStatic() is true, and the flag
+        // propagates through compounds and decorators, so the finished shape is the right
+        // thing to ask. Jolt only asserts on this, and asserts are compiled out of profile
+        // builds, so without this the body is created and simply misbehaves: nonsense
+        // inertia, and a car that jitters and launches itself. Reported twice from a
+        // project before it was named.
+        if (shape != nullptr && shape->MustBeStatic())
+        {
+            AZ_Warning("JoltPhysics", false,
+                "Rigid body '%s' is dynamic but its collider is a triangle mesh, which Jolt can only simulate as "
+                "static geometry. Expect nonsense mass properties and unstable motion. Export the collider as "
+                "Convex (or tick Decompose Meshes) for a moving body, and keep triangle meshes for static "
+                "geometry.",
+                m_configuration.m_debugName.c_str());
+        }
+
         auto* bodyInterface = scene->GetBodyInterface();
         m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::Activate);
     }

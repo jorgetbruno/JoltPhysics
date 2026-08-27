@@ -158,6 +158,69 @@ namespace JoltPhysics
         EXPECT_NEAR(bounds.GetExtent().GetY(), 2.0f, 0.01f);
     }
 
+    TEST_F(JoltMeshColliderTests, ADynamicBodyOnATriangleMeshWarns)
+    {
+        // Jolt refuses to simulate a triangle mesh on anything but a static body and only
+        // asserts about it, which is compiled out of profile builds - so the body used to
+        // be created silently and then jitter its way across the level.
+        AzFramework::VisibleGeometryContainer container;
+        container.push_back(MakeCubeGeometry(0.5f));
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        ASSERT_TRUE(JoltMeshUtils::CookVisibleGeometry(
+            container, AZ::Transform::CreateIdentity(),
+            Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh, *cookedConfig));
+
+        AzPhysics::RigidBodyConfiguration config;
+        config.m_debugName = "MeshCar";
+        config.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), cookedConfig);
+
+        AZ_TEST_START_TRACE_SUPPRESSION;
+        auto handle = m_scene->AddSimulatedBody(&config);
+        AZ_TEST_STOP_TRACE_SUPPRESSION(1);
+
+        EXPECT_NE(m_scene->GetSimulatedBodyFromHandle(handle), nullptr)
+            << "the body is still created - the warning names the problem, it does not veto the content";
+
+        // Release the native mesh cached on the configuration (in production this is
+        // balanced by JoltPhysicsSystemComponent::ReleaseNativeMeshObject, which the
+        // test environment does not run).
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(cookedConfig->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            cookedConfig->SetCachedNativeMesh(nullptr);
+        }
+    }
+
+    TEST_F(JoltMeshColliderTests, AStaticBodyOnATriangleMeshDoesNotWarn)
+    {
+        AzFramework::VisibleGeometryContainer container;
+        container.push_back(MakeCubeGeometry(0.5f));
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        ASSERT_TRUE(JoltMeshUtils::CookVisibleGeometry(
+            container, AZ::Transform::CreateIdentity(),
+            Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh, *cookedConfig));
+
+        AzPhysics::StaticRigidBodyConfiguration config;
+        config.m_debugName = "MeshGround";
+        config.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), cookedConfig);
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        EXPECT_NE(m_scene->GetSimulatedBodyFromHandle(handle), nullptr);
+
+        // Release the native mesh cached on the configuration (in production this is
+        // balanced by JoltPhysicsSystemComponent::ReleaseNativeMeshObject, which the
+        // test environment does not run).
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(cookedConfig->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            cookedConfig->SetCachedNativeMesh(nullptr);
+        }
+    }
+
     TEST_F(JoltMeshColliderTests, CookedTriangleMeshSupportsRestingSphere)
     {
         AzFramework::VisibleGeometryContainer container;
