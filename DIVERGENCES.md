@@ -1367,6 +1367,16 @@ have no single pose to blend.
   where a stationary car appeared to jump: the physics body was still to within 3 mm/s
   while its rendered transform sawtoothed 8 cm every physics step.
 
+- **`DisablePhysics` on a character controller now sticks.** The component's tick
+  auto-creates a character whose scene was not ready when it activated, and it did that
+  whenever the body handle was invalid - including the frame after `DisablePhysics`
+  destroyed one deliberately. The call therefore appeared to work for exactly one frame and
+  was then undone, which made it impossible to take a character out of the simulation at
+  all: a project seating a driver watched the capsule reappear inside the car it was
+  sitting in and shove the chassis, measured as ~80mm of position-level displacement per
+  step with the body's velocity untouched. A `m_physicsDisabled` flag now separates "not
+  built yet" from "deliberately disabled".
+
 ## Component modes
 
 - **The primitive colliders use AzToolsFramework's own component modes** rather

@@ -18,6 +18,7 @@
 #include <JoltPhysics/JoltSoftBodyBus.h>
 #include <Clients/Components/JoltSoftBodyComponent.h>
 #include <JoltPhysics/JoltCharacterGameplayBus.h>
+#include <AzFramework/Physics/Components/SimulatedBodyComponentBus.h>
 #include <Clients/Components/JoltCharacterControllerComponent.h>
 #include <Clients/Components/JoltStaticRigidBodyComponent.h>
 #include <Pipeline/JoltMeshAssetHandler.h>
@@ -249,6 +250,57 @@ namespace JoltPhysics
     };
 
     //! A character driven through the real component, so gravity runs where it really runs.
+    //! DisablePhysics has to mean it. The tick auto-creates a character whose scene was not
+    //! ready at activation, and it used to do that whenever the body handle was invalid -
+    //! including one frame after DisablePhysics destroyed it deliberately. A project seating
+    //! a driver saw the capsule come back on the next frame and shove the car it was inside.
+    TEST_F(JoltComponentBodyCreationTests, DisabledCharacterPhysicsIsNotResurrectedByTheTick)
+    {
+        auto entity = AZStd::make_unique<AZ::Entity>("SeatedDriver");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        auto* controller = entity->CreateComponent<JoltCharacterControllerComponent>();
+        controller->GetShapeConfiguration() = AZStd::make_shared<Physics::CapsuleShapeConfiguration>(1.8f, 0.3f);
+        entity->Init();
+        entity->Activate();
+
+        // Driven through the bus, which is the path a script takes.
+        const AZ::EntityId entityId = entity->GetId();
+        const auto isEnabled = [entityId]()
+        {
+            bool enabled = false;
+            AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
+                enabled, entityId, &AzPhysics::SimulatedBodyComponentRequests::IsPhysicsEnabled);
+            return enabled;
+        };
+        const auto tick = []()
+        {
+            AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 1.0f / 60.0f, AZ::ScriptTimePoint());
+        };
+
+        tick();
+        ASSERT_TRUE(isEnabled()) << "the character should exist before it is disabled";
+
+        AzPhysics::SimulatedBodyComponentRequestsBus::Event(
+            entityId, &AzPhysics::SimulatedBodyComponentRequests::DisablePhysics);
+        EXPECT_FALSE(isEnabled());
+
+        for (int step = 0; step < 10; ++step)
+        {
+            tick();
+            ASSERT_FALSE(isEnabled())
+                << "the character came back on tick " << step << "; DisablePhysics has to stick";
+        }
+
+        // And re-enabling still works, or a driver could never get out again.
+        AzPhysics::SimulatedBodyComponentRequestsBus::Event(
+            entityId, &AzPhysics::SimulatedBodyComponentRequests::EnablePhysics);
+        EXPECT_TRUE(isEnabled());
+        tick();
+        EXPECT_TRUE(isEnabled());
+
+        entity->Deactivate();
+    }
+
     class JoltCharacterFrameRateTests : public JoltComponentBodyCreationTests
     {
     protected:

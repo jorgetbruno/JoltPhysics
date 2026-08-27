@@ -144,9 +144,15 @@ namespace JoltPhysics
 
     void JoltCharacterControllerComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
+        // The auto-create is for a character whose scene was not ready when it activated.
+        // It must not resurrect one that DisablePhysics deliberately destroyed: a seated
+        // driver, a disabled ragdoll, anything parked outside the simulation on purpose.
         if (m_bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
         {
-            TryCreateCharacter();
+            if (!m_physicsDisabled)
+            {
+                TryCreateCharacter();
+            }
             return;
         }
 
@@ -491,6 +497,7 @@ namespace JoltPhysics
 
     void JoltCharacterControllerComponent::EnablePhysics()
     {
+        m_physicsDisabled = false;
         if (IsPhysicsEnabled())
         {
             return;
@@ -500,6 +507,9 @@ namespace JoltPhysics
 
     void JoltCharacterControllerComponent::DisablePhysics()
     {
+        // Ordered so the flag is set before the destroy: the tick's auto-create reads it,
+        // and a destroy that left the flag unset for even one frame is the whole bug.
+        m_physicsDisabled = true;
         DestroyCharacter();
     }
 

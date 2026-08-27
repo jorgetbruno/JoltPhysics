@@ -152,5 +152,11 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyHandle m_bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
         bool m_syncingTransformFromCharacter = false;
+
+        //! Set by DisablePhysics, cleared by EnablePhysics. Without it the tick cannot tell
+        //! "not built yet" from "deliberately taken out of the simulation", and rebuilds the
+        //! character on the very next frame - which made DisablePhysics a no-op that
+        //! appeared to work for exactly one frame.
+        bool m_physicsDisabled = false;
     };
 } // namespace JoltPhysics
