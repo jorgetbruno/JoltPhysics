@@ -11,9 +11,12 @@ namespace JoltPhysics
 {
     namespace
     {
-        //! Small next to a wheel, so four of these on a car read as handles on the
-        //! wheels rather than as a thicket over the whole vehicle.
-        constexpr float WheelHandleAxisLength = 0.35f;
+        //! Manipulator views are screen-size fixed: this is a fraction of the viewport,
+        //! not metres, so it stays the same size however far the camera is from the car.
+        //! At 0.35 it was a sixth of the entity translate gizmo and barely clickable.
+        //! Three quarters keeps four of them from reading as one thicket while leaving
+        //! each arrow a real target.
+        constexpr float WheelHandleAxisLength = 1.5f;
 
     } // namespace
 
@@ -78,11 +81,14 @@ namespace JoltPhysics
                 AzToolsFramework::TranslationManipulators::Dimensions::Three, chassisSpace, AZ::Vector3::CreateOne());
 
             AzToolsFramework::TranslationManipulatorsViewCreateInfo view;
+            // Proportions from the editor's own translate gizmo, so a wheel handle is
+            // grabbed the same way the entity is. They were tuned for the old, tiny
+            // shaft and would have given it comically large arrowheads at this length.
             view.linearAxisLength = WheelHandleAxisLength;
-            view.linearConeLength = WheelHandleAxisLength * 0.3f;
-            view.linearConeRadius = WheelHandleAxisLength * 0.1f;
-            view.planarAxisLength = WheelHandleAxisLength * 0.4f;
-            view.surfaceRadius = WheelHandleAxisLength * 0.1f;
+            view.linearConeLength = WheelHandleAxisLength * 0.14f;
+            view.linearConeRadius = WheelHandleAxisLength * 0.05f;
+            view.planarAxisLength = WheelHandleAxisLength * 0.2f;
+            view.surfaceRadius = WheelHandleAxisLength * 0.07f;
             view.axis1Color = EditorDebugDraw::ManipulatorAxisColorX;
             view.axis2Color = EditorDebugDraw::ManipulatorAxisColorY;
             view.axis3Color = EditorDebugDraw::ManipulatorAxisColorZ;
