@@ -40,6 +40,27 @@ namespace JoltPhysics
             const Physics::ShapeConfiguration& shapeConfiguration,
             AZStd::string_view debugName = {});
 
+        //! The unscaled native shape for a cooked mesh, built on first use and cached on
+        //! the configuration that holds the blob. Every caller that reaches the same
+        //! configuration gets the same JPH::Shape back.
+        static JPH::RefConst<JPH::Shape> GetOrCreateSharedCookedMeshShape(
+            const Physics::CookedMeshShapeConfiguration& configuration);
+
+        //! Points a per-instance copy of an asset's cooked shape configuration at the
+        //! native shape built for the asset's own configuration, so the two share it.
+        //!
+        //! The copy exists only to carry one instance's scale; its geometry is the
+        //! asset's, byte for byte. Left to itself it would decode the same blob and build
+        //! the same bounding-volume hierarchy again - per entity, not per asset - which
+        //! on a level built from a handful of repeated meshes is most of the collision
+        //! memory and most of the load time.
+        //!
+        //! Does nothing unless both configurations are cooked meshes, and never replaces
+        //! a shape the instance already has.
+        static void ShareCookedMeshShape(
+            const Physics::ShapeConfiguration& assetConfiguration,
+            Physics::ShapeConfiguration& instanceConfiguration);
+
         //! Creates the native shape for one collider/shape pair, with the collider's
         //! offset and rotation applied - and with the shape configuration's scale applied
         //! in entity space, outside the rotation, which is where the entity's scale

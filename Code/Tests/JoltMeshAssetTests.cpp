@@ -72,6 +72,19 @@ namespace JoltPhysics
             return points;
         }
 
+        //! Drops the reference a cooked configuration holds on its cached native shape.
+        //! In production ~CookedMeshShapeConfiguration does this through
+        //! Physics::System::ReleaseNativeMeshObject; this fixture has no such interface,
+        //! so a test that caused a shape to be built has to hand it back itself.
+        static void ReleaseCachedNativeMesh(Physics::CookedMeshShapeConfiguration& configuration)
+        {
+            if (auto* cachedMesh = static_cast<JPH::Shape*>(configuration.GetCachedNativeMesh()))
+            {
+                cachedMesh->Release();
+                configuration.SetCachedNativeMesh(nullptr);
+            }
+        }
+
         static AZ::Data::Asset<Physics::MaterialAsset> CreateMaterialAsset(float friction, float restitution)
         {
             const Physics::MaterialAsset::MaterialProperties properties = {
@@ -233,6 +246,63 @@ namespace JoltPhysics
         EXPECT_EQ(shape->GetSubType(), JPH::EShapeSubType::Box);
     }
 
+    TEST_F(JoltMeshAssetTests, EveryInstanceOfAnAssetSharesOneNativeMesh)
+    {
+        // Expansion clones the asset's shape configuration per instance so each can carry
+        // its own scale. The geometry is the same blob every time, so the expensive part -
+        // decoding it and building the bounding-volume hierarchy - must happen once for
+        // the asset, not once per entity placed from it.
+        const AZ::Vector3 quadVertices[4] = {
+            AZ::Vector3(-1.0f, -1.0f, 0.0f), AZ::Vector3(1.0f, -1.0f, 0.0f),
+            AZ::Vector3(1.0f, 1.0f, 0.0f),   AZ::Vector3(-1.0f, 1.0f, 0.0f),
+        };
+        const AZ::u32 quadIndices[6] = { 0, 1, 2, 0, 2, 3 };
+        const AZStd::vector<AZ::u8> blob =
+            JoltMeshUtils::PackTriangleMesh(quadVertices, 4, quadIndices, 6);
+
+        auto assetShapeConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        assetShapeConfig->SetCookedMeshData(
+            blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+
+        Pipeline::JoltMeshAssetData assetData;
+        assetData.m_colliderShapes.emplace_back(
+            AZStd::make_shared<Pipeline::JoltAssetColliderConfiguration>(), assetShapeConfig);
+        assetData.m_materialIndexPerShape = { Pipeline::JoltMeshAssetData::TriangleMeshMaterialIndex };
+
+        // Two entities placed from the same asset, at different scales.
+        const AzPhysics::ShapeColliderPairList first =
+            ExpandJoltMeshAssetColliderShapes(assetData, Physics::ColliderConfiguration(), AZ::Vector3::CreateOne());
+        const AzPhysics::ShapeColliderPairList second = ExpandJoltMeshAssetColliderShapes(
+            assetData, Physics::ColliderConfiguration(), AZ::Vector3(3.0f, 3.0f, 3.0f));
+        ASSERT_EQ(first.size(), 1u);
+        ASSERT_EQ(second.size(), 1u);
+
+        auto* firstConfig = static_cast<Physics::CookedMeshShapeConfiguration*>(first[0].second.get());
+        auto* secondConfig = static_cast<Physics::CookedMeshShapeConfiguration*>(second[0].second.get());
+
+        const void* assetMesh = assetShapeConfig->GetCachedNativeMesh();
+        ASSERT_NE(assetMesh, nullptr);
+        EXPECT_EQ(firstConfig->GetCachedNativeMesh(), assetMesh);
+        EXPECT_EQ(secondConfig->GetCachedNativeMesh(), assetMesh);
+
+        // Sharing the geometry must not cost the instances their own scale: the scale is
+        // a decorator around the shared shape, not part of it.
+        JPH::RefConst<JPH::Shape> unscaledShape = JoltShapeUtils::CreateJoltShapeFromConfig(*firstConfig);
+        JPH::RefConst<JPH::Shape> scaledShape = JoltShapeUtils::CreateJoltShapeFromConfig(*secondConfig);
+        ASSERT_NE(unscaledShape, nullptr);
+        ASSERT_NE(scaledShape, nullptr);
+        EXPECT_EQ(unscaledShape.GetPtr(), assetMesh);
+        ASSERT_EQ(scaledShape->GetSubType(), JPH::EShapeSubType::Scaled);
+        const auto* scaled = static_cast<const JPH::ScaledShape*>(scaledShape.GetPtr());
+        EXPECT_EQ(scaled->GetScale(), JPH::Vec3(3.0f, 3.0f, 3.0f));
+        EXPECT_EQ(scaled->GetInnerShape(), assetMesh);
+
+        // One reference per configuration holding the pointer.
+        ReleaseCachedNativeMesh(*firstConfig);
+        ReleaseCachedNativeMesh(*secondConfig);
+        ReleaseCachedNativeMesh(*assetShapeConfig);
+    }
+
     TEST_F(JoltMeshAssetTests, AssetSourcedTriangleMeshSupportsRestingSphere)
     {
         // A 20x20 quad as the asset's single triangle-mesh shape.
@@ -278,15 +348,9 @@ namespace JoltPhysics
         const float sphereZ = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
         EXPECT_NEAR(sphereZ, 0.5f, 0.05f);
 
-        // Release the native mesh cached on the expanded (cloned) configuration, the same
-        // balancing the system component does in production via ReleaseNativeMeshObject.
-        auto* expandedCookedConfig =
-            static_cast<Physics::CookedMeshShapeConfiguration*>(pairs[0].second.get());
-        if (auto* cachedMesh = static_cast<JPH::Shape*>(expandedCookedConfig->GetCachedNativeMesh()))
-        {
-            cachedMesh->Release();
-            expandedCookedConfig->SetCachedNativeMesh(nullptr);
-        }
+        // Both the asset's configuration and the expanded clone hold the shared shape.
+        ReleaseCachedNativeMesh(*static_cast<Physics::CookedMeshShapeConfiguration*>(pairs[0].second.get()));
+        ReleaseCachedNativeMesh(*triConfig);
     }
 
 } // namespace JoltPhysics

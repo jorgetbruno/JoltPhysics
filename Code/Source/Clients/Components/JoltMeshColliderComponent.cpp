@@ -9,6 +9,7 @@
 
 #include <AzFramework/Physics/ColliderComponentBus.h>
 
+#include <Shape/JoltShapeUtils.h>
 #include <Utils/ReflectionUtils.h>
 
 namespace JoltPhysics
@@ -73,8 +74,13 @@ namespace JoltPhysics
                 shapeEntry.first->UpdateColliderConfiguration(*expandedColliderConfig);
             }
 
+            // Cloned because each instance carries its own scale, which the shape
+            // configuration holds. The geometry underneath is the asset's and identical
+            // across instances, so hand the clone the native shape already built for the
+            // asset instead of letting it decode the blob and rebuild the hierarchy.
             auto expandedShapeConfig = shapeEntry.second->Clone();
             expandedShapeConfig->m_scale = overallScale;
+            JoltShapeUtils::ShareCookedMeshShape(*shapeEntry.second, *expandedShapeConfig);
 
             // The collider offset is in unscaled entity space; scale it with the shape
             // so the pair stays coherent (mirrors PhysX's Utils::CreateShapesFromAsset).

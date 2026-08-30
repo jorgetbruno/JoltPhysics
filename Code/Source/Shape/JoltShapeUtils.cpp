@@ -5,6 +5,8 @@
 #include <Utils/Conversions.h>
 #include <Utils/JoltDiagnostics.h>
 
+#include <AzCore/std/parallel/lock.h>
+#include <AzCore/std/parallel/mutex.h>
 #include <AzFramework/Physics/Collision/CollisionGroups.h>
 #include <AzFramework/Physics/Collision/CollisionLayers.h>
 
@@ -292,6 +294,82 @@ namespace JoltPhysics
         return CreateJoltShapeFromVariant(configuration.m_colliderAndShapeData, configuration.m_debugName);
     }
 
+    namespace
+    {
+        //! Serialises the check-then-build on a cooked configuration's cached shape.
+        //! One configuration is now reached by every instance of the asset that owns it,
+        //! and entities can activate on more than one job thread, so two of them can race
+        //! for the same empty cache - which without this would build the mesh twice and
+        //! leak the loser. The build is held inside the lock rather than done outside and
+        //! discarded on a race: it happens once per asset now, so there is nothing left
+        //! to parallelise.
+        AZStd::mutex g_cookedMeshCacheMutex;
+    } // namespace
+
+    JPH::RefConst<JPH::Shape> JoltShapeUtils::GetOrCreateSharedCookedMeshShape(
+        const Physics::CookedMeshShapeConfiguration& configuration)
+    {
+        // "Cooked" here just means our own packed vertex/index blob (see JoltMeshUtils);
+        // Jolt needs no offline cooking pass. The cache is on the configuration because
+        // that is what the engine gives us to hang it on, and what it releases through
+        // ReleaseNativeMeshObject when the configuration goes away.
+        auto& mutableConfiguration = const_cast<Physics::CookedMeshShapeConfiguration&>(configuration);
+
+        AZStd::scoped_lock lock(g_cookedMeshCacheMutex);
+
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(mutableConfiguration.GetCachedNativeMesh()))
+        {
+            return cachedMesh;
+        }
+
+        // The same cooked config carries either a triangle mesh or a convex hull;
+        // decode the blob according to the type the cooker recorded on it.
+        JPH::RefConst<JPH::Shape> meshShape =
+            (configuration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
+            ? JoltMeshUtils::CreateConvexShapeFromCookedData(configuration.GetCookedMeshData())
+            : JoltMeshUtils::CreateMeshShapeFromCookedData(configuration.GetCookedMeshData());
+        if (!meshShape)
+        {
+            return nullptr;
+        }
+
+        // The configuration stores a raw void*; take an extra ref so the shape
+        // stays alive independent of this RefConst going out of scope, matched by
+        // a Release() in JoltPhysicsSystemComponent::ReleaseNativeMeshObject.
+        meshShape->AddRef();
+        mutableConfiguration.SetCachedNativeMesh(const_cast<JPH::Shape*>(meshShape.GetPtr()));
+        return meshShape;
+    }
+
+    void JoltShapeUtils::ShareCookedMeshShape(
+        const Physics::ShapeConfiguration& assetConfiguration, Physics::ShapeConfiguration& instanceConfiguration)
+    {
+        if (assetConfiguration.GetShapeType() != Physics::ShapeType::CookedMesh ||
+            instanceConfiguration.GetShapeType() != Physics::ShapeType::CookedMesh)
+        {
+            return;
+        }
+
+        auto& instance = static_cast<Physics::CookedMeshShapeConfiguration&>(instanceConfiguration);
+        if (instance.GetCachedNativeMesh() != nullptr)
+        {
+            return;
+        }
+
+        JPH::RefConst<JPH::Shape> shared = GetOrCreateSharedCookedMeshShape(
+            static_cast<const Physics::CookedMeshShapeConfiguration&>(assetConfiguration));
+        if (!shared)
+        {
+            return;
+        }
+
+        // A ref per configuration holding the pointer, so the shape outlives whichever of
+        // them is destroyed first - the instance when its entity goes away, the asset's
+        // when the asset unloads.
+        shared->AddRef();
+        instance.SetCachedNativeMesh(const_cast<JPH::Shape*>(shared.GetPtr()));
+    }
+
     // Builds the shape for the configuration's type, ignoring m_scale (the public
     // CreateJoltShapeFromConfig wraps the result; see below).
     static JPH::RefConst<JPH::Shape> CreateJoltShapeFromConfigUnscaled(
@@ -341,36 +419,8 @@ namespace JoltPhysics
         }
 
         case Physics::ShapeType::CookedMesh:
-        {
-            // "Cooked" here just means our own packed vertex/index blob (see JoltMeshUtils);
-            // Jolt needs no offline cooking pass. Cache the built native shape on the
-            // configuration so repeated calls (and ReleaseNativeMeshObject) don't rebuild it.
-            auto& meshConfiguration = const_cast<Physics::CookedMeshShapeConfiguration&>(
+            return JoltShapeUtils::GetOrCreateSharedCookedMeshShape(
                 static_cast<const Physics::CookedMeshShapeConfiguration&>(shapeConfiguration));
-
-            if (auto* cachedMesh = static_cast<JPH::Shape*>(meshConfiguration.GetCachedNativeMesh()))
-            {
-                return cachedMesh;
-            }
-
-            // The same cooked config carries either a triangle mesh or a convex hull;
-            // decode the blob according to the type the cooker recorded on it.
-            JPH::RefConst<JPH::Shape> meshShape =
-                (meshConfiguration.GetMeshType() == Physics::CookedMeshShapeConfiguration::MeshType::Convex)
-                ? JoltMeshUtils::CreateConvexShapeFromCookedData(meshConfiguration.GetCookedMeshData())
-                : JoltMeshUtils::CreateMeshShapeFromCookedData(meshConfiguration.GetCookedMeshData());
-            if (!meshShape)
-            {
-                return nullptr;
-            }
-
-            // The configuration stores a raw void*; take an extra ref so the shape
-            // stays alive independent of this RefConst going out of scope, matched by
-            // a Release() in JoltPhysicsSystemComponent::ReleaseNativeMeshObject.
-            meshShape->AddRef();
-            meshConfiguration.SetCachedNativeMesh(const_cast<JPH::Shape*>(meshShape.GetPtr()));
-            return meshShape;
-        }
 
         default:
             return nullptr;
