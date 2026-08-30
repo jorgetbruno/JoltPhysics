@@ -33,7 +33,7 @@ namespace JPH
     class PhysicsSystem;
     class BodyInterface;
     class Body;
-    class TempAllocatorImpl;
+    class TempAllocator;
     class JobSystemThreadPool;
 }
 
@@ -440,7 +440,7 @@ namespace JoltPhysics
         AZStd::unique_ptr<JoltBodyActivationListener> m_activationListener;
 
         JPH::JobSystemThreadPool* m_jobSystem = nullptr;
-        JPH::TempAllocatorImpl* m_tempAllocator = nullptr;
+        JPH::TempAllocator* m_tempAllocator = nullptr;
         int m_collisionSteps = 1;
 
         AZ::Vector3 m_gravity = AZ::Vector3(0.0f, 0.0f, -9.81f);

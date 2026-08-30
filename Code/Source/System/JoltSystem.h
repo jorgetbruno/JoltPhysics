@@ -15,7 +15,8 @@
 
 namespace JPH
 {
-    class TempAllocatorImpl;
+    class TempAllocator;
+    class TempAllocatorImplWithMallocFallback;
     class JobSystemThreadPool;
 }
 
@@ -74,7 +75,14 @@ namespace JoltPhysics
         AZ::u64 GetCollisionMask(AZ::u32 index) const;
         AZStd::vector<AZ::u64>* GetCollisionMasks();
 
-        JPH::TempAllocatorImpl* GetJoltAllocator();
+        //! The per-step scratch allocator every scene steps through, sized by the
+        //! system configuration's Temp Allocator Size. Returned as the base type: nothing
+        //! here depends on which implementation is behind it.
+        JPH::TempAllocator* GetJoltAllocator();
+
+        //! Bytes the arena above was actually built with. Not always the configured
+        //! value: a configuration asking for none falls back to the default.
+        size_t GetTempAllocatorSize() const;
         JPH::JobSystemThreadPool* GetJoltJobSystem();
         BroadPhaseLayerInterfaceImpl& GetBroadPhaseLayerInterface();
         ObjectVsBroadPhaseLayerFilterImpl& GetObjectVsBroadPhaseLayerFilter();
@@ -131,11 +139,10 @@ namespace JoltPhysics
         };
         State m_state = State::Uninitialized;
 
-        static constexpr unsigned int AllocationArenaSize = 256 * 1024 * 1024;
-
         JoltPhysicsMaterial* m_defaultMaterial = nullptr;
 
-        AZStd::unique_ptr<JPH::TempAllocatorImpl> m_allocator;
+        AZStd::unique_ptr<JPH::TempAllocatorImplWithMallocFallback> m_allocator;
+        size_t m_tempAllocatorSize = 0;
         AZStd::unique_ptr<JPH::JobSystemThreadPool> m_jobSystem;
 
         AZStd::unique_ptr<JoltMaterialManager> m_materialManager;

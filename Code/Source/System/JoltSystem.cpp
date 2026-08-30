@@ -1,5 +1,6 @@
 #include <System/JoltSystem.h>
 
+#include <AzCore/Casting/numeric_cast.h>
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Interface/Interface.h>
@@ -101,7 +102,21 @@ namespace JoltPhysics
             }
         }
 
-        m_allocator = AZStd::make_unique<JPH::TempAllocatorImpl>(AllocationArenaSize);
+        // The configured size, not a constant: this is the one Jolt setting whose right
+        // value depends on the scene, and it was previously reflected into the editor
+        // while the arena was built at a fixed 256MB regardless.
+        //
+        // Built on the malloc-fallback allocator rather than the plain one, because the
+        // plain one calls abort() the moment a step needs more scratch than the arena
+        // holds. That is a defensible answer for a size the engine picked; it is not one
+        // for a number a project can type into a settings field. The fallback spills to
+        // malloc instead, so an undersized arena costs allocation time rather than the
+        // process.
+        m_tempAllocatorSize = m_systemConfig.m_tempAllocatorSize > 0
+            ? m_systemConfig.m_tempAllocatorSize
+            : JoltSystemConfiguration::DefaultTempAllocatorSize;
+        m_allocator = AZStd::make_unique<JPH::TempAllocatorImplWithMallocFallback>(
+            aznumeric_cast<JPH::uint>(m_tempAllocatorSize));
 
         m_materialManager = AZStd::make_unique<JoltMaterialManager>();
         m_materialManager->Init();
@@ -126,7 +141,9 @@ namespace JoltPhysics
 
         m_state = State::Initialized;
 
-        AZLOG_INFO("JoltPhysics: System initialized with %d threads", numThreads);
+        AZLOG_INFO(
+            "JoltPhysics: System initialized with %d threads and a %zu MB temp allocator",
+            numThreads, m_tempAllocatorSize / (1024 * 1024));
     }
 
     void JoltSystem::Reinitialize()
@@ -182,6 +199,7 @@ namespace JoltPhysics
 
         m_jobSystem.reset();
         m_allocator.reset();
+        m_tempAllocatorSize = 0;
 
         m_state = State::Shutdown;
 
@@ -566,7 +584,12 @@ namespace JoltPhysics
         return &m_collisionGroupMasks;
     }
 
-    JPH::TempAllocatorImpl* JoltSystem::GetJoltAllocator()
+    size_t JoltSystem::GetTempAllocatorSize() const
+    {
+        return m_tempAllocatorSize;
+    }
+
+    JPH::TempAllocator* JoltSystem::GetJoltAllocator()
     {
         return m_allocator.get();
     }

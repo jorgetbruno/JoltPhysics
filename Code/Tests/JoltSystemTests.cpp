@@ -352,6 +352,40 @@ namespace JoltPhysics
         system.Shutdown();
     }
 
+    TEST_F(JoltSystemTests, TheTempAllocatorIsSizedByTheConfiguration)
+    {
+        // The setting is reflected into the editor's Jolt configuration, so a project
+        // that lowers it on a small level, or raises it for a scene that overruns the
+        // arena and starts spilling to malloc mid-step, has to actually get that arena.
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        JoltSystem system(AZStd::move(registryManager));
+
+        JoltSystemConfiguration config;
+        config.m_tempAllocatorSize = 8 * 1024 * 1024;
+        system.Initialize(&config);
+
+        EXPECT_EQ(system.GetTempAllocatorSize(), 8u * 1024u * 1024u);
+        EXPECT_NE(system.GetJoltAllocator(), nullptr);
+
+        system.Shutdown();
+    }
+
+    TEST_F(JoltSystemTests, ATempAllocatorSizeOfZeroFallsBackToTheDefault)
+    {
+        // Zero is not a size a scene can step through, and the settings registry can
+        // carry one that the editor's minimum never sees.
+        auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
+        JoltSystem system(AZStd::move(registryManager));
+
+        JoltSystemConfiguration config;
+        config.m_tempAllocatorSize = 0;
+        system.Initialize(&config);
+
+        EXPECT_EQ(system.GetTempAllocatorSize(), JoltSystemConfiguration::DefaultTempAllocatorSize);
+
+        system.Shutdown();
+    }
+
     TEST_F(JoltSystemTests, SceneCanBeAdded)
     {
         auto registryManager = AZStd::make_unique<JoltSettingsRegistryManager>();
