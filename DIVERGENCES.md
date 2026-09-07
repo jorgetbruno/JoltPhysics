@@ -144,9 +144,12 @@ feature, trust the topic sections below the milestones.**
 - **The offset is taken from the shape's own bounds** (`GetBottomOffset`), not from
   the capsule height, so it stays correct for whatever shape drives the character.
 - **Requested velocities are applied by the scene at simulation start**, not via an
-  `OnSceneSimulationStart` event handler like the PhysX gem; per-tick and per-physics-
-  step velocity requests coincide in this backend (both are applied and flushed on the
-  next simulation step).
+  `OnSceneSimulationStart` event handler like the PhysX gem. The two request kinds keep
+  their own clocks, as the engine defines them: a per-*physics-step* request is applied
+  and cleared on the next step, while a per-*tick* request is applied on every step that
+  tick drives and cleared by `JoltSystem::Simulate` once the frame's stepping is done.
+  They used to be treated as the same thing, which made scripted character movement
+  scale with the frame rate - twice the ground covered at 120fps, half at 30.
 - **The character is visible to the simulation through a kinematic inner body**
   (`CharacterVirtualSettings::mInnerBodyShape`): dynamic bodies collide with and are
   pushed by the character, and sensors fire trigger events for it. PhysX instead uses
