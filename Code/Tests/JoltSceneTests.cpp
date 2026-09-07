@@ -16,7 +16,10 @@
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/SimulatedBodies/StaticRigidBody.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
+#include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 
 namespace JoltPhysics
 {
@@ -42,6 +45,17 @@ namespace JoltPhysics
             m_system->RemoveScene(m_sceneHandle);
             m_system->Shutdown();
             m_system.reset();
+        }
+
+        void SimulateSeconds(float seconds)
+        {
+            // The system's own step, so a frame boundary happens between steps.
+            const float fixedDeltaTime = AzPhysics::SystemConfiguration::DefaultFixedTimestep;
+            const int steps = static_cast<int>(seconds / fixedDeltaTime + 0.5f);
+            for (int i = 0; i < steps; ++i)
+            {
+                m_system->Simulate(fixedDeltaTime);
+            }
         }
 
         AZStd::unique_ptr<JoltSystem> m_system;
@@ -534,6 +548,85 @@ namespace JoltPhysics
         m_scene->UpdateConfiguration(newConfig);
         EXPECT_EQ(configChangedCount, 1) << "nothing was told the scene configuration had changed";
         EXPECT_EQ(gravityChangedCount, 2) << "a configuration change that moved gravity did not report it";
+    }
+
+    TEST_F(JoltSceneTests, BodiesAddedAsABatchBehaveLikeBodiesAddedOneAtATime)
+    {
+        // AddSimulatedBodies puts every rigid and static body into the world through
+        // Jolt's AddBodiesPrepare/AddBodiesFinalize, which builds one broadphase sub-tree
+        // for the batch instead of splicing each body in separately. The bodies that come
+        // out of it have to be indistinguishable from ones added individually.
+        auto makeStatic = [](float x)
+        {
+            auto config = AZStd::make_shared<AzPhysics::StaticRigidBodyConfiguration>();
+            config->m_position = AZ::Vector3(x, 0.0f, 0.0f);
+            config->m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                AZStd::make_shared<Physics::ColliderConfiguration>(),
+                AZStd::make_shared<Physics::BoxShapeConfiguration>(AZ::Vector3(4.0f, 4.0f, 1.0f)));
+            return config;
+        };
+        auto makeDynamic = [](float x, bool startAsleep)
+        {
+            auto config = AZStd::make_shared<AzPhysics::RigidBodyConfiguration>();
+            config->m_position = AZ::Vector3(x, 0.0f, 5.0f);
+            config->m_startAsleep = startAsleep;
+            config->m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                AZStd::make_shared<Physics::ColliderConfiguration>(),
+                AZStd::make_shared<Physics::BoxShapeConfiguration>());
+            return config;
+        };
+
+        auto floorConfig = makeStatic(0.0f);
+        auto awakeConfig = makeDynamic(0.0f, /*startAsleep*/ false);
+        auto asleepConfig = makeDynamic(10.0f, /*startAsleep*/ true);
+
+        const AzPhysics::SimulatedBodyConfigurationList configs = {
+            floorConfig.get(), awakeConfig.get(), asleepConfig.get()
+        };
+        const AzPhysics::SimulatedBodyHandleList handles = m_scene->AddSimulatedBodies(configs);
+
+        ASSERT_EQ(handles.size(), 3u);
+        for (const auto& handle : handles)
+        {
+            ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle) << "a batched body was not created";
+            ASSERT_NE(m_scene->GetSimulatedBodyFromHandle(handle), nullptr);
+        }
+
+        // In the world: a query finds the floor the batch put there.
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 10.0f);
+        request.m_direction = -AZ::Vector3::CreateAxisZ();
+        request.m_distance = 50.0f;
+        EXPECT_FALSE(m_scene->QueryScene(&request).m_hits.empty()) << "a batched static body was not in the world";
+
+        auto* awake = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handles[1]));
+        auto* asleep = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handles[2]));
+        ASSERT_NE(awake, nullptr);
+        ASSERT_NE(asleep, nullptr);
+
+        // Each half of the batch got the activation its configuration asked for.
+        EXPECT_TRUE(awake->IsAwake()) << "a batched body that should have started awake did not";
+        EXPECT_FALSE(asleep->IsAwake()) << "a batched body ignored Start asleep";
+
+        // And it simulates: the awake one falls and lands on the batched floor.
+        const float startZ = awake->GetPosition().GetZ();
+        SimulateSeconds(2.0f);
+        EXPECT_LT(awake->GetPosition().GetZ(), startZ - 1.0f) << "a batched dynamic body never fell";
+        EXPECT_GT(awake->GetPosition().GetZ(), 0.0f) << "it fell through the batched floor";
+
+        // Removing one works the same way round. Aimed clear of the box that just landed
+        // on the floor, so the only thing this ray can find is the floor itself.
+        AzPhysics::RayCastRequest floorOnly;
+        floorOnly.m_start = AZ::Vector3(1.5f, 1.5f, 10.0f);
+        floorOnly.m_direction = -AZ::Vector3::CreateAxisZ();
+        floorOnly.m_distance = 50.0f;
+        ASSERT_FALSE(m_scene->QueryScene(&floorOnly).m_hits.empty()) << "the floor was not where the ray looked";
+
+        AzPhysics::SimulatedBodyHandle floorHandle = handles[0];
+        m_scene->RemoveSimulatedBody(floorHandle);
+        EXPECT_EQ(floorHandle, AzPhysics::InvalidSimulatedBodyHandle);
+        EXPECT_TRUE(m_scene->QueryScene(&floorOnly).m_hits.empty())
+            << "a removed batched body was still in the world";
     }
 
 } // namespace JoltPhysics

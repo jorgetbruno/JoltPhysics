@@ -73,7 +73,7 @@ namespace JoltPhysics
         }
     }
 
-    void JoltRigidBody::CreateInScene(JoltScene* scene)
+    void JoltRigidBody::CreateInScene(JoltScene* scene, bool addToWorld)
     {
         m_scene = scene;
 
@@ -247,8 +247,23 @@ namespace JoltPhysics
         // grepping every DataElement in the gem for a consumer, which is how the rest of
         // them should be found too. Jolt has no creation flag for it; the body is simply
         // added without being activated, and wakes on contact or when asked.
-        m_bodyId = bodyInterface->CreateAndAddBody(
-            bodySettings, m_configuration.m_startAsleep ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+        if (addToWorld)
+        {
+            m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, GetInitialActivation());
+        }
+        else
+        {
+            // Created but not added: the caller is batching, and will put this body in the
+            // world with the rest of them.
+            JPH::Body* createdBody = bodyInterface->CreateBody(bodySettings);
+            m_bodyId = createdBody != nullptr ? createdBody->GetID() : JPH::BodyID();
+            m_removedFromWorld = true;
+        }
+    }
+
+    JPH::EActivation JoltRigidBody::GetInitialActivation() const
+    {
+        return m_configuration.m_startAsleep ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
     }
 
     void JoltRigidBody::SyncTransform()

@@ -9,6 +9,7 @@
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/AllowedDOFs.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeID.h>
 
 namespace JPH
@@ -36,7 +37,23 @@ namespace JoltPhysics
         explicit JoltRigidBody(const AzPhysics::RigidBodyConfiguration& configuration);
         ~JoltRigidBody() override;
 
-        void CreateInScene(JoltScene* scene);
+        //! Builds the body in the scene. With addToWorld false the body is created but
+        //! left out of the simulation, so a caller adding many at once can put them all in
+        //! through Jolt's AddBodiesPrepare/AddBodiesFinalize path - which Jolt asks for
+        //! (BodyInterface.h) because it builds one broadphase sub-tree for the batch
+        //! rather than splicing each body in separately. Such a body is inert until
+        //! MarkAddedToJoltWorld is called for it.
+        void CreateInScene(JoltScene* scene, bool addToWorld = true);
+
+        //! Whether this body should be awake when it joins the world; the batch add needs
+        //! it before the bodies are in.
+        [[nodiscard]] JPH::EActivation GetInitialActivation() const;
+
+        //! Records that a batch add has put this body in the world.
+        void MarkAddedToJoltWorld()
+        {
+            m_removedFromWorld = false;
+        }
 
         //! Wraps an existing Jolt body that this object does NOT own (e.g. a body owned by
         //! a JPH::Ragdoll). All getters/setters operate on that body, but the wrapper never

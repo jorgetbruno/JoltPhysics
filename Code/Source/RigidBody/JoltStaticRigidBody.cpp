@@ -85,7 +85,7 @@ namespace JoltPhysics
         }
     }
 
-    void JoltStaticRigidBody::CreateInScene(JoltScene* scene)
+    void JoltStaticRigidBody::CreateInScene(JoltScene* scene, bool addToWorld)
     {
         m_scene = scene;
 
@@ -160,7 +160,16 @@ namespace JoltPhysics
         bodySettings.mUserData = static_cast<AZ::u64>(m_entityId);
 
         auto* bodyInterface = scene->GetBodyInterface();
-        m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::DontActivate);
+        if (addToWorld)
+        {
+            m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::DontActivate);
+        }
+        else
+        {
+            JPH::Body* createdBody = bodyInterface->CreateBody(bodySettings);
+            m_bodyId = createdBody != nullptr ? createdBody->GetID() : JPH::BodyID();
+            m_removedFromWorld = true;
+        }
 
         // Heightfield bodies get per-triangle materials from the provider.
         if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(shape))

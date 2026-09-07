@@ -8,6 +8,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeID.h>
 
 namespace JPH
@@ -35,7 +36,21 @@ namespace JoltPhysics
         explicit JoltStaticRigidBody(const AzPhysics::StaticRigidBodyConfiguration& configuration);
         ~JoltStaticRigidBody() override;
 
-        void CreateInScene(JoltScene* scene);
+        //! See JoltRigidBody::CreateInScene: with addToWorld false the body is built but
+        //! left out of the simulation for a batched add.
+        void CreateInScene(JoltScene* scene, bool addToWorld = true);
+
+        //! Static bodies never join the world awake.
+        [[nodiscard]] JPH::EActivation GetInitialActivation() const
+        {
+            return JPH::EActivation::DontActivate;
+        }
+
+        //! Records that a batch add has put this body in the world.
+        void MarkAddedToJoltWorld()
+        {
+            m_removedFromWorld = false;
+        }
 
         //! Removes the Jolt body from the physics world immediately (the object
         //! itself is deleted later by the scene's deferred deletion).

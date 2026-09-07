@@ -19,8 +19,10 @@
  * timed from outside the scene - which is itself the answer to whether it is ever called.)
  *
  *   jolt_BenchBodyAdd <count> [mode]
- *     mode 0  one at a time, CreateAndAddBody          (what the gem does today)
- *     mode 1  CreateBody loop, then Prepare + Finalize (what it could do)
+ *     mode 0  one at a time, CreateAndAddBody          (raw Jolt)
+ *     mode 1  CreateBody loop, then Prepare + Finalize (raw Jolt, batched)
+ *     mode 2  the gem's AddSimulatedBody, in a loop    (what a caller gets per body)
+ *     mode 3  the gem's AddSimulatedBodies             (what the batch path gives them)
  *
  * Bodies are trivial unit boxes: the point is the cost of insertion, not of shape building, which
  * is a separate saving the shape-sharing work already covers.
@@ -51,15 +53,29 @@
  *     material lookup           0.03
  *     unattributed             ~13        inside body construction and scene bookkeeping
  *
- * So the batch rewrite buys ~1.5% of body creation, and body creation is itself under a fifth
- * of the 0.111 ms. Roughly 0.3% of what was measured on the city. Not worth doing.
+ * FOLLOW-UP: the batch path was implemented anyway, in JoltScene::AddSimulatedBodies, and
+ * measured through modes 2 and 3 - the gem's own API rather than raw Jolt:
  *
- * The 4 us Physics::Shape wrapper and the ~13 us unattributed are where the next measurement
- * should go, and the remaining ~90 us of the 0.111 ms is not physics body creation at all -
- * it is component activation, transform plumbing and asset work.
+ *   bodies   AddSimulatedBody in a loop   AddSimulatedBodies batched   saving
+ *    2,000        7.8 ms (3.9 us/body)         7.6 ms (3.8 us/body)      3%
+ *   10,000       41.5 ms (4.1 us/body)        36.2 ms (3.6 us/body)     13%
  *
- * (One real saving did come out of running this: resolving every material slot at body creation
- * was allocating for single-slot colliders, 0.8 us each, and now does not.)
+ * Better than the 1.5% predicted from insertion alone, and the gap widens with the batch:
+ * building one broadphase sub-tree for ten thousand bodies beats splicing ten thousand times,
+ * and that part does not scale linearly. Worth having for anything that spawns in bulk.
+ *
+ * What it does NOT yet buy is the threading win, which is the larger half of the idea. Create
+ * and Prepare are documented as safe off the simulation thread, but AddSimulatedBodies is
+ * synchronous - the caller has handles when it returns - so all of it still runs where it was
+ * called. Moving it would need an asynchronous spawn API, which is a different piece of work.
+ *
+ * And it remains true that insertion is not where entity activation's 0.111 ms goes. The 4 us
+ * Physics::Shape wrapper and the rest of body construction are where the next measurement
+ * should go, and roughly 90 us of that 0.111 ms is not physics body creation at all - it is
+ * component activation, transform plumbing and asset work.
+ *
+ * (One saving came out of running this: resolving every material slot at body creation was
+ * allocating for single-slot colliders, 0.8 us each, and now does not.)
  * ---------------------------------------------------------------------------------------------
  */
 
@@ -70,6 +86,10 @@
 #include <AzCore/std/containers/vector.h>
 #include <AzFramework/Physics/PhysicsScene.h>
 #include <AzFramework/Physics/PhysicsSystem.h>
+#include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
+#include <AzFramework/Physics/Shape.h>
+#include <AzFramework/Physics/ShapeConfiguration.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
 
 #include <Scene/JoltScene.h>
 
@@ -142,6 +162,60 @@ namespace JoltPhysics
                     shape, JPH::RVec3(x, y, z), JPH::Quat::sIdentity(), JPH::EMotionType::Static, 0);
                 return settings;
             };
+
+            if (mode == 2 || mode == 3)
+            {
+                // The gem's own path, which is what a caller actually reaches: a
+                // StaticRigidBodyConfiguration per body, through AddSimulatedBody one at a
+                // time or AddSimulatedBodies as a batch. Everything the raw modes above
+                // leave out - the Physics::Shape wrapper, the material lookup, the scene's
+                // bookkeeping - is in here, which is why the numbers are so much larger.
+                AZStd::vector<AZStd::shared_ptr<AzPhysics::StaticRigidBodyConfiguration>> configs;
+                AzPhysics::SimulatedBodyConfigurationList configPointers;
+                configs.reserve(count);
+                configPointers.reserve(count);
+                for (int index = 0; index < count; ++index)
+                {
+                    auto config = AZStd::make_shared<AzPhysics::StaticRigidBodyConfiguration>();
+                    config->m_position = AZ::Vector3(
+                        static_cast<float>(index % 100) * 3.0f,
+                        static_cast<float>((index / 100) % 100) * 3.0f,
+                        -500.0f);
+                    config->m_colliderAndShapeData = AzPhysics::ShapeColliderPair(
+                        AZStd::make_shared<Physics::ColliderConfiguration>(),
+                        AZStd::make_shared<Physics::BoxShapeConfiguration>());
+                    configs.push_back(config);
+                    configPointers.push_back(config.get());
+                }
+
+                AzPhysics::SimulatedBodyHandleList handles;
+                const auto start = AZStd::chrono::steady_clock::now();
+                if (mode == 2)
+                {
+                    handles.reserve(count);
+                    for (auto* config : configPointers)
+                    {
+                        handles.push_back(scene->AddSimulatedBody(config));
+                    }
+                }
+                else
+                {
+                    handles = scene->AddSimulatedBodies(configPointers);
+                }
+                const double totalMs = MillisecondsSince(start);
+
+                AZLOG_INFO("=== gem %s, %d static bodies ===\n",
+                    mode == 2 ? "AddSimulatedBody (one at a time)" : "AddSimulatedBodies (batched)", count);
+                AZLOG_INFO("  total %.1f ms   per body %.4f ms\n", totalMs, totalMs / count);
+
+                const auto cleanupStart = AZStd::chrono::steady_clock::now();
+                for (auto& handle : handles)
+                {
+                    scene->RemoveSimulatedBody(handle);
+                }
+                AZLOG_INFO("  (cleanup %.1f ms)\n", MillisecondsSince(cleanupStart));
+                return;
+            }
 
             if (mode == 0)
             {

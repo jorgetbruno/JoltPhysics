@@ -90,6 +90,22 @@ namespace JoltPhysics
             const AzPhysics::SimulatedBodyHandleList& bodyHandles) override;
         void RemoveSimulatedBody(AzPhysics::SimulatedBodyHandle& bodyHandle) override;
 
+        //! Takes a free slot in the body list, growing it when there is none.
+        AzPhysics::SimulatedBodyIndex AcquireBodySlot();
+
+        //! Builds the body a configuration describes. With addToWorld false a rigid or
+        //! static body is created but left out of the simulation, for a batched add;
+        //! every other body kind ignores it and joins the world as usual.
+        AzPhysics::SimulatedBody* ConstructBody(
+            const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig, bool addToWorld);
+
+        //! Puts a built body into the scene's slot, hands out its handle, maps its Jolt id
+        //! and announces it. Shared by the single and batched add paths.
+        AzPhysics::SimulatedBodyHandle RegisterBody(
+            AzPhysics::SimulatedBody* body,
+            AzPhysics::SimulatedBodyIndex bodyIndex,
+            const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig);
+
         //! Removes every joint attached to a body, so the physics system is not left
         //! holding a constraint that points at a destroyed one.
         void RemoveJointsReferencingBody(AzPhysics::SimulatedBodyHandle bodyHandle);

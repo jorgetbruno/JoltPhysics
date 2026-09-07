@@ -395,38 +395,34 @@ namespace JoltPhysics
         }
     }
 
-    AzPhysics::SimulatedBodyHandle JoltScene::AddSimulatedBody(
-        const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig)
+    AzPhysics::SimulatedBodyIndex JoltScene::AcquireBodySlot()
     {
-        if (!simulatedBodyConfig || !m_bodyInterface)
-        {
-            return AzPhysics::InvalidSimulatedBodyHandle;
-        }
-
-        AzPhysics::SimulatedBodyIndex bodyIndex;
         if (!m_freeSceneSlots.empty())
         {
-            bodyIndex = m_freeSceneSlots.front();
+            const AzPhysics::SimulatedBodyIndex bodyIndex = m_freeSceneSlots.front();
             m_freeSceneSlots.pop();
+            return bodyIndex;
         }
-        else
-        {
-            bodyIndex = static_cast<AzPhysics::SimulatedBodyIndex>(m_simulatedBodies.size());
-            m_simulatedBodies.emplace_back(AZ::Crc32(), nullptr);
-        }
+        const auto bodyIndex = static_cast<AzPhysics::SimulatedBodyIndex>(m_simulatedBodies.size());
+        m_simulatedBodies.emplace_back(AZ::Crc32(), nullptr);
+        return bodyIndex;
+    }
 
+    AzPhysics::SimulatedBody* JoltScene::ConstructBody(
+        const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig, bool addToWorld)
+    {
         AzPhysics::SimulatedBody* body = nullptr;
 
         if (const auto* rigidBodyConfig = azdynamic_cast<const AzPhysics::RigidBodyConfiguration*>(simulatedBodyConfig))
         {
             auto* rigidBody = aznew JoltRigidBody(*rigidBodyConfig);
-            rigidBody->CreateInScene(this);
+            rigidBody->CreateInScene(this, addToWorld);
             body = rigidBody;
         }
         else if (const auto* staticBodyConfig = azdynamic_cast<const AzPhysics::StaticRigidBodyConfiguration*>(simulatedBodyConfig))
         {
             auto* staticBody = aznew JoltStaticRigidBody(*staticBodyConfig);
-            staticBody->CreateInScene(this);
+            staticBody->CreateInScene(this, addToWorld);
             body = staticBody;
         }
         else if (const auto* characterConfig = azdynamic_cast<const Physics::CharacterConfiguration*>(simulatedBodyConfig))
@@ -448,6 +444,27 @@ namespace JoltPhysics
             body = softBody;
         }
 
+        return body;
+    }
+
+    AzPhysics::SimulatedBodyHandle JoltScene::AddSimulatedBody(
+        const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig)
+    {
+        if (!simulatedBodyConfig || !m_bodyInterface)
+        {
+            return AzPhysics::InvalidSimulatedBodyHandle;
+        }
+
+        const AzPhysics::SimulatedBodyIndex bodyIndex = AcquireBodySlot();
+        AzPhysics::SimulatedBody* body = ConstructBody(simulatedBodyConfig, /*addToWorld*/ true);
+        return RegisterBody(body, bodyIndex, simulatedBodyConfig);
+    }
+
+    AzPhysics::SimulatedBodyHandle JoltScene::RegisterBody(
+        AzPhysics::SimulatedBody* body,
+        AzPhysics::SimulatedBodyIndex bodyIndex,
+        const AzPhysics::SimulatedBodyConfiguration* simulatedBodyConfig)
+    {
         if (!body)
         {
             m_freeSceneSlots.push(bodyIndex);
@@ -979,9 +996,97 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyHandleList handles;
         handles.reserve(simulatedBodyConfigs.size());
 
+        if (!m_bodyInterface)
+        {
+            handles.assign(simulatedBodyConfigs.size(), AzPhysics::InvalidSimulatedBodyHandle);
+            return handles;
+        }
+
+        // Every rigid and static body in the list is built first and left out of the
+        // simulation, then all of them enter it together through
+        // AddBodiesPrepare/AddBodiesFinalize. Jolt asks to be asked this way
+        // (BodyInterface.h): Prepare builds one broadphase sub-tree for the whole batch
+        // and does not touch the physics system, and Finalize splices that tree in, which
+        // is the only part that has to happen where the simulation lives. Adding one at a
+        // time splices each body separately.
+        //
+        // Bodies of other kinds - characters, ragdolls, soft bodies - are not Jolt bodies
+        // in this sense and take the ordinary path; they simply do not appear in the batch.
+        struct PendingBody
+        {
+            AzPhysics::SimulatedBody* m_body = nullptr;
+            AzPhysics::SimulatedBodyIndex m_index = 0;
+            const AzPhysics::SimulatedBodyConfiguration* m_config = nullptr;
+        };
+
+        AZStd::vector<PendingBody> pending;
+        pending.reserve(simulatedBodyConfigs.size());
+
+        // Finalize takes one activation mode for the whole batch, so bodies that want to
+        // wake and bodies that do not are added as two batches rather than one.
+        AZStd::vector<JPH::BodyID> toActivate;
+        AZStd::vector<JPH::BodyID> toLeaveAsleep;
+        toActivate.reserve(simulatedBodyConfigs.size());
+        toLeaveAsleep.reserve(simulatedBodyConfigs.size());
+
         for (const auto* config : simulatedBodyConfigs)
         {
-            handles.push_back(AddSimulatedBody(config));
+            if (!config)
+            {
+                pending.push_back({ nullptr, AcquireBodySlot(), nullptr });
+                continue;
+            }
+
+            const bool batchable =
+                azdynamic_cast<const AzPhysics::RigidBodyConfiguration*>(config) != nullptr ||
+                azdynamic_cast<const AzPhysics::StaticRigidBodyConfiguration*>(config) != nullptr;
+
+            const AzPhysics::SimulatedBodyIndex index = AcquireBodySlot();
+            AzPhysics::SimulatedBody* body = ConstructBody(config, /*addToWorld*/ !batchable);
+            pending.push_back({ body, index, config });
+
+            if (!batchable || body == nullptr)
+            {
+                continue;
+            }
+
+            if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(body); rigidBody && !rigidBody->GetBodyId().IsInvalid())
+            {
+                (rigidBody->GetInitialActivation() == JPH::EActivation::Activate ? toActivate : toLeaveAsleep)
+                    .push_back(rigidBody->GetBodyId());
+            }
+            else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(body);
+                     staticBody && !staticBody->GetBodyId().IsInvalid())
+            {
+                toLeaveAsleep.push_back(staticBody->GetBodyId());
+            }
+        }
+
+        auto addBatch = [this](AZStd::vector<JPH::BodyID>& bodyIds, JPH::EActivation activation)
+        {
+            if (bodyIds.empty())
+            {
+                return;
+            }
+            const int count = static_cast<int>(bodyIds.size());
+            JPH::BodyInterface::AddState addState = m_bodyInterface->AddBodiesPrepare(bodyIds.data(), count);
+            m_bodyInterface->AddBodiesFinalize(bodyIds.data(), count, addState, activation);
+        };
+        addBatch(toActivate, JPH::EActivation::Activate);
+        addBatch(toLeaveAsleep, JPH::EActivation::DontActivate);
+
+        for (const PendingBody& entry : pending)
+        {
+            if (auto* rigidBody = azrtti_cast<JoltRigidBody*>(entry.m_body))
+            {
+                rigidBody->MarkAddedToJoltWorld();
+            }
+            else if (auto* staticBody = azrtti_cast<JoltStaticRigidBody*>(entry.m_body))
+            {
+                staticBody->MarkAddedToJoltWorld();
+            }
+
+            handles.push_back(RegisterBody(entry.m_body, entry.m_index, entry.m_config));
         }
 
         return handles;
