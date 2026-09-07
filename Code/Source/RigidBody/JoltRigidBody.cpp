@@ -240,7 +240,13 @@ namespace JoltPhysics
         }
 
         auto* bodyInterface = scene->GetBodyInterface();
-        m_bodyId = bodyInterface->CreateAndAddBody(bodySettings, JPH::EActivation::Activate);
+        // Start asleep is the third field on this configuration found to be shown by the
+        // inspector and read by nothing, after CCD and the batch in e9e9bc7. It was found by
+        // grepping every DataElement in the gem for a consumer, which is how the rest of
+        // them should be found too. Jolt has no creation flag for it; the body is simply
+        // added without being activated, and wakes on contact or when asked.
+        m_bodyId = bodyInterface->CreateAndAddBody(
+            bodySettings, m_configuration.m_startAsleep ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
     }
 
     void JoltRigidBody::SyncTransform()

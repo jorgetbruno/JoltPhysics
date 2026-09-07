@@ -743,6 +743,43 @@ namespace JoltPhysics
         EXPECT_EQ(body->RayCast(request).m_bodyHandle, body->m_bodyHandle);
     }
 
+    TEST_F(JoltRigidBodyTests, StartAsleepStartsAsleep)
+    {
+        // Found by grepping every DataElement in the gem for a read outside reflection:
+        // RigidBodyConfiguration::m_startAsleep had none. The engine declares it, the
+        // inspector shows it, and the body was created with EActivation::Activate
+        // regardless - so a crate authored to sit still until touched fell on its first
+        // step like every other. Same family as CCD, which was found the same week by a
+        // project rather than by a grep.
+        // Well apart: the first version of this put both at one point, and the awake box
+        // fell onto the sleeping one and woke it, which read as the flag not working.
+        auto make = [this](bool startAsleep, float x)
+        {
+            auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+            AzPhysics::RigidBodyConfiguration config;
+            config.m_position = AZ::Vector3(x, 0.0f, 10.0f);
+            config.m_startAsleep = startAsleep;
+            config.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, boxShape);
+            auto handle = m_scene->AddSimulatedBody(&config);
+            return static_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        };
+
+        auto* asleep = make(true, -5.0f);
+        auto* awake = make(false, 5.0f);
+        ASSERT_NE(asleep, nullptr);
+        ASSERT_NE(awake, nullptr);
+        EXPECT_FALSE(asleep->IsAwake()) << "a body authored to start asleep was created awake";
+        EXPECT_TRUE(awake->IsAwake());
+
+        SimulateSeconds(0.5f);
+
+        // Nothing touched it, so a sleeping body has not moved; the awake one has fallen.
+        EXPECT_NEAR(asleep->GetPosition().GetZ(), 10.0f, 1e-3f)
+            << "the sleeping body fell; it was activated at creation whatever the flag said";
+        EXPECT_LT(awake->GetPosition().GetZ(), 9.5f);
+    }
+
     //! A small fast body fired at a thin wall - the case continuous collision exists for.
     class JoltContinuousCollisionTests : public JoltRigidBodyTests
     {
