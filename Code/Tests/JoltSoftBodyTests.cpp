@@ -714,6 +714,32 @@ namespace JoltPhysics
         EXPECT_THAT(positions[35], ::testing::Eq(SoftBody()->GetVertexPosition(35)));
     }
 
+    TEST_F(JoltSoftBodyTests, MovingAClothKeepsThePinsSetOnItAtRuntime)
+    {
+        // Placing a soft body rebuilds it, because teleporting a live one would leave its
+        // particles behind. A rebuild regenerates every particle from the settings, which
+        // threw away anything SetVertexPinned had done since - so moving the entity a
+        // cloth hangs from silently unpinned it, and cloth whose pins come from painted
+        // vertex weights (which JoltCloth applies through that same call) fell off
+        // whatever it was attached to the first time the parent moved.
+        m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);
+        m_pendingTransform = AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        ASSERT_TRUE(Attach());
+
+        ASSERT_TRUE(SoftBody()->SetVertexPinned(0, true));
+        ASSERT_TRUE(SoftBody()->IsVertexPinned(0));
+
+        SoftBody()->SetTransform(AZ::Transform::CreateTranslation(AZ::Vector3(3.0f, 0.0f, 5.0f)));
+
+        EXPECT_TRUE(SoftBody()->IsVertexPinned(0)) << "moving the cloth unpinned the particle";
+
+        // And it still behaves as a pin: the sheet hangs from it rather than falling.
+        const AZ::Vector3 pinnedAt = SoftBody()->GetVertexPosition(0);
+        SimulateSeconds(1.0f);
+        EXPECT_NEAR(SoftBody()->GetVertexPosition(0).GetZ(), pinnedAt.GetZ(), 0.05f)
+            << "the particle reported as pinned but fell anyway";
+    }
+
     TEST_F(JoltSoftBodyTests, RuntimePinHoldsAParticleAndUnpinRestoresItsMass)
     {
         m_pendingSettings = ClothSettings(JoltSoftBodyPinning::None);

@@ -546,8 +546,72 @@ namespace JoltPhysics
         // would snap them back, so the placement is applied by rebuilding instead.
         if (m_physicsSystem && !m_bodyId.IsInvalid())
         {
+            // A rebuild regenerates every particle from the settings, which threw away
+            // anything SetVertexPinned had done since - so moving the entity a cloth hangs
+            // from silently unpinned it, and a cloth whose pins came from painted vertex
+            // weights (which JoltCloth applies through that same bus) fell off whatever it
+            // was attached to. The settings are unchanged, so the particle order is too,
+            // and the masses can be put back by index.
+            const AZStd::vector<float> pinnedState = CaptureVertexInverseMasses();
             DestroyBody();
             CreateBody();
+            RestoreVertexInverseMasses(pinnedState);
+        }
+    }
+
+    AZStd::vector<float> JoltSoftBody::CaptureVertexInverseMasses() const
+    {
+        AZStd::vector<float> inverseMasses;
+        if (!m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return inverseMasses;
+        }
+
+        JPH::BodyLockRead bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+        {
+            return inverseMasses;
+        }
+
+        const auto* motionProperties =
+            static_cast<const JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+        const auto& vertices = motionProperties->GetVertices();
+        inverseMasses.reserve(vertices.size());
+        for (const JPH::SoftBodyVertex& vertex : vertices)
+        {
+            inverseMasses.push_back(vertex.mInvMass);
+        }
+        return inverseMasses;
+    }
+
+    void JoltSoftBody::RestoreVertexInverseMasses(const AZStd::vector<float>& inverseMasses)
+    {
+        if (inverseMasses.empty() || !m_physicsSystem || m_bodyId.IsInvalid())
+        {
+            return;
+        }
+
+        JPH::BodyLockWrite bodyLock(m_physicsSystem->GetBodyLockInterface(), m_bodyId);
+        if (!bodyLock.Succeeded() || !bodyLock.GetBody().IsSoftBody())
+        {
+            return;
+        }
+
+        auto* motionProperties = static_cast<JPH::SoftBodyMotionProperties*>(bodyLock.GetBody().GetMotionProperties());
+        auto& vertices = motionProperties->GetVertices();
+        // A count mismatch means the layout did change after all, and the old masses no
+        // longer describe these particles; leaving the fresh ones alone is the safe answer.
+        if (vertices.size() != inverseMasses.size())
+        {
+            return;
+        }
+        for (size_t index = 0; index < vertices.size(); ++index)
+        {
+            vertices[index].mInvMass = inverseMasses[index];
+            if (inverseMasses[index] == 0.0f)
+            {
+                vertices[index].mVelocity = JPH::Vec3::sZero();
+            }
         }
     }
 
@@ -1698,7 +1762,11 @@ namespace JoltPhysics
             motionProperties->SetGravityFactor(m_settings.m_gravityFactor);
             motionProperties->SetVertexRadius(AZ::GetMax(m_settings.m_vertexRadius, 0.0f));
             motionProperties->SetMaxLinearVelocity(AZ::GetMax(m_settings.m_maxLinearVelocity, 0.0f));
-            motionProperties->SetUpdatePosition(m_settings.m_updatePosition);
+            // Same gate CreateBody applies, and for the same reason: a skinned body must
+            // not chase its own frame. CreateBody calls this function immediately after
+            // building the body, so writing the ungated value here handed the setting
+            // straight back and the sail collapsed anyway.
+            motionProperties->SetUpdatePosition(m_settings.m_updatePosition && m_skinnedVertices.empty());
             motionProperties->SetFacesDoubleSided(m_settings.m_doubleSidedFaces);
             motionProperties->SetEnableSkinConstraints(m_skinConstraintsEnabled);
 

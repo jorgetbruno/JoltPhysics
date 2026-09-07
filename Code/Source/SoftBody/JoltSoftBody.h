@@ -194,6 +194,13 @@ namespace JoltPhysics
         //! soft body would fight the solver, so this only takes effect on the next build.
         void SetTransform(const AZ::Transform& worldTransform) override;
 
+        //! Every particle's inverse mass, which is where a pin lives: zero is pinned.
+        //! Captured before a rebuild and put back after it, so moving a cloth does not
+        //! silently unpin whatever SetVertexPinned (or a caller's painted weights) had
+        //! pinned since it was built.
+        [[nodiscard]] AZStd::vector<float> CaptureVertexInverseMasses() const;
+        void RestoreVertexInverseMasses(const AZStd::vector<float>& inverseMasses);
+
         JPH::BodyID GetBodyId() const;
 
         //! Replaces the settings. Live fields are pushed to the body immediately; changing
