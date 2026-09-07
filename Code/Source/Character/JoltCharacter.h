@@ -62,6 +62,10 @@ namespace JoltPhysics
         //! and its configuration, and re-enabling puts it back where it was. The component
         //! destroys and rebuilds instead, which is a different and heavier thing.
         void SetSimulationEnabled(bool enabled);
+
+        //! Re-acquires the object layer from the current collision layer and group and
+        //! pushes it to the inner body, so a runtime change to either takes effect.
+        void RefreshObjectLayer();
         [[nodiscard]] bool IsSimulationEnabled() const { return m_simulationEnabled; }
 
         //! Writes/reads the native character's runtime state (position, velocities and

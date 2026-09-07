@@ -1,4 +1,5 @@
 #include <Character/JoltCharacter.h>
+#include <Material/JoltMaterialManager.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
@@ -83,10 +84,12 @@ namespace JoltPhysics
             settings.mUp = Conversions::ToJolt(m_configuration.m_upDirection);
             settings.mMaxSlopeAngle = AZ::DegToRad(m_slopeLimitDegrees);
             settings.mShape = m_shape;
-            m_objectLayer =
-                AcquireObjectLayer(
-                m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true,
-                JoltBodyClass::Character);
+            // Held as a mask from here on, because the runtime setter takes one: the
+            // configured preset is resolved once, and RefreshObjectLayer works off the
+            // mask thereafter.
+            m_collisionGroup = ResolveCollisionGroupById(m_configuration.m_collisionGroupId);
+            m_objectLayer = AcquireObjectLayerFromMask(
+                m_collisionLayer, m_collisionGroup, /*isMoving*/ true, JoltBodyClass::Character);
             settings.mLayer = m_objectLayer;
             // The character is driven entirely by the requested velocity (same contract as
             // the virtual backend), so Jolt's own gravity is disabled. The supporting
@@ -97,6 +100,13 @@ namespace JoltPhysics
             // Characters walk over meshes and heightfields constantly, so ghost contacts
             // on triangle seams are felt here more than anywhere else.
             settings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
+            // The character's material slot, which the inspector has always shown and
+            // nothing read: the body kept Jolt's own default of 0.2 whatever material was
+            // assigned, so a character could not be made to slide on ice or grip a ramp.
+            // Only the rigid backend has a friction to set - the virtual one resolves its
+            // own movement and never asks Jolt for friction at all.
+            settings.mFriction = JoltMaterialManager::GetFrictionRestitution(
+                JoltMaterialManager::ResolveMaterialFromSlots(m_configuration.m_materialSlots).get()).first;
 
             m_rigidBody = new JPH::Character(
                 &settings,
@@ -117,10 +127,9 @@ namespace JoltPhysics
         // The inner body makes the character visible to the simulation: dynamic bodies
         // are blocked/pushed by it and sensors fire trigger events for it.
         settings.mInnerBodyShape = m_shape;
-        m_objectLayer =
-            AcquireObjectLayer(
-                m_configuration.m_collisionLayer, m_configuration.m_collisionGroupId, /*isMoving*/ true,
-                JoltBodyClass::Character);
+        m_collisionGroup = ResolveCollisionGroupById(m_configuration.m_collisionGroupId);
+        m_objectLayer = AcquireObjectLayerFromMask(
+            m_collisionLayer, m_collisionGroup, /*isMoving*/ true, JoltBodyClass::Character);
         settings.mInnerBodyLayer = m_objectLayer;
         settings.mEnhancedInternalEdgeRemoval = UseEnhancedInternalEdgeRemoval();
 
@@ -379,11 +388,39 @@ namespace JoltPhysics
     void JoltCharacter::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
     {
         m_collisionLayer = layer;
+        m_configuration.m_collisionLayer = layer;
+        RefreshObjectLayer();
     }
 
     void JoltCharacter::SetCollisionGroup(const AzPhysics::CollisionGroup& group)
     {
         m_collisionGroup = group;
+        RefreshObjectLayer();
+    }
+
+    void JoltCharacter::RefreshObjectLayer()
+    {
+
+        // Both setters used to store the value and stop there. The object layer that
+        // decides what the character sweeps against, and what sees it, is acquired once at
+        // creation - so changing a character's collision layer or group at runtime (a
+        // ghost phase, a spectator mode, a team swap) changed the answer the getters gave
+        // and nothing else.
+        // The runtime group is a raw mask, not the named preset the configuration carries,
+        // so it cannot go through the preset lookup.
+        m_objectLayer = AcquireObjectLayerFromMask(
+            m_collisionLayer, m_collisionGroup, /*isMoving*/ true, JoltBodyClass::Character);
+
+        // The inner body carries the layer for everything outside the character: sensors,
+        // dynamic bodies pushing it, queries. The virtual character's own sweep reads
+        // m_objectLayer directly on its next Move.
+        if (JPH::PhysicsSystem* physicsSystem = m_scene ? m_scene->GetJoltPhysicsSystem() : nullptr)
+        {
+            if (const JPH::BodyID innerBodyId = GetInnerBodyId(); !innerBodyId.IsInvalid())
+            {
+                physicsSystem->GetBodyInterface().SetObjectLayer(innerBodyId, m_objectLayer);
+            }
+        }
     }
 
     AzPhysics::CollisionLayer JoltCharacter::GetCollisionLayer() const

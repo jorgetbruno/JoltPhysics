@@ -166,6 +166,18 @@ namespace JoltPhysics
         bool isMoving,
         JoltBodyClass bodyClass = JoltBodyClass::Rigid);
 
+    //! The object layer for a body whose group is a raw mask rather than a named preset -
+    //! what Physics::CharacterRequests::SetCollisionGroup hands over at runtime.
+    JPH::ObjectLayer AcquireObjectLayerFromMask(
+        const AzPhysics::CollisionLayer& collisionLayer,
+        const AzPhysics::CollisionGroup& collisionGroup,
+        bool isMoving,
+        JoltBodyClass bodyClass = JoltBodyClass::Rigid);
+
+    //! The mask a named collision-group preset resolves to, for things that need to hold
+    //! the group as a mask (a character, whose runtime setter takes one).
+    AzPhysics::CollisionGroup ResolveCollisionGroupById(const AzPhysics::CollisionGroups::Id& collisionGroupId);
+
     //! Whether a query with this collision group mask should see bodies on this layer.
     bool ObjectLayerMatchesQueryMask(JPH::ObjectLayer objectLayer, AZ::u64 collisionGroupMask);
 

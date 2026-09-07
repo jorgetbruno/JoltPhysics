@@ -63,6 +63,11 @@ namespace JoltPhysics
         static AZStd::shared_ptr<Physics::Material> ResolveMaterial(
             const Physics::ColliderConfiguration& colliderConfiguration, size_t slotIndex = 0);
 
+        //! The same resolution against a bare slot list, for the things that carry one
+        //! without a collider configuration around it - a character, for instance.
+        static AZStd::shared_ptr<Physics::Material> ResolveMaterialFromSlots(
+            const Physics::MaterialSlots& materialSlots, size_t slotIndex = 0);
+
         //! Every slot of a collider's material list, resolved in one pass. Empty when the
         //! collider has no slots. Call it while building a body, never from a contact
         //! callback: it can create materials, and the manager's map is not thread safe.

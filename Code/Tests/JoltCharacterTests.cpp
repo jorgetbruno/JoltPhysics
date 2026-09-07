@@ -759,4 +759,31 @@ namespace JoltPhysics
             << "the character did not resume falling once it was re-enabled";
     }
 
+    TEST_F(JoltCharacterTests, ChangingACharactersCollisionLayerTakesEffect)
+    {
+        // Both setters stored the value and stopped there. The object layer that decides
+        // what a character sweeps against, and what sees it, was acquired once at creation
+        // - so a ghost phase or a team swap changed what the getters said and nothing else.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3(10.0f, 10.0f, 1.0f));
+
+        auto handle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 3.0f));
+        auto* character = GetCharacter(handle);
+        ASSERT_NE(character, nullptr);
+
+        // Standing on the floor, as a character on the default layer does.
+        SimulateSeconds(1.5f);
+        ASSERT_NEAR(character->GetBasePosition().GetZ(), 0.5f, 0.1f) << "the character never landed";
+
+        // The floor sits on the default layer; tell the character to stop colliding with
+        // it and nothing should hold it up any more.
+        AzPhysics::CollisionGroup group = AzPhysics::CollisionGroup::All;
+        group.SetLayer(AzPhysics::CollisionLayer::Default, false);
+        character->SetCollisionGroup(group);
+
+        const float standingZ = character->GetBasePosition().GetZ();
+        SimulateSeconds(1.0f);
+        EXPECT_LT(character->GetBasePosition().GetZ(), standingZ - 0.5f)
+            << "the character kept standing on a layer it was told to stop colliding with";
+    }
+
 } // namespace JoltPhysics

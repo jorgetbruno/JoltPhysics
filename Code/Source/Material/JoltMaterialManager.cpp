@@ -51,13 +51,18 @@ namespace JoltPhysics
     AZStd::shared_ptr<Physics::Material> JoltMaterialManager::ResolveMaterial(
         const Physics::ColliderConfiguration& colliderConfiguration, size_t slotIndex)
     {
+        return ResolveMaterialFromSlots(colliderConfiguration.m_materialSlots, slotIndex);
+    }
+
+    AZStd::shared_ptr<Physics::Material> JoltMaterialManager::ResolveMaterialFromSlots(
+        const Physics::MaterialSlots& materialSlots, size_t slotIndex)
+    {
         auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
         if (!materialManager)
         {
             return nullptr;
         }
 
-        const Physics::MaterialSlots& materialSlots = colliderConfiguration.m_materialSlots;
         if (materialSlots.GetSlotsCount() > 0)
         {
             const AZ::Data::Asset<Physics::MaterialAsset> materialAsset =

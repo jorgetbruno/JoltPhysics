@@ -168,6 +168,32 @@ namespace JoltPhysics
             colliderConfiguration->m_collisionLayer, colliderConfiguration->m_collisionGroupId, isMoving, bodyClass);
     }
 
+    AzPhysics::CollisionGroup ResolveCollisionGroupById(const AzPhysics::CollisionGroups::Id& collisionGroupId)
+    {
+        auto* joltSystem = GetJoltSystem();
+        if (!joltSystem)
+        {
+            return AzPhysics::CollisionGroup::All;
+        }
+        return joltSystem->GetJoltConfiguration().m_collisionConfig.m_collisionGroups.FindGroupById(collisionGroupId);
+    }
+
+    JPH::ObjectLayer AcquireObjectLayerFromMask(
+        const AzPhysics::CollisionLayer& collisionLayer,
+        const AzPhysics::CollisionGroup& collisionGroup,
+        bool isMoving,
+        JoltBodyClass bodyClass)
+    {
+        auto* joltSystem = GetJoltSystem();
+        if (!joltSystem)
+        {
+            return isMoving ? ObjectLayers::Moving : ObjectLayers::NonMoving;
+        }
+
+        return joltSystem->GetObjectLayerRegistry().Acquire(
+            collisionGroup.GetMask(), static_cast<AZ::u8>(collisionLayer.GetIndex()), isMoving, bodyClass);
+    }
+
     bool ObjectLayerMatchesQueryMask(JPH::ObjectLayer objectLayer, AZ::u64 collisionGroupMask)
     {
         auto* joltSystem = GetJoltSystem();
