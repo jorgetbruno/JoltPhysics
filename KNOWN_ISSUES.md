@@ -6,6 +6,12 @@ deviations from PhysX behavior.
 
 ## Remaining gaps (scheduled)
 
+- **The CCD toggle was listed here as resolved in M2 and did not work until 2026-09-07.**
+  `m_ccdEnabled` was exposed by the inspector and read by nothing, so every body ran
+  Discrete however the checkbox was set. Kept as a note because the entry above certified
+  a feature for months on the strength of the field existing rather than of anything
+  reading it - which is the failure this list is meant to catch.
+
 - **A collapsed soft body face is still unusable to Jolt, and a shape-overlap query against
   one reports an assertion.** Colliding a convex shape against a soft body walks its faces
   and seeds GJK with each triangle's raw cross product, which Jolt asserts on when that is
@@ -22,8 +28,10 @@ deviations from PhysX behavior.
   What remains is a **shape overlap** aimed at a soft body, which goes through the same
   face-walking code. A shape *cast* is safe by contrast: `EPAPenetrationDepth::CastShape`
   seeds GJK with the cast direction and handles a degenerate contact normal explicitly.
-  Since the gem's own scene queries pass a default body filter, a caller cannot currently
-  exclude soft bodies from an overlap before narrow phase runs.
+  A caller *can* now keep an overlap away from a soft body: the overlap path runs the
+  request's filter callback before narrow phase for soft bodies (see
+  `SceneQueryPreNarrowPhaseBodyFilter`), so rejecting one there means its faces are never
+  walked. What remains is that a caller who does not filter still reaches this.
   Since assertions now report rather than break (see below), the consequence is a logged
   `AZ_Error` and one contact resolved along a meaningless direction, not a dead process.
 - **Jolt assertions are reported, not fatal, and are compiled out of release.** Jolt's
@@ -94,12 +102,15 @@ deviations from PhysX behavior.
   `SimulatedBody::ProcessTriggerEvent`.
 - Scene queries: raycast (complete hits: handle, entity, normal), shapecast
   (with MTD recovery), overlap (one hit per body).
-- Rigid body: kinematic targets, CCD toggle, mass/inertia getters and overrides,
+- Rigid body: kinematic targets, mass/inertia getters and overrides,
   center-of-mass offset (Jolt semantics — see DIVERGENCES.md), simulation
   enable/disable.
 - `FindAttachedBodyHandleFromEntityId` implemented.
 - Debug draw via `Physics::SystemDebugRequestBus::DebugDrawPhysics`.
-- Cylinder collider removal (engine dropped `CylinderShapeConfiguration` in 26.05).
+- Cylinder colliders survived the engine dropping `CylinderShapeConfiguration` in
+  26.05: the gem carries its own `JoltCylinderShapeConfiguration` and ships both runtime
+  and editor cylinder collider components. The M2 work was replacing the engine type, not
+  removing the feature.
 
 ## Resolved in later milestones (kept for reference)
 

@@ -115,7 +115,6 @@ Jolt capabilities this gem does not expose; see the *Jolt features not wrapped* 
 of [DIVERGENCES.md](DIVERGENCES.md) for the full list and the reasoning:
 
 - Path and pulley constraints (path additionally needs spline authoring)
-- Soft bodies from mesh assets — geometry is procedural, and cloth pinning is preset-based
 - PhysX-*named* compatibility components; everything is `Jolt`-prefixed on purpose, so
   an incomplete backend cannot silently hijack PhysX-authored levels
 
@@ -291,8 +290,8 @@ The suites are the gem's safety net and are expected to be green before any comm
 
 | Suite | Tests |
 |---|---|
-| `JoltPhysics.Tests.dll` | 212 |
-| `JoltPhysics.Editor.Tests.dll` | 49 |
+| `JoltPhysics.Tests.dll` | 427 |
+| `JoltPhysics.Editor.Tests.dll` | 90 |
 
 ```bat
 cd <project>\build\windows\bin\profile
@@ -310,7 +309,7 @@ still prints `PASSED` lines above the failure.
 When the engine starts, look for:
 
 ```
-JoltPhysics: System initialized with X threads
+JoltPhysics: System initialized with X threads and a Y MB temp allocator
 ```
 
 ### Method 2: Draw the colliders

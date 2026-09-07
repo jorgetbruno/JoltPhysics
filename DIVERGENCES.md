@@ -99,13 +99,35 @@ feature, trust the topic sections below the milestones.**
   (`BodyCreationSettings::mMaxLinearVelocity`), which PhysX has no equivalent of. It is
   not exposed; anything meant to travel faster than that - a projectile, a debug teleport
   driven by velocity - needs a raycast rather than a simulated body.
+- **`m_applyMoveOnPhysicsTick` is ignored; a character always moves on the physics step.**
+  PhysX moves the controller on the frame tick when that box is unticked. Here the
+  character's requested velocity is applied by the scene at the start of each fixed step,
+  which is what keeps its motion frame-rate independent, so the setting has nothing to
+  select between.
+- **The rigid-body character backend ignores Step Height and Minimum Movement Distance.**
+  Both belong to Jolt's `CharacterVirtual` update, which resolves its own movement; the
+  rigid backend hands a velocity to a body and lets the simulation carry it, so it walks
+  into steps rather than over them. Use the virtual backend where stepping matters.
+- **An overlap reports one hit per body, not one per collider.** PhysX returns a hit per
+  shape. A body whose colliders all overlap the query volume therefore appears once, and
+  the hit's shape and material are whichever sub-shape Jolt happened to report first.
+- **Only `HitFlags::MTD` is read.** The rest of the request's hit flags, `MeshBothSides`
+  among them, are ignored: casts use Jolt's defaults, which ignore back faces. A ray fired
+  from inside a triangle mesh does not hit its far side.
+- **PhysX features with no equivalent here at all**: reduced-coordinate articulations
+  (`ArticulationJointBus`, `ArticulationSensorBus`), `ColliderShapeRequests` - which some
+  engine gems, vegetation among them, call for a collider's bounds - and
+  `ForceRegionNotifications::OnCalculateNetForce`. A project or gem that reaches for any
+  of these finds nothing listening.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.
-- **Per-collider settings on multi-collider bodies** (collision layer/group,
-  trigger flag, material) are taken from the first collider only. Compound support
-  landed in M3 and the restriction survived it for the reasons given there — it is
-  a Jolt structural limit, not unfinished work.
+- **Per-collider collision layer, group and trigger flag are taken from the first
+  collider only** on a multi-collider body: those live on the Jolt body, not its shapes.
+  Materials are *not* in that list any more - friction and restitution resolve per
+  sub-shape, and per triangle for a mesh carrying a painted table (see "Contact material
+  resolution" and "Mass properties"). This entry used to say materials shared the
+  restriction, which stopped being true in M3.
 - **[superseded]** *`AzPhysics::SceneInterface` is not implemented yet, so
   scene-level events are unavailable.* `JoltSceneInterface` registers the interface
   and forwards `OnSceneCollisionsEvent`, `OnSceneTriggersEvent` and the
@@ -192,10 +214,12 @@ feature, trust the topic sections below the milestones.**
 - **`GetPosition` and `GetTransform` both report the base.** They are the same concept
   on `SimulatedBody`, so they must agree; reading one and writing the other would
   otherwise shift a character by half a capsule.
-- **Body-level `RayCast` on a character returns an empty hit** (use scene queries).
-- **`AttachShape` on a character is unsupported.** A `Physics::Shape` wrapper exists
-  now; what is missing is a way to recombine a character's shape at runtime, since
-  Jolt characters take a single shape at construction.
+- **[superseded]** *Body-level `RayCast` on a character returns an empty hit* (use scene
+  queries). It casts against the character's shape at its current pose.
+- **[superseded - see "Character attachments"]** *`AttachShape` on a character is
+  unsupported.* Attachments ride a kinematic body that follows the character. What is
+  still missing is recombining the character's own sweep shape at runtime, since Jolt
+  characters take a single shape at construction.
 - **No `CharacterGameplayComponent` equivalent**: gameplay drives the character via
   `CharacterRequestBus::AddVelocityForTick` (gravity, jumps), as the smoke test's
   `CharacterDriverTestComponent` demonstrates.
@@ -221,7 +245,8 @@ feature, trust the topic sections below the milestones.**
 - **Runtime joint control is exposed through `JoltJointRequestBus`** (this gem's own
   bus) mirroring the PhysX gem's `JointRequestBus` surface, since AzPhysics defines no
   joint control bus and the PhysX bus lives in the PhysX gem.
-- **`AzPhysics::JointHelpersInterface` is not implemented** (joint auto-configuration);
+- **[superseded - see "Joint helpers"]** *`AzPhysics::JointHelpersInterface` is not
+  implemented* (joint auto-configuration);
   joints are configured explicitly. Editor joint-limit visualization and frame
   editing both exist, but through this gem's own `DrawJointLimits` and
   `JoltJointComponentMode` rather than that interface — see "Editor viewport debug
@@ -257,8 +282,10 @@ feature, trust the topic sections below the milestones.**
   `JoltVehicleComponent` and `JoltVehicleRequestBus` (rule 5 of the project brief).
   There is no PhysXVehicle-API compatibility layer.
 - **Chassis mass is set via `JoltVehicleConfiguration::m_chassisMass`** (applied with
-  `ScaleToMass`, default 1200 kg) instead of relying on the rigid body's mass, because
-  the gem's rigid bodies default to 1 kg which is unusable for a car.
+  `ScaleToMass`, default 1200 kg) instead of relying on the rigid body's mass, so a car
+  weighs what the vehicle configuration says whatever its chassis collider computes from
+  geometry and density. (This used to say rigid bodies default to 1 kg; they compute mass
+  from their geometry unless told otherwise.)
 - **Wheel/ground detection is selectable, and defaults to a cylinder cast.**
   `JoltVehicleConfiguration::m_collisionTester` picks Ray, Sphere or Cylinder. A ray
   only tests the wheel's centre line, so a ray-tested wheel drops into any gap and
@@ -826,7 +853,7 @@ have no single pose to blend.
   otherwise has no component to attach its data to. A trigger collider defines the volume,
   the forces attached to it are summed, and the net force is applied to each occupant as
   an impulse scaled by the frame time so the result does not depend on frame rate.
-- **Five of PhysX's seven force types are wrapped**: world space, local space, point,
+- **Five of PhysX's six force types are wrapped**: world space, local space, point,
   simple drag and linear damping. **Spline follow is not** - it needs a spline component
   to follow and an authoring story of its own. PhysX's `ForceRegionForces.h` is the
   reference for the field names and units, so authored values transfer.
@@ -1049,10 +1076,13 @@ have no single pose to blend.
   than as constraints, so they cost nothing per step. Locking all six is refused: Jolt
   documents `EAllowedDOFs::None` as invalid and crashing, so the gem warns and leaves
   the body free - a body that must not move is a static or kinematic body.
-- **Not exposed, because Jolt has no equivalent:** `m_ccdMinAdvanceCoefficient` and
-  `m_ccdFrictionEnabled`. Jolt's continuous collision is a linear cast motion quality
-  with no advance-coefficient or friction knobs. `m_interpolateMotion` is deliberately
-  superseded by this gem's own three-state `Interpolate motion` on the component.
+- **Shown but not read, because Jolt has no equivalent:** `m_ccdMinAdvanceCoefficient` and
+  `m_ccdFrictionEnabled`. The gem reflects the engine's rigid body configuration unchanged
+  and never clears their visibility flags, so the inspector does offer them - this entry
+  used to say they were not exposed. Jolt's continuous collision is a linear cast motion quality
+  with no advance-coefficient or friction knobs. `m_interpolateMotion` is honoured: on
+  `Use project default`, a body interpolates when either it or the project asks for it.
+  The component's three-state `Interpolate motion` sits on top rather than replacing it.
 - **Per-collider densities are respected** on multi-collider bodies: each collider
   contributes its own volume × its own material's density. Jolt itself carries
   density on the shape, but shapes are shared and cached here (a cooked mesh caches
@@ -1383,7 +1413,8 @@ have no single pose to blend.
 
 - **Every Jolt component family now has an editor variant** (`EditorJolt*` classes
   deriving from `AzToolsFramework::Components::EditorComponentBase`): box/sphere/
-  capsule colliders, static and dynamic rigid bodies, heightfield collider, static
+  capsule/cylinder colliders, the mesh, baked-mesh and shape colliders, static and
+  dynamic rigid bodies, heightfield collider, static
   and mutable compound colliders, character controller, vehicle, soft body, and all
   eight joint types (fixed, ball, hinge, prismatic, D6, distance, cone,
   swing-twist). This mirrors the PhysX gem's
@@ -1702,7 +1733,8 @@ Listed so the gaps do not have to be re-derived from Jolt's headers.
   constraint additionally needs spline authoring. Wrapped: fixed, point (exposed as
   "ball"), distance, hinge, slider (exposed as "prismatic"), cone, swing-twist,
   six-DOF (exposed as "D6"), gear and rack-and-pinion.
-- **`AzPhysics::JointHelpersInterface` is not implemented** (joint auto-configuration)
+- **[superseded - see "Joint helpers"]** *`AzPhysics::JointHelpersInterface` is not
+  implemented* (joint auto-configuration)
   — also noted under M6. Joint-limit visualization is covered by this gem's own
   `DrawJointLimits`, not by that interface.
 - **Jolt's own scene serialization (`PhysicsScene`, `ObjectStream`) is not used.**
