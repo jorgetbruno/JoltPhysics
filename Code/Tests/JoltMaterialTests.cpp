@@ -831,4 +831,63 @@ namespace JoltPhysics
             << "the second slot was left for the first contact to create, which happens on a narrowphase worker";
     }
 
+    TEST_F(JoltMaterialTests, ARaycastAgainstAMultiMaterialMeshReportsTheMaterialOfTheFaceItStruck)
+    {
+        // The contact path resolves a triangle's own material; queries stopped at the
+        // collider's, so every face of a road-and-grass mesh reported slot 0 to whatever
+        // asked - footstep audio, impact decals, surface effects. The engine expects
+        // otherwise: it documents HitFlags::FaceIndex as required for per-face material
+        // data and puts it in the default set.
+        //
+        // One quad, two triangles, a different slot on each. Triangle 0 is the half
+        // towards (+x, -y), triangle 1 the half towards (-x, +y).
+        const AZ::Vector3 quadVertices[4] = {
+            AZ::Vector3(-10.0f, -10.0f, 0.0f), AZ::Vector3(10.0f, -10.0f, 0.0f),
+            AZ::Vector3(10.0f, 10.0f, 0.0f),   AZ::Vector3(-10.0f, 10.0f, 0.0f),
+        };
+        const AZ::u32 quadIndices[6] = { 0, 1, 2, 0, 2, 3 };
+        const AZ::u8 perFaceMaterials[2] = { 0, 1 };
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+            quadVertices, 4, quadIndices, 6, perFaceMaterials, 2);
+
+        auto triShape = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        triShape->SetCookedMeshData(blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+
+        const AZ::Data::Asset<Physics::MaterialAsset> deadAsset = CreateMaterialAsset(0.5f, 0.0f);
+        const AZ::Data::Asset<Physics::MaterialAsset> bouncyAsset = CreateMaterialAsset(0.5f, 0.9f);
+        const Physics::MaterialId deadId = Physics::MaterialId::CreateFromAssetId(deadAsset.GetId());
+        const Physics::MaterialId bouncyId = Physics::MaterialId::CreateFromAssetId(bouncyAsset.GetId());
+
+        auto triCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triCollider->m_materialSlots.SetSlots({ "dead", "bouncy" });
+        triCollider->m_materialSlots.SetMaterialAsset(0, deadAsset);
+        triCollider->m_materialSlots.SetMaterialAsset(1, bouncyAsset);
+
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(triCollider, triShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        auto materialUnder = [this](const AZ::Vector3& groundPosition)
+        {
+            AzPhysics::RayCastRequest request;
+            request.m_start = groundPosition + AZ::Vector3(0.0f, 0.0f, 5.0f);
+            request.m_direction = -AZ::Vector3::CreateAxisZ();
+            request.m_distance = 20.0f;
+            const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+            return hits.m_hits.empty() ? Physics::MaterialId() : hits.m_hits[0].m_physicsMaterialId;
+        };
+
+        EXPECT_EQ(materialUnder(AZ::Vector3(5.0f, -5.0f, 0.0f)), deadId)
+            << "the ray struck the first triangle but did not report its slot";
+        EXPECT_EQ(materialUnder(AZ::Vector3(-5.0f, 5.0f, 0.0f)), bouncyId)
+            << "the ray struck the second triangle and still reported the first slot's material";
+
+        // Balance the AddRef that creating the cooked mesh shape took on the configuration.
+        if (auto* cachedMesh = static_cast<JPH::Shape*>(triShape->GetCachedNativeMesh()))
+        {
+            cachedMesh->Release();
+            triShape->SetCachedNativeMesh(nullptr);
+        }
+    }
+
 } // namespace JoltPhysics

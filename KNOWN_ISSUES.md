@@ -33,6 +33,14 @@ deviations from PhysX behavior.
   configuration. The callback now returns false and the define is per-configuration. An
   assertion is a real defect worth fixing and it is logged as an error with Jolt's own file
   and line, but it no longer takes the level down with it.
+- **A scene query against a heightfield reports the collider's material, not the square's.**
+  Contacts resolve terrain materials per triangle from the provider's index list, and
+  queries against a *triangle mesh* now resolve the face's material slot the same way -
+  but the heightfield branch of that lookup exists only on the contact path, so a ray
+  cast at terrain reports collider 0's material however the surface was painted. Footstep
+  audio and impact effects keyed off a raycast will hear one surface for the whole
+  heightfield.
+
 - **Compound and heightfield colliders have no edit-mode bodies.** The primitive and
   mesh editor colliders create static bodies in the editor scene (see resolved
   entries); the compound colliders deliberately do not (their children are separate

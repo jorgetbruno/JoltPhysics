@@ -488,6 +488,41 @@ namespace JoltPhysics
             }
             return shape;
         }
+
+        //! The material slot a sub-shape names, when what it belongs to is a triangle mesh
+        //! carrying a baked per-face table. Empty for anything else, including compounds
+        //! whose touched child is not a mesh.
+        AZStd::optional<AZ::u32> FindPerFaceMaterialSlot(const JPH::Shape* baseShape, const JPH::SubShapeID& subShapeId)
+        {
+            const JPH::Shape* shape = UnwrapDecoratedShape(baseShape);
+            if (shape == nullptr)
+            {
+                return {};
+            }
+
+            if (shape->GetSubType() == JPH::EShapeSubType::Mesh)
+            {
+                return static_cast<const JPH::MeshShape*>(shape)->GetMaterialIndex(subShapeId);
+            }
+
+            if (shape->GetSubType() == JPH::EShapeSubType::StaticCompound ||
+                shape->GetSubType() == JPH::EShapeSubType::MutableCompound)
+            {
+                JPH::SubShapeID remainder;
+                const auto* compoundShape = static_cast<const JPH::CompoundShape*>(shape);
+                const AZ::u32 subShapeIndex = compoundShape->GetSubShapeIndexFromID(subShapeId, remainder);
+                if (subShapeIndex < compoundShape->GetNumSubShapes())
+                {
+                    if (const JPH::Shape* childShape = UnwrapDecoratedShape(compoundShape->GetSubShape(subShapeIndex).mShape);
+                        childShape != nullptr && childShape->GetSubType() == JPH::EShapeSubType::Mesh)
+                    {
+                        return static_cast<const JPH::MeshShape*>(childShape)->GetMaterialIndex(remainder);
+                    }
+                }
+            }
+
+            return {};
+        }
     } // namespace
 
     const Physics::ColliderConfiguration* JoltScene::GetColliderConfigurationForSubShape(
@@ -607,10 +642,27 @@ namespace JoltPhysics
             return nullptr;
         }
 
-        // The per-face table is deliberately not consulted here. Resolving it needs the
-        // touching triangle, and a query hit already carries the sub-shape it struck, so
-        // the collider-level material is the honest answer for a hit rather than a guess
-        // at which face of a mesh a shape cast grazed.
+        // Per-face materials, read from the same baked table the contact path uses. A hit
+        // carries the sub-shape it struck, and for a triangle mesh that names the triangle
+        // - so a ray that strikes the road part of a road-and-grass mesh can report the
+        // road. This used to stop at the collider-level material, on the reasoning that
+        // the sub-shape was a guess; it is not, it is exactly what the manifold resolves
+        // against. The engine expects the per-face answer too: it documents
+        // HitFlags::FaceIndex as required for per-face material data and puts it in the
+        // default set, and footstep audio, decals and surface effects all key off it.
+        //
+        // Heightfields are not covered here yet - a query against terrain still reports
+        // the collider material rather than the square's - see KNOWN_ISSUES.
+        if (const AZStd::optional<AZ::u32> slotIndex = FindPerFaceMaterialSlot(baseShape, subShapeId))
+        {
+            if (AZStd::shared_ptr<Physics::Material> slotMaterial =
+                    rigidBody ? rigidBody->GetColliderMaterialForSlot(colliderIndex, *slotIndex)
+                              : staticBody->GetColliderMaterialForSlot(colliderIndex, *slotIndex))
+            {
+                return slotMaterial;
+            }
+        }
+
         return rigidBody ? rigidBody->GetColliderMaterial(colliderIndex)
                          : staticBody->GetColliderMaterial(colliderIndex);
     }
