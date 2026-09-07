@@ -121,6 +121,14 @@ namespace JoltPhysics
         //! entity of the body under the wheel (invalid for bodies without one), which is
         //! what makes terrain-dependent grip possible. C++ only - an AZStd::function
         //! cannot cross into script.
+        //!
+        //! **This runs on one of Jolt's simulation job threads, inside the step, with
+        //! bodies locked.** The entity id is handed over because it is the only thing safe
+        //! to key off - it must not be used to reach back into the engine from here. An
+        //! EBus dispatch (RigidBodyRequestBus, TransformBus, a material lookup) either
+        //! lands on a handler written for the main thread or calls the locking body
+        //! interface from inside a callback that already holds those locks. Look the
+        //! entity up in a table the game filled on the main thread, and do nothing else.
         using CombineFrictionFunction = AZStd::function<void(
             AZ::u32 wheelIndex, float& longitudinalFriction, float& lateralFriction, AZ::EntityId otherEntity)>;
         void SetCombineFriction(CombineFrictionFunction combineFriction);

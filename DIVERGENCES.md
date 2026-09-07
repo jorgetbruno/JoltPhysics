@@ -291,7 +291,10 @@ feature, trust the topic sections below the milestones.**
   Jolt's combine-friction callback and hands the callback the entity under the wheel;
   it is not on the bus because an `AZStd::function` cannot cross into script. The
   pre/post-step and post-collide callbacks stay reachable through `GetConstraint()`
-  for the same reason.
+  for the same reason. All of them run **on Jolt's simulation job threads, inside the
+  step, with bodies locked** - the entity id is there to be looked up in a table the
+  game filled on the main thread, not to dispatch an EBus or call back into the scene
+  from. PhysX has no equivalent hook, so nothing about this is inherited.
 - **The configuration is scriptable**: the config structs are reflected to the
   behavior context (enums cross as plain numbers, matching the serialized values) and
   the bus carries `GetVehicleConfiguration`/`SetVehicleConfiguration` by value - read,
