@@ -563,6 +563,24 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetPosition().GetZ(), 1.0f, 0.1f);
     }
 
+    TEST_F(JoltRigidBodyTests, GetCenterOfMassLocalAgreesWithTheWorldOne)
+    {
+        // The engine pairs these two as the same quantity in different frames, and PhysX
+        // returns the pose it computed. This returned the configured offset field instead,
+        // which is zero in the usual case where the centre of mass is computed from the
+        // geometry - so every body answered "the origin" however its mass was distributed.
+        auto* body = CreateDynamicBox(AZ::Vector3(3.0f, -2.0f, 7.0f));
+        ASSERT_NE(body, nullptr);
+
+        const AZ::Vector3 localCentre = body->GetCenterOfMassLocal();
+        const AZ::Vector3 worldCentre = body->GetCenterOfMassWorld();
+        const AZ::Transform bodyTransform =
+            AZ::Transform::CreateFromQuaternionAndTranslation(body->GetOrientation(), body->GetPosition());
+
+        EXPECT_TRUE(bodyTransform.TransformPoint(localCentre).IsClose(worldCentre, 1e-3f))
+            << "the local centre of mass does not transform onto the world one";
+    }
+
     TEST_F(JoltRigidBodyTests, AKinematicBodyStopsAtItsTargetInsteadOfSailingPast)
     {
         // MoveKinematic works by setting a velocity that carries the body to the target in

@@ -188,6 +188,36 @@ namespace JoltPhysics
         return m_character ? m_character->GetInnerBodyID() : JPH::BodyID();
     }
 
+    void JoltCharacter::SetSimulationEnabled(bool enabled)
+    {
+        if (enabled == m_simulationEnabled)
+        {
+            return;
+        }
+
+        JPH::PhysicsSystem* physicsSystem = m_scene ? m_scene->GetJoltPhysicsSystem() : nullptr;
+        const JPH::BodyID innerBodyId = GetInnerBodyId();
+        if (physicsSystem == nullptr || innerBodyId.IsInvalid())
+        {
+            return;
+        }
+
+        // The body that everything else in the world sees the character through. Out of
+        // the world it collides with nothing and no query finds it, which is what the
+        // engine means by disabling a simulated body; the character object itself is
+        // untouched, so re-enabling resumes from where it stood.
+        JPH::BodyInterface& bodyInterface = physicsSystem->GetBodyInterface();
+        if (enabled)
+        {
+            bodyInterface.AddBody(innerBodyId, JPH::EActivation::Activate);
+        }
+        else
+        {
+            bodyInterface.RemoveBody(innerBodyId);
+        }
+        m_simulationEnabled = enabled;
+    }
+
     void JoltCharacter::SaveNativeState(JPH::StateRecorder& recorder) const
     {
         // The virtual character's position, rotation and velocity live on the

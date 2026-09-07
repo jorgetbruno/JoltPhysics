@@ -55,6 +55,15 @@ namespace JoltPhysics
         //! the virtual character's inner kinematic body (invalid when neither exists).
         JPH::BodyID GetInnerBodyId() const;
 
+        //! Takes the character in or out of the simulation, for the scene's
+        //! Enable/DisableSimulationOfBody. Disabled, its body leaves the Jolt world - so
+        //! nothing collides with it and no query finds it - and the scene stops moving it.
+        //! This is a pause, not a teardown: the character keeps its position, its shape
+        //! and its configuration, and re-enabling puts it back where it was. The component
+        //! destroys and rebuilds instead, which is a different and heavier thing.
+        void SetSimulationEnabled(bool enabled);
+        [[nodiscard]] bool IsSimulationEnabled() const { return m_simulationEnabled; }
+
         //! Writes/reads the native character's runtime state (position, velocities and
         //! the cached ground) through a Jolt state recorder. A CharacterVirtual lives
         //! outside the body system, so PhysicsSystem::SaveState does not cover it - a
@@ -160,6 +169,7 @@ namespace JoltPhysics
         JPH::RefConst<JPH::Shape> BuildAttachmentShape() const;
 
         Physics::CharacterConfiguration m_configuration;
+        bool m_simulationEnabled = true;
         bool m_rigidBodyCharacter = false;
 
         AZStd::unique_ptr<JPH::CharacterVirtual> m_character; //!< Virtual backend.

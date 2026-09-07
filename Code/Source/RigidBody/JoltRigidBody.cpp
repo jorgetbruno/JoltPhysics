@@ -940,6 +940,22 @@ namespace JoltPhysics
 
     AZ::Vector3 JoltRigidBody::GetCenterOfMassLocal() const
     {
+        // The body's actual centre of mass in its own frame, which is the same quantity
+        // GetCenterOfMassWorld reports in the other frame - the engine pairs them, and
+        // PhysX returns the pose it computed. Returning the configured offset instead
+        // meant the usual case, where the centre of mass is computed from the geometry
+        // and the offset field is left at zero, answered "the origin" for every body.
+        if (m_scene && !m_bodyId.IsInvalid())
+        {
+            if (auto* bodyInterface = m_scene->GetBodyInterface())
+            {
+                const AZ::Transform bodyTransform = AZ::Transform::CreateFromQuaternionAndTranslation(
+                    Conversions::FromJolt(bodyInterface->GetRotation(m_bodyId)),
+                    Conversions::FromJolt(bodyInterface->GetPosition(m_bodyId)));
+                return bodyTransform.GetInverse().TransformPoint(
+                    Conversions::FromJolt(bodyInterface->GetCenterOfMassPosition(m_bodyId)));
+            }
+        }
         return m_configuration.m_centerOfMassOffset;
     }
 

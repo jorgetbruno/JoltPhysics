@@ -197,6 +197,10 @@ namespace JoltPhysics
         {
             if (auto* character = azdynamic_cast<JoltCharacter*>(body))
             {
+                if (!character->IsSimulationEnabled())
+                {
+                    continue;
+                }
                 // The per-step request is consumed and cleared here, inside
                 // ApplyRequestedVelocity. The per-*tick* request is not: it belongs to the
                 // game tick that asked for it and has to survive every step that tick
@@ -1157,10 +1161,14 @@ namespace JoltPhysics
             ragdoll->GetState(currentState);
             ragdoll->EnableSimulation(currentState);
         }
+        else if (auto* character = azrtti_cast<JoltCharacter*>(&body))
+        {
+            character->SetSimulationEnabled(true);
+        }
         else
         {
             AZ_WarningOnce("JoltPhysics", false,
-                "EnableSimulationOfBody%s: enabling is not supported for this body type (e.g. characters).",
+                "EnableSimulationOfBody%s: enabling is not supported for this body type.",
                 Internal::NameClause(body.GetEntityId()).c_str());
             return;
         }
@@ -1188,10 +1196,17 @@ namespace JoltPhysics
         {
             ragdoll->DisableSimulation();
         }
+        else if (auto* character = azrtti_cast<JoltCharacter*>(&body))
+        {
+            // Characters used to fall through to the warning below, so a scene-level
+            // disable did nothing at all for them - the character kept colliding and kept
+            // being found by queries, while the caller was told it had been switched off.
+            character->SetSimulationEnabled(false);
+        }
         else
         {
             AZ_WarningOnce("JoltPhysics", false,
-                "DisableSimulationOfBody%s: disabling is not supported for this body type (e.g. characters).",
+                "DisableSimulationOfBody%s: disabling is not supported for this body type.",
                 Internal::NameClause(body.GetEntityId()).c_str());
             return;
         }

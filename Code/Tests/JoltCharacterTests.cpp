@@ -725,4 +725,38 @@ namespace JoltPhysics
             << "the cloth no longer catches rigid bodies; the exclusion reached past characters";
     }
 
+    TEST_F(JoltCharacterTests, TheSceneCanTakeACharacterOutOfTheSimulation)
+    {
+        // Enable/DisableSimulationOfBody is defined for any simulated body: disabled, it
+        // "will no longer be affected by any forces, collisions, or found with scene
+        // queries". Characters fell through to a warning and were left running, so a
+        // caller who switched one off was told it had happened and watched it keep
+        // colliding.
+        auto handle = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto* character = GetCharacter(handle);
+        ASSERT_NE(character, nullptr);
+
+        SimulateSeconds(0.5f);
+        const float fallingZ = character->GetBasePosition().GetZ();
+        EXPECT_LT(fallingZ, 5.0f) << "the character never started falling";
+
+        m_scene->DisableSimulationOfBody(handle);
+        SimulateSeconds(1.0f);
+        EXPECT_NEAR(character->GetBasePosition().GetZ(), fallingZ, 0.01f)
+            << "a character taken out of the simulation kept moving";
+
+        // And nothing finds it while it is out.
+        AzPhysics::RayCastRequest request;
+        request.m_start = character->GetBasePosition() + AZ::Vector3(0.0f, 0.0f, 3.0f);
+        request.m_direction = -AZ::Vector3::CreateAxisZ();
+        request.m_distance = 10.0f;
+        EXPECT_TRUE(m_scene->QueryScene(&request).m_hits.empty())
+            << "a disabled character was still found by a scene query";
+
+        m_scene->EnableSimulationOfBody(handle);
+        SimulateSeconds(0.5f);
+        EXPECT_LT(character->GetBasePosition().GetZ(), fallingZ - 0.1f)
+            << "the character did not resume falling once it was re-enabled";
+    }
+
 } // namespace JoltPhysics
