@@ -179,8 +179,7 @@ namespace JoltPhysics
             for (int i = 0; i < steps; ++i)
             {
                 m_vehicle->SetDriverInput(forward, right, brake, 0.0f);
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 
@@ -256,8 +255,7 @@ namespace JoltPhysics
         for (int i = 0; i < 480; ++i)
         {
             m_vehicle->SetDriverInput(0.6f, 0.0f, 0.0f, 0.0f);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
             maxZ = AZStd::max(maxZ, chassis->GetPosition().GetZ());
             if (i % 60 == 0)
             {
@@ -470,8 +468,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 60; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         // The car rests on its wheels: suspension compressed and loaded.
@@ -481,8 +478,7 @@ namespace JoltPhysics
         for (int i = 0; i < 180; ++i)
         {
             vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         EXPECT_GT(vehicle->GetSpeed(), 3.0f);
@@ -924,8 +920,7 @@ namespace JoltPhysics
         for (int i = 0; i < 600; ++i)
         {
             m_vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
             highestGear = AZStd::max(highestGear, m_vehicle->GetCurrentGear());
         }
         EXPECT_GE(highestGear, 2) << "speed " << m_vehicle->GetSpeed() << " rpm " << m_vehicle->GetEngineRpm();
@@ -966,8 +961,7 @@ namespace JoltPhysics
         for (int i = 0; i < 360; ++i)
         {
             m_vehicle->SetDriverInput(0.0f, 0.0f, 0.0f, 1.0f);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
         EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
     }
@@ -997,8 +991,7 @@ namespace JoltPhysics
         m_vehicle->SetForwardInput(1.0f);
         for (int i = 0; i < 180; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
         EXPECT_GT(m_vehicle->GetSpeed(), 3.0f);
 
@@ -1007,8 +1000,7 @@ namespace JoltPhysics
         m_vehicle->SetBrakeInput(1.0f);
         for (int i = 0; i < 360; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
         EXPECT_LT(AZStd::abs(m_vehicle->GetSpeed()), 0.5f);
     }
@@ -1032,8 +1024,7 @@ namespace JoltPhysics
         for (int i = 0; i < 120; ++i)
         {
             m_vehicle->SetDriverInput(1.0f, 0.0f, 0.0f, 0.0f);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
             maxSlip = AZStd::max(maxSlip, m_vehicle->GetWheelLongitudinalSlip(2));
         }
         EXPECT_GT(m_vehicle->GetWheelAngularVelocity(2), 1.0f);

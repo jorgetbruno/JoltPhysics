@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
@@ -84,11 +85,13 @@ namespace JoltPhysics
 
         void SimulateSteps(int steps)
         {
-            const float fixedDeltaTime = 1.0f / 60.0f;
+            // The system\'s own step, not a hand-written 1/60: the engine default is
+            // 0.0166667, a hair longer, so a frame of exactly 1/60 leaves the accumulator
+            // just short and runs no step at all.
+            const float fixedDeltaTime = AzPhysics::SystemConfiguration::DefaultFixedTimestep;
             for (int i = 0; i < steps; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 

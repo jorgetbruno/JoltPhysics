@@ -246,8 +246,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 300; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         // The sphere rests on the cooked quad instead of falling through it.
@@ -431,8 +430,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 300; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         // The sphere rests on the hull group instead of falling between the hulls.

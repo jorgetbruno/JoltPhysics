@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
 #include <Clients/Components/JoltBoxColliderComponent.h>
@@ -117,12 +118,14 @@ namespace JoltPhysics
             ASSERT_NE(character, nullptr);
 
             const float fixedDeltaTime = 1.0f / 60.0f;
-            const int steps = static_cast<int>(seconds / fixedDeltaTime);
+            // Rounded, not truncated: a caller asking for exactly one step's worth of
+            // seconds would otherwise get none, because the configured step is a hair
+            // longer than 1/60 and the division lands just under 1.
+            const int steps = static_cast<int>(seconds / fixedDeltaTime + 0.5f);
             for (int i = 0; i < steps; ++i)
             {
                 character->AddVelocityForTick(AZ::Vector3(0.0f, 0.0f, -4.0f));
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 
@@ -132,12 +135,17 @@ namespace JoltPhysics
 
         void SimulateSeconds(float seconds)
         {
-            const float fixedDeltaTime = 1.0f / 60.0f;
-            const int steps = static_cast<int>(seconds / fixedDeltaTime);
+            // The system\'s own step, not a hand-written 1/60: the engine default is
+            // 0.0166667, a hair longer, so a frame of exactly 1/60 leaves the accumulator
+            // just short and runs no step at all.
+            const float fixedDeltaTime = AzPhysics::SystemConfiguration::DefaultFixedTimestep;
+            // Rounded, not truncated: a caller asking for exactly one step's worth of
+            // seconds would otherwise get none, because the configured step is a hair
+            // longer than 1/60 and the division lands just under 1.
+            const int steps = static_cast<int>(seconds / fixedDeltaTime + 0.5f);
             for (int i = 0; i < steps; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 

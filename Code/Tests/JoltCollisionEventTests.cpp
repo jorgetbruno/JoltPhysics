@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
@@ -46,12 +47,17 @@ namespace JoltPhysics
 
         void SimulateSeconds(float seconds)
         {
-            const float fixedDeltaTime = 1.0f / 60.0f;
-            const int steps = static_cast<int>(seconds / fixedDeltaTime);
+            // The system\'s own step, not a hand-written 1/60: the engine default is
+            // 0.0166667, a hair longer, so a frame of exactly 1/60 leaves the accumulator
+            // just short and runs no step at all.
+            const float fixedDeltaTime = AzPhysics::SystemConfiguration::DefaultFixedTimestep;
+            // Rounded, not truncated: a caller asking for exactly one step's worth of
+            // seconds would otherwise get none, because the configured step is a hair
+            // longer than 1/60 and the division lands just under 1.
+            const int steps = static_cast<int>(seconds / fixedDeltaTime + 0.5f);
             for (int i = 0; i < steps; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 
@@ -417,6 +423,13 @@ namespace JoltPhysics
         ASSERT_EQ(slabEvents, 0);
 
         m_scene->UnsuppressCollisionEvents(slabHandle, boxHandle);
+        // The box has been resting for half a second by now and has gone to sleep, and a
+        // sleeping body generates no contacts to report. The subject here is suppression,
+        // not sleep, so wake it before looking.
+        if (auto* box = GetBody(boxHandle))
+        {
+            box->ForceAwake();
+        }
         SimulateSeconds(0.5f);
         EXPECT_GT(slabEvents, 0); // the resting contact now reports Persist again
     }

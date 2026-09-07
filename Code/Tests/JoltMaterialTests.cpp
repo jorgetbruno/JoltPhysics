@@ -143,8 +143,7 @@ namespace JoltPhysics
 
         for (int i = 0; i < 240; ++i) // 4 seconds
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float deadZ = m_scene->GetSimulatedBodyFromHandle(deadSphere)->GetPosition().GetZ();
             const float bouncyZ = m_scene->GetSimulatedBodyFromHandle(bouncySphere)->GetPosition().GetZ();
@@ -229,8 +228,7 @@ namespace JoltPhysics
 
         for (int i = 0; i < 240; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float deadZ = m_scene->GetSimulatedBodyFromHandle(deadSphere)->GetPosition().GetZ();
             const float bouncyZ = m_scene->GetSimulatedBodyFromHandle(bouncySphere)->GetPosition().GetZ();
@@ -317,8 +315,7 @@ namespace JoltPhysics
 
         for (int i = 0; i < 240; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float leftZ = m_scene->GetSimulatedBodyFromHandle(leftSphere)->GetPosition().GetZ();
             const float rightZ = m_scene->GetSimulatedBodyFromHandle(rightSphere)->GetPosition().GetZ();
@@ -422,8 +419,7 @@ namespace JoltPhysics
         bool touched = false;
         for (int i = 0; i < 240; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float z = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
             if (z < 0.55f)
@@ -472,8 +468,7 @@ namespace JoltPhysics
             bool touched = false;
             for (int i = 0; i < 240; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
 
                 const float z = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
                 if (z < 0.55f)
@@ -571,8 +566,7 @@ namespace JoltPhysics
 
         for (int i = 0; i < 240; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float deadZ = m_scene->GetSimulatedBodyFromHandle(deadSphere)->GetPosition().GetZ();
             const float bouncyZ = m_scene->GetSimulatedBodyFromHandle(bouncySphere)->GetPosition().GetZ();
@@ -658,8 +652,7 @@ namespace JoltPhysics
         bool touched = false;
         for (int i = 0; i < 240; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float sphereZ = m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ();
             if (sphereZ < 0.55f)
@@ -735,8 +728,7 @@ namespace JoltPhysics
         bool touched = false;
         for (int i = 0; i < 300; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
 
             const float z = m_scene->GetSimulatedBodyFromHandle(fallerHandle)->GetPosition().GetZ();
             lowestZ = AZStd::min(lowestZ, z);

@@ -140,8 +140,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 600; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         // A Z-up capsule resting upright on the slab has its center at z=0.5.
@@ -183,8 +182,7 @@ namespace JoltPhysics
         {
             for (int i = 0; i < static_cast<int>(seconds / fixedDeltaTime); ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         };
 
@@ -277,8 +275,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 300; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(sphereHandle)->GetPosition().GetZ(), 0.5f, 0.05f);
@@ -321,8 +318,7 @@ namespace JoltPhysics
         const float fixedDeltaTime = 1.0f / 60.0f;
         for (int i = 0; i < 300; ++i)
         {
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            m_system->Simulate(fixedDeltaTime);
         }
 
         // It settles on its flat end at half its height. A capsule of the same

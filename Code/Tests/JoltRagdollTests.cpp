@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
@@ -43,12 +44,17 @@ namespace JoltPhysics
 
         void SimulateSeconds(float seconds)
         {
-            const float fixedDeltaTime = 1.0f / 60.0f;
-            const int steps = static_cast<int>(seconds / fixedDeltaTime);
+            // The system\'s own step, not a hand-written 1/60: the engine default is
+            // 0.0166667, a hair longer, so a frame of exactly 1/60 leaves the accumulator
+            // just short and runs no step at all.
+            const float fixedDeltaTime = AzPhysics::SystemConfiguration::DefaultFixedTimestep;
+            // Rounded, not truncated: a caller asking for exactly one step's worth of
+            // seconds would otherwise get none, because the configured step is a hair
+            // longer than 1/60 and the division lands just under 1.
+            const int steps = static_cast<int>(seconds / fixedDeltaTime + 0.5f);
             for (int i = 0; i < steps; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                m_system->Simulate(fixedDeltaTime);
             }
         }
 
@@ -274,8 +280,7 @@ namespace JoltPhysics
         for (int i = 0; i < 30; ++i)
         {
             ragdoll->DriveToPoseUsingKinematics(target, dt);
-            m_scene->StartSimulation(dt);
-            m_scene->FinishSimulation();
+            m_system->Simulate(dt);
         }
 
         Physics::RagdollState state;
@@ -463,8 +468,7 @@ namespace JoltPhysics
             {
                 ragdoll->DriveToPoseUsingVelocities(target, dt);
             }
-            m_scene->StartSimulation(dt);
-            m_scene->FinishSimulation();
+            m_system->Simulate(dt);
         }
 
         Physics::RagdollState state;
@@ -506,8 +510,7 @@ namespace JoltPhysics
         for (int i = 0; i < 60; ++i)
         {
             ragdoll->DriveToPoseUsingKinematics(config.m_initialState, dt);
-            m_scene->StartSimulation(dt);
-            m_scene->FinishSimulation();
+            m_system->Simulate(dt);
         }
 
         Physics::RagdollState heldState;
@@ -548,8 +551,7 @@ namespace JoltPhysics
         for (int i = 0; i < 120; ++i) // 2 seconds
         {
             ragdoll->DriveToPoseUsingMotors(target);
-            m_scene->StartSimulation(dt);
-            m_scene->FinishSimulation();
+            m_system->Simulate(dt);
         }
 
         Physics::RagdollState state;
@@ -587,8 +589,7 @@ namespace JoltPhysics
         for (int i = 0; i < 120; ++i)
         {
             ragdoll->DriveToPoseUsingMotors(target);
-            m_scene->StartSimulation(dt);
-            m_scene->FinishSimulation();
+            m_system->Simulate(dt);
         }
 
         Physics::RagdollState state;
