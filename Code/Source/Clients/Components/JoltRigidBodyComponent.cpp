@@ -541,11 +541,17 @@ namespace JoltPhysics
         AZ::Vector3 linearVelocity = AZ::Vector3::CreateZero();
         AZ::Vector3 angularVelocity = AZ::Vector3::CreateZero();
         bool isAwake = true;
+        // Everything else the new body needs comes from m_configuration, which the runtime
+        // setters now keep current. Simulation state cannot: it is not a configuration
+        // field, and a body a script had taken out of the simulation used to rejoin it the
+        // next time a collider changed.
+        bool wasSimulating = true;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             linearVelocity = body->GetLinearVelocity();
             angularVelocity = body->GetAngularVelocity();
             isAwake = body->IsAwake();
+            wasSimulating = body->m_simulating;
         }
 
         DestroyRigidBody();
@@ -563,6 +569,19 @@ namespace JoltPhysics
             if (!isAwake)
             {
                 newBody->ForceAsleep();
+            }
+            if (!wasSimulating)
+            {
+                // Straight to the scene rather than through DisablePhysics, which would
+                // announce a disable the listeners were never told to expect: from
+                // outside, physics has been off since the script switched it off.
+                if (auto* physicsSystem = AZ::Interface<AzPhysics::SystemInterface>::Get())
+                {
+                    if (AzPhysics::Scene* scene = physicsSystem->GetScene(m_attachedSceneHandle))
+                    {
+                        scene->DisableSimulationOfBody(m_bodyHandle);
+                    }
+                }
             }
         }
     }
@@ -736,6 +755,11 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetMass(float mass)
     {
+        m_configuration.m_mass = mass;
+        m_configuration.m_computeMass = false;
+        // Mirrored into the configuration as well as the body. A rebuild - which any
+        // collider change triggers - creates the new body from the configuration, so a
+        // value that lived only on the old body was silently replaced by the authored one.
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetMass(mass);
@@ -744,6 +768,8 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetCenterOfMassOffset(const AZ::Vector3& comOffset)
     {
+        m_configuration.m_centerOfMassOffset = comOffset;
+        m_configuration.m_computeCenterOfMass = false;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetCenterOfMassOffset(comOffset);
@@ -828,6 +854,7 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetLinearDamping(float damping)
     {
+        m_configuration.m_linearDamping = damping;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetLinearDamping(damping);
@@ -845,6 +872,7 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetAngularDamping(float damping)
     {
+        m_configuration.m_angularDamping = damping;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetAngularDamping(damping);
@@ -887,6 +915,7 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetKinematic(bool kinematic)
     {
+        m_configuration.m_kinematic = kinematic;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetKinematic(kinematic);
@@ -912,6 +941,7 @@ namespace JoltPhysics
 
     void JoltRigidBodyComponent::SetGravityEnabled(bool enabled)
     {
+        m_configuration.m_gravityEnabled = enabled;
         if (AzPhysics::RigidBody* body = GetRigidBody())
         {
             body->SetGravityEnabled(enabled);

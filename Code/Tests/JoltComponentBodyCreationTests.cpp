@@ -801,6 +801,106 @@ namespace JoltPhysics
 
         entity.reset();
     }
+    TEST_F(JoltComponentBodyCreationTests, ARebuildKeepsWhatAScriptSetOnTheBody)
+    {
+        // A collider change rebuilds the body from the component's configuration. The
+        // runtime setters wrote only to the body, so the rebuild handed back the authored
+        // values: a platform a script had made kinematic became dynamic again and dropped,
+        // and its mass and damping reverted to whatever the inspector said.
+        auto parent = AZStd::make_unique<AZ::Entity>("Platform");
+        parent->CreateComponent<AzFramework::TransformComponent>();
+        parent->CreateComponent<JoltMutableCompoundColliderComponent>();
+        parent->CreateComponent<JoltRigidBodyComponent>();
+        parent->Init();
+
+        auto child = AZStd::make_unique<AZ::Entity>("Collider");
+        child->CreateComponent<AzFramework::TransformComponent>();
+        child->CreateComponent<JoltBoxColliderComponent>();
+        child->Init();
+
+        parent->Activate();
+        child->Activate();
+        AZ::TransformBus::Event(child->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+        SimulateFrames(1.0f / 60.0f, 1);
+
+        const AZ::EntityId platformId = parent->GetId();
+        Physics::RigidBodyRequestBus::Event(platformId, &Physics::RigidBodyRequests::SetKinematic, true);
+        Physics::RigidBodyRequestBus::Event(platformId, &Physics::RigidBodyRequests::SetMass, 250.0f);
+        Physics::RigidBodyRequestBus::Event(platformId, &Physics::RigidBodyRequests::SetLinearDamping, 0.75f);
+        Physics::RigidBodyRequestBus::Event(platformId, &Physics::RigidBodyRequests::SetGravityEnabled, false);
+
+        // A second collider joining the set is what triggers the rebuild.
+        auto secondChild = AZStd::make_unique<AZ::Entity>("SecondCollider");
+        secondChild->CreateComponent<AzFramework::TransformComponent>();
+        secondChild->CreateComponent<JoltBoxColliderComponent>();
+        secondChild->Init();
+        secondChild->Activate();
+        AZ::TransformBus::Event(secondChild->GetId(), &AZ::TransformBus::Events::SetParent, platformId);
+        SimulateFrames(1.0f / 60.0f, 1);
+
+        bool isKinematic = false;
+        Physics::RigidBodyRequestBus::EventResult(isKinematic, platformId, &Physics::RigidBodyRequests::IsKinematic);
+        EXPECT_TRUE(isKinematic) << "the rebuilt body went back to dynamic and would fall";
+
+        float mass = 0.0f;
+        Physics::RigidBodyRequestBus::EventResult(mass, platformId, &Physics::RigidBodyRequests::GetMass);
+        EXPECT_NEAR(mass, 250.0f, 1e-3f) << "the rebuilt body went back to the authored mass";
+
+        float linearDamping = 0.0f;
+        Physics::RigidBodyRequestBus::EventResult(
+            linearDamping, platformId, &Physics::RigidBodyRequests::GetLinearDamping);
+        EXPECT_NEAR(linearDamping, 0.75f, 1e-3f) << "the rebuilt body went back to the authored damping";
+
+        bool gravityEnabled = true;
+        Physics::RigidBodyRequestBus::EventResult(
+            gravityEnabled, platformId, &Physics::RigidBodyRequests::IsGravityEnabled);
+        EXPECT_FALSE(gravityEnabled) << "the rebuilt body had gravity switched back on";
+
+        secondChild.reset();
+        child.reset();
+        parent.reset();
+    }
+
+    TEST_F(JoltComponentBodyCreationTests, ARebuildLeavesADisabledBodyDisabled)
+    {
+        auto parent = AZStd::make_unique<AZ::Entity>("Prop");
+        parent->CreateComponent<AzFramework::TransformComponent>();
+        parent->CreateComponent<JoltMutableCompoundColliderComponent>();
+        parent->CreateComponent<JoltRigidBodyComponent>();
+        parent->Init();
+
+        auto child = AZStd::make_unique<AZ::Entity>("Collider");
+        child->CreateComponent<AzFramework::TransformComponent>();
+        child->CreateComponent<JoltBoxColliderComponent>();
+        child->Init();
+
+        parent->Activate();
+        child->Activate();
+        AZ::TransformBus::Event(child->GetId(), &AZ::TransformBus::Events::SetParent, parent->GetId());
+        SimulateFrames(1.0f / 60.0f, 1);
+
+        const AZ::EntityId propId = parent->GetId();
+        AzPhysics::SimulatedBodyComponentRequestsBus::Event(
+            propId, &AzPhysics::SimulatedBodyComponentRequests::DisablePhysics);
+
+        auto secondChild = AZStd::make_unique<AZ::Entity>("SecondCollider");
+        secondChild->CreateComponent<AzFramework::TransformComponent>();
+        secondChild->CreateComponent<JoltBoxColliderComponent>();
+        secondChild->Init();
+        secondChild->Activate();
+        AZ::TransformBus::Event(secondChild->GetId(), &AZ::TransformBus::Events::SetParent, propId);
+        SimulateFrames(1.0f / 60.0f, 1);
+
+        bool enabled = true;
+        AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
+            enabled, propId, &AzPhysics::SimulatedBodyComponentRequests::IsPhysicsEnabled);
+        EXPECT_FALSE(enabled) << "a body a script had switched off rejoined the simulation on the next collider change";
+
+        secondChild.reset();
+        child.reset();
+        parent.reset();
+    }
+
     TEST_F(JoltComponentBodyCreationTests, AddingAndRemovingChildColliderAtRuntimeRebuildsBody)
     {
         auto makeColliderChild = [](const char* name, float x)
