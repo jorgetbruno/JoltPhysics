@@ -1826,6 +1826,25 @@ namespace JoltPhysics
         return m_persistedPairsThisStep.insert(MakeContactPairKey(bodyId1, bodyId2)).second;
     }
 
+    bool JoltScene::IsBodyAwake(JPH::BodyID bodyId) const
+    {
+        AZStd::lock_guard lock(m_awakeBodyIdsMutex);
+        return m_awakeBodyIds.contains(bodyId.GetIndexAndSequenceNumber());
+    }
+
+    void JoltScene::SetBodyAwake(JPH::BodyID bodyId, bool awake)
+    {
+        AZStd::lock_guard lock(m_awakeBodyIdsMutex);
+        if (awake)
+        {
+            m_awakeBodyIds.insert(bodyId.GetIndexAndSequenceNumber());
+        }
+        else
+        {
+            m_awakeBodyIds.erase(bodyId.GetIndexAndSequenceNumber());
+        }
+    }
+
     bool JoltScene::TrackContactAdded(JPH::BodyID bodyId1, JPH::BodyID bodyId2)
     {
         AZStd::lock_guard lock(m_activeContactsMutex);
@@ -2243,6 +2262,28 @@ namespace JoltPhysics
         const JPH::BodyID bodyId1 = inSubShapePair.GetBody1ID();
         const JPH::BodyID bodyId2 = inSubShapePair.GetBody2ID();
 
+        // Jolt removes every contact a body had when it falls asleep, through this same
+        // callback and with nothing in the pair to say which happened - and the callback
+        // may not touch the bodies to ask. So a crate settling inside a trigger volume
+        // raised Exit the moment it stopped moving, and Enter again the moment anything
+        // nudged it awake; a stack coming to rest raised Collision End for every pair in
+        // it. Nothing awake in the pair means nothing moved, which means nothing
+        // separated: leave the overlap tracked, so no duplicate Enter arrives when the
+        // body wakes, and say nothing.
+        //
+        // A body that has been removed from the scene is also asleep by this point, but
+        // its Exit and End were already synthesized when it was removed
+        // (FlushTriggerExitsForRemovedBody / FlushCollisionEndsForRemovedBody), and those
+        // untrack the pair, so nothing is stranded here.
+        //
+        // Static bodies are never awake, which is the right answer for them: a static
+        // sensor cannot move away from anything. A kinematic sensor that moves off a
+        // sleeping body is awake while it moves, so that Exit still fires.
+        if (!m_scene->IsBodyAwake(bodyId1) && !m_scene->IsBodyAwake(bodyId2))
+        {
+            return;
+        }
+
         const bool sensor1 = m_scene->IsSensorBody(bodyId1);
         const bool sensor2 = m_scene->IsSensorBody(bodyId2);
 
@@ -2273,15 +2314,21 @@ namespace JoltPhysics
     // tracks world membership (Enable/DisableSimulationOfBody), not sleep state. The
     // listener stays registered as the hook for future sleep events.
     void JoltBodyActivationListener::OnBodyActivated(
-        [[maybe_unused]] const JPH::BodyID& inBodyID,
-        [[maybe_unused]] AZ::u64 inBodyUserData)
+        const JPH::BodyID& inBodyID, [[maybe_unused]] AZ::u64 inBodyUserData)
     {
+        if (m_scene)
+        {
+            m_scene->SetBodyAwake(inBodyID, true);
+        }
     }
 
     void JoltBodyActivationListener::OnBodyDeactivated(
-        [[maybe_unused]] const JPH::BodyID& inBodyID,
-        [[maybe_unused]] AZ::u64 inBodyUserData)
+        const JPH::BodyID& inBodyID, [[maybe_unused]] AZ::u64 inBodyUserData)
     {
+        if (m_scene)
+        {
+            m_scene->SetBodyAwake(inBodyID, false);
+        }
     }
 
 } // namespace JoltPhysics

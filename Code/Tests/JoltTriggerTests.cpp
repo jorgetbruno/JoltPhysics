@@ -11,6 +11,7 @@
 
 #include <AzFramework/Physics/Configuration/RigidBodyConfiguration.h>
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
+#include <AzFramework/Physics/SimulatedBodies/RigidBody.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
 #include <AzFramework/Physics/Character.h>
@@ -300,6 +301,65 @@ namespace JoltPhysics
 
         // The compound's colliders span z in [-1, 1], so a unit box rests at z = 1.5.
         EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(boxHandle)->GetPosition().GetZ(), 1.5f, 0.1f);
+    }
+
+    TEST_F(JoltTriggerTests, ABodyThatFallsAsleepInsideATriggerDoesNotLeaveIt)
+    {
+        // Jolt removes every contact a body had when it goes to sleep, through the same
+        // callback as a real separation. So a crate that came to rest inside a trigger
+        // volume raised Exit the moment it settled, and Enter again the moment anything
+        // nudged it - a checkpoint that fired twice, a water zone that let go of a
+        // floating crate. Nothing had moved.
+        auto triggerCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triggerCollider->m_isTrigger = true;
+        auto triggerShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        triggerShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 6.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration triggerConfig;
+        triggerConfig.m_position = AZ::Vector3(0.0f, 0.0f, 2.0f);
+        triggerConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(triggerCollider, triggerShape);
+        auto triggerHandle = m_scene->AddSimulatedBody(&triggerConfig);
+        ASSERT_NE(triggerHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // Floor inside the volume for the box to settle on.
+        auto floorCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto floorShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        floorShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 1.0f);
+        AzPhysics::StaticRigidBodyConfiguration floorConfig;
+        floorConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+        floorConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(floorCollider, floorShape);
+        ASSERT_NE(m_scene->AddSimulatedBody(&floorConfig), AzPhysics::InvalidSimulatedBodyHandle);
+
+        auto boxCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration boxConfig;
+        boxConfig.m_position = AZ::Vector3(0.0f, 0.0f, 2.0f);
+        boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(boxCollider, boxShape);
+        auto boxHandle = m_scene->AddSimulatedBody(&boxConfig);
+        ASSERT_NE(boxHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        int enterCount = 0;
+        int exitCount = 0;
+        auto* triggerBody = m_scene->GetSimulatedBodyFromHandle(triggerHandle);
+        ASSERT_NE(triggerBody, nullptr);
+
+        AzPhysics::SimulatedBodyEvents::OnTriggerEnter::Handler enterHandler(
+            [&enterCount](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent&) { ++enterCount; });
+        AzPhysics::SimulatedBodyEvents::OnTriggerExit::Handler exitHandler(
+            [&exitCount](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent&) { ++exitCount; });
+        triggerBody->RegisterOnTriggerEnterHandler(enterHandler);
+        triggerBody->RegisterOnTriggerExitHandler(exitHandler);
+
+        // Long enough for the box to land, settle and fall asleep inside the volume.
+        SimulateSeconds(6.0f);
+
+        auto* box = azdynamic_cast<AzPhysics::RigidBody*>(m_scene->GetSimulatedBodyFromHandle(boxHandle));
+        ASSERT_NE(box, nullptr);
+        ASSERT_FALSE(box->IsAwake()) << "the box never fell asleep, so this proves nothing";
+        EXPECT_GT(box->GetPosition().GetZ(), 0.0f) << "the box fell out of the volume instead of resting in it";
+
+        EXPECT_EQ(enterCount, 1) << "the box entered the volume more than once without leaving it";
+        EXPECT_EQ(exitCount, 0) << "the box left the trigger volume by falling asleep in it";
     }
 
 } // namespace JoltPhysics

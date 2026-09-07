@@ -258,6 +258,15 @@ namespace JoltPhysics
         bool TrackTriggerOverlapAdded(JPH::BodyID sensorId, JPH::BodyID otherId);
         bool TrackTriggerOverlapRemoved(JPH::BodyID sensorId, JPH::BodyID otherId);
 
+        //! Whether any body in the pair is awake. Jolt removes every contact a body had
+        //! when it falls asleep, exactly as it does when bodies separate, and the removal
+        //! callback may not touch the bodies to tell the two apart - so this answers from
+        //! a set the activation listener maintains. Static bodies are never activated and
+        //! so are never awake, which is the right answer for them: a static sensor cannot
+        //! move away from anything.
+        bool IsBodyAwake(JPH::BodyID bodyId) const;
+        void SetBodyAwake(JPH::BodyID bodyId, bool awake);
+
         //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
         //! safe to call from the contact listener.
         bool IsSensorBody(JPH::BodyID bodyId) const
@@ -350,6 +359,11 @@ namespace JoltPhysics
 
         AZStd::unordered_map<AZ::u32, AzPhysics::SimulatedBodyHandle> m_bodyHandleByJoltId;
         AZStd::unordered_set<AZ::u32> m_sensorBodyIds;
+
+        //! The bodies Jolt currently considers active. Written by the activation listener
+        //! and read by the contact listener, both from job threads, so it takes a lock.
+        mutable AZStd::mutex m_awakeBodyIdsMutex;
+        AZStd::unordered_set<AZ::u32> m_awakeBodyIds;
 
         AZStd::mutex m_triggerEventMutex;
         AzPhysics::TriggerEventList m_queuedTriggerEvents;
