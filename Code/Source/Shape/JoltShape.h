@@ -81,6 +81,10 @@ namespace JoltPhysics
         }
 
     private:
+        //! Says once that the collider offsets go nowhere - Jolt has no per-shape
+        //! equivalent for either.
+        static void WarnOffsetsAreUnused();
+
         JPH::RefConst<JPH::Shape> m_nativeShape;
         AZStd::shared_ptr<Physics::ColliderConfiguration> m_colliderConfiguration;
         AZStd::shared_ptr<Physics::ShapeConfiguration> m_shapeConfiguration;

@@ -268,6 +268,11 @@ namespace JoltPhysics
         //! a set the activation listener maintains. Static bodies are never activated and
         //! so are never awake, which is the right answer for them: a static sensor cannot
         //! move away from anything.
+        //! The most hits a query of this kind may return, from the system configuration.
+        [[nodiscard]] AZ::u32 GetRaycastBufferSize() const { return m_raycastBufferSize; }
+        [[nodiscard]] AZ::u32 GetShapecastBufferSize() const { return m_shapecastBufferSize; }
+        [[nodiscard]] AZ::u32 GetOverlapBufferSize() const { return m_overlapBufferSize; }
+
         bool IsBodyAwake(JPH::BodyID bodyId) const;
         void SetBodyAwake(JPH::BodyID bodyId, bool awake);
 
@@ -466,6 +471,8 @@ namespace JoltPhysics
 
         AzPhysics::SystemEvents::OnConfigurationChangedEvent::Handler m_physicsSystemConfigChanged;
 
+        //! Result caps from the system configuration, applied to a request's
+        //! m_maxResults. See ApplySystemConfiguration.
         AZ::u32 m_raycastBufferSize = 32;
         AZ::u32 m_shapecastBufferSize = 32;
         AZ::u32 m_overlapBufferSize = 32;

@@ -48,6 +48,14 @@ namespace JoltPhysics
 
     void JoltShape::SetCollisionLayer(const AzPhysics::CollisionLayer& layer)
     {
+        // Stored, and the getter answers with it, but a body's Jolt object layer is fixed
+        // when the body is built and comes from its first collider - so changing this on a
+        // shape that is already attached does not change what the body collides with. Say
+        // so rather than let a caller believe it worked.
+        AZ_WarningOnce("JoltPhysics", m_attachedActor == nullptr,
+            "Physics::Shape::SetCollisionLayer on an attached shape does not change what the body collides with: "
+            "Jolt fixes a body's object layer at creation. Set the layer on the collider before the body is built, "
+            "or rebuild it (see DIVERGENCES.md, \"Shape-level collision filtering\").");
         m_collisionLayer = layer;
     }
 
@@ -58,6 +66,10 @@ namespace JoltPhysics
 
     void JoltShape::SetCollisionGroup(const AzPhysics::CollisionGroup& group)
     {
+        AZ_WarningOnce("JoltPhysics", m_attachedActor == nullptr,
+            "Physics::Shape::SetCollisionGroup on an attached shape does not change what the body collides with: "
+            "Jolt fixes a body's object layer at creation. Set the group on the collider before the body is built, "
+            "or rebuild it (see DIVERGENCES.md, \"Shape-level collision filtering\").");
         m_collisionGroup = group;
     }
 
@@ -73,6 +85,13 @@ namespace JoltPhysics
 
     void JoltShape::SetLocalPose(const AZ::Vector3& offset, const AZ::Quaternion& rotation)
     {
+        // Same story: the pose is baked into the compound when the body is built, and a
+        // Jolt shape is immutable once shared, so moving a collider under a live body
+        // means rebuilding it rather than editing it in place.
+        AZ_WarningOnce("JoltPhysics", m_attachedActor == nullptr,
+            "Physics::Shape::SetLocalPose on an attached shape does not move the collider: Jolt bakes a compound's "
+            "child transforms when the body is built. Rebuild the body to move a collider "
+            "(see DIVERGENCES.md, \"Shape-level collision filtering\").");
         m_localPosition = offset;
         m_localRotation = rotation;
     }
@@ -94,12 +113,27 @@ namespace JoltPhysics
 
     void JoltShape::SetRestOffset(float restOffset)
     {
+        WarnOffsetsAreUnused();
         m_restOffset = restOffset;
     }
 
     void JoltShape::SetContactOffset(float contactOffset)
     {
+        WarnOffsetsAreUnused();
         m_contactOffset = contactOffset;
+    }
+
+    void JoltShape::WarnOffsetsAreUnused()
+    {
+        // Jolt has no per-shape contact or rest offset. The nearest thing is the
+        // scene-wide speculative contact distance, on the Jolt system configuration.
+        // Both fields are stored so the getters round-trip, and neither reaches the
+        // simulation; a designer raising one to stop a fast prop tunnelling would
+        // otherwise watch nothing happen and have nowhere to read why.
+        AZ_WarningOnce("JoltPhysics", false,
+            "Collider contact and rest offsets are not used by the Jolt backend - it has no per-shape equivalent. "
+            "The scene-wide Speculative contact distance on the Jolt configuration is the nearest setting "
+            "(see DIVERGENCES.md, \"Contact and rest offsets\").");
     }
 
     void* JoltShape::GetNativePointer()

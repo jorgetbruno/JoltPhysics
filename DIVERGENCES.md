@@ -84,6 +84,21 @@ feature, trust the topic sections below the milestones.**
   mean.** These are Jolt's own combine rules. PhysX defaults both to the average and lets
   a material choose Minimum, Multiply or Maximum instead; that choice is not wrapped, so a
   material's combine mode has no effect here.
+- **Contact and rest offsets are not used.** `ColliderConfiguration::m_contactOffset` and
+  `m_restOffset` are stored so the getters round-trip, and reach nothing: Jolt has no
+  per-shape equivalent. The scene-wide `Speculative contact distance` on the Jolt system
+  configuration is the nearest setting. Writing either logs a warning once.
+- **Shape-level collision filtering and local pose are fixed once a body is built.**
+  `Physics::Shape::SetCollisionLayer`, `SetCollisionGroup` and `SetLocalPose` store their
+  argument and the getters answer with it, but a body's Jolt object layer comes from its
+  first collider at creation and a compound bakes its children's transforms, so changing
+  either on an attached shape does not change the simulation. Set them before the body is
+  built, or rebuild it. Writing one on an attached shape logs a warning once. PhysX pushes
+  all three to the live `PxShape`.
+- **Rigid bodies inherit Jolt's 500 m/s linear velocity ceiling**
+  (`BodyCreationSettings::mMaxLinearVelocity`), which PhysX has no equivalent of. It is
+  not exposed; anything meant to travel faster than that - a projectile, a debug teleport
+  driven by velocity - needs a raycast rather than a simulated body.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.

@@ -143,6 +143,15 @@ namespace JoltPhysics
     {
         m_collisionSteps = AZStd::max(1, config.m_collisionSteps);
 
+        // The engine's per-query-kind result caps, which the configuration window has
+        // always shown and nothing read: a project that raised "Raycast buffer size" to
+        // get more hits from a multi-hit ray, or lowered it to bound the memory a query
+        // can ask for, saw no difference either way. PhysX bounds its hit buffers by
+        // these; here they bound a request's m_maxResults.
+        m_raycastBufferSize = config.m_raycastBufferSize;
+        m_shapecastBufferSize = config.m_shapecastBufferSize;
+        m_overlapBufferSize = config.m_overlapBufferSize;
+
         if (!m_physicsSystem)
         {
             return;

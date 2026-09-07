@@ -230,13 +230,36 @@ namespace JoltPhysics
             return true;
         }
 
+        //! How many hits this request may return: what it asked for, bounded by the
+        //! system configuration's cap for its kind. The engine's own comment on
+        //! m_maxResults says as much - "this is limited by the value set in the
+        //! SceneConfiguration" - and those caps were read by nothing here, so a project
+        //! that raised or lowered one saw no difference.
+        AZ::u32 ResultCapFor(const AzPhysics::SceneQueryRequest& request, JoltScene* scene)
+        {
+            if (scene == nullptr)
+            {
+                return request.m_maxResults;
+            }
+            AZ::u32 bufferSize = scene->GetRaycastBufferSize();
+            if (azrtti_istypeof<const AzPhysics::ShapeCastRequest*>(&request))
+            {
+                bufferSize = scene->GetShapecastBufferSize();
+            }
+            else if (azrtti_istypeof<const AzPhysics::OverlapRequest*>(&request))
+            {
+                bufferSize = scene->GetOverlapBufferSize();
+            }
+            return AZStd::min(request.m_maxResults, bufferSize);
+        }
+
         void AppendHitIfAccepted(
             AzPhysics::SceneQueryHits& result,
             const AzPhysics::SceneQueryRequest& request,
             AzPhysics::SceneQueryHit& queryHit,
             JoltScene* scene)
         {
-            if (result.m_hits.size() >= request.m_maxResults)
+            if (result.m_hits.size() >= ResultCapFor(request, scene))
             {
                 return;
             }
@@ -603,7 +626,7 @@ namespace JoltPhysics
             }
             else if (alreadyFiltered)
             {
-                if (result.m_hits.size() < request.m_maxResults)
+                if (result.m_hits.size() < ResultCapFor(request, scene))
                 {
                     result.m_hits.push_back(queryHit);
                 }
