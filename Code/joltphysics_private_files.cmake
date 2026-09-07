@@ -74,6 +74,7 @@ set(FILES
     Source/Debug/JoltDebugRenderer.h
     Source/Configuration/JoltSettingsRegistryManager.cpp
     Source/Configuration/JoltSettingsRegistryManager.h
+    Source/System/JoltBodyBatchBenchmark.cpp
     Source/System/JoltSystem.cpp
     Source/System/JoltSystem.h
     Source/System/JoltAllocator.cpp

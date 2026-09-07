@@ -17,6 +17,8 @@
 
 namespace JoltPhysics
 {
+    void EnsureBodyBatchBenchmarkLinked();
+
     AZ_CLASS_ALLOCATOR_IMPL(JoltSystem, AZ::SystemAllocator);
 
     namespace Internal
@@ -138,6 +140,9 @@ namespace JoltPhysics
         m_objectLayerPairFilter.Initialize(&m_objectLayerRegistry);
 
         m_sceneInterface.Initialize(this);
+
+        // Keeps JoltBodyBatchBenchmark.cpp in the link so its console commands exist.
+        EnsureBodyBatchBenchmarkLinked();
 
         m_state = State::Initialized;
 
