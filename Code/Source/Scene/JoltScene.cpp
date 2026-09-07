@@ -161,6 +161,10 @@ namespace JoltPhysics
         settings.mPointVelocitySleepThreshold = config.m_pointVelocitySleepThreshold;
         settings.mAllowSleeping = config.m_allowSleeping;
         settings.mDeterministicSimulation = config.m_deterministicSimulation;
+        // The engine's scene-level bounce threshold, which nothing read until now: Jolt
+        // keeps its own default of 1 m/s where the engine and PhysX use 2, so a project
+        // that changed this to tune how readily things bounce saw no difference at all.
+        settings.mMinVelocityForRestitution = m_config.m_bounceThresholdVelocity;
         // Jolt stores this squared; the configuration exposes the plain distance.
         settings.mInternalEdgeRemovalVertexToleranceSq =
             config.m_internalEdgeRemovalTolerance * config.m_internalEdgeRemovalTolerance;
@@ -269,6 +273,34 @@ namespace JoltPhysics
         FlushQueuedEvents();
         ClearDeferredDeletions();
 
+        // The bodies that moved this step, for anything that wants to react only to what
+        // changed rather than walk the whole scene. The engine gates it on the scene's
+        // "enable active actors" setting and fires it just before the finish event -
+        // which is also what finally gives that setting an effect, since nothing in this
+        // backend read it. Gathered only when someone is listening: it costs a walk of
+        // the active set and a map lookup each.
+        if (m_config.m_enableActiveActors && m_sceneActiveSimulatedBodies.HasHandlerConnected())
+        {
+            m_activeBodyHandleScratch.clear();
+
+            JPH::BodyIDVector activeBodyIds;
+            for (const JPH::EBodyType bodyType : { JPH::EBodyType::RigidBody, JPH::EBodyType::SoftBody })
+            {
+                activeBodyIds.clear();
+                m_physicsSystem->GetActiveBodies(bodyType, activeBodyIds);
+                for (const JPH::BodyID& bodyId : activeBodyIds)
+                {
+                    if (const AzPhysics::SimulatedBodyHandle handle = GetBodyHandleFromJoltId(bodyId);
+                        handle != AzPhysics::InvalidSimulatedBodyHandle)
+                    {
+                        m_activeBodyHandleScratch.push_back(handle);
+                    }
+                }
+            }
+
+            m_sceneActiveSimulatedBodies.Signal(m_sceneHandle, m_activeBodyHandleScratch, m_currentDeltaTime);
+        }
+
         // Last, so a handler sees the step fully flushed - collision events dispatched,
         // deferred deletions gone - which is the state PhysX's finish event fires in.
         m_sceneSimulationFinishEvent.Signal(m_sceneHandle, m_currentDeltaTime);
@@ -321,12 +353,27 @@ namespace JoltPhysics
 
     void JoltScene::UpdateConfiguration(const AzPhysics::SceneConfiguration& config)
     {
+        const bool gravityChanged = !m_gravity.IsClose(config.m_gravity);
+
         m_config = config;
         m_gravity = config.m_gravity;
 
         if (m_physicsSystem)
         {
             m_physicsSystem->SetGravity(Conversions::ToJolt(m_gravity));
+
+            // The scene's bounce threshold, which had no effect at all until now: Jolt
+            // keeps its own default of 1 m/s where the engine (and PhysX) use 2, so a
+            // project that lowered this to make marbles bounce saw nothing happen.
+            JPH::PhysicsSettings settings = m_physicsSystem->GetPhysicsSettings();
+            settings.mMinVelocityForRestitution = config.m_bounceThresholdVelocity;
+            m_physicsSystem->SetPhysicsSettings(settings);
+        }
+
+        m_configChangeEvent.Signal(m_sceneHandle, m_config);
+        if (gravityChanged)
+        {
+            m_sceneGravityChangedEvent.Signal(m_sceneHandle, m_gravity);
         }
     }
 
@@ -445,6 +492,12 @@ namespace JoltPhysics
                 m_bodyHandleByJoltId[softBodyId.GetIndexAndSequenceNumber()] = handle;
             }
         }
+
+        // The base class owns this event and hands out registration for it, but only the
+        // backend knows when a body was actually added - so signalling is this class's
+        // job. Nothing signalled it, so anything watching the scene's population through
+        // RegisterSimulationBodyAddedHandler never heard a thing.
+        m_simulatedBodyAddedEvent.Signal(m_sceneHandle, handle);
 
         return handle;
     }
@@ -1048,6 +1101,11 @@ namespace JoltPhysics
             m_deferredDeletions.push_back(body);
             m_simulatedBodies[index] = { AZ::Crc32(), nullptr };
             m_freeSceneSlots.push(index);
+
+            // Signalled with the handle the caller passed in, before it is invalidated
+            // below, and after the slot is free - a handler is entitled to look the body
+            // up and must be told it is gone, not handed a half-removed one.
+            m_simulatedBodyRemovedEvent.Signal(m_sceneHandle, bodyHandle);
         }
 
         bodyHandle = AzPhysics::InvalidSimulatedBodyHandle;
@@ -1386,6 +1444,11 @@ namespace JoltPhysics
         {
             m_physicsSystem->SetGravity(Conversions::ToJolt(gravity));
         }
+        // The base class owns this event and hands out registration for it, but only the
+        // backend knows when gravity actually changed - so signalling is this class's job.
+        // Nothing signalled it, so a handler registered through
+        // RegisterSceneGravityChangedEvent simply never ran.
+        m_sceneGravityChangedEvent.Signal(m_sceneHandle, m_gravity);
     }
 
     AZ::Vector3 JoltScene::GetGravity() const

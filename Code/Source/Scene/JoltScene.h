@@ -366,6 +366,10 @@ namespace JoltPhysics
 
         //! The bodies Jolt currently considers active. Written by the activation listener
         //! and read by the contact listener, both from job threads, so it takes a lock.
+        //! Reused between steps so signalling the active-bodies event does not allocate
+        //! a fresh list every frame.
+        AzPhysics::SimulatedBodyHandleList m_activeBodyHandleScratch;
+
         mutable AZStd::mutex m_awakeBodyIdsMutex;
         AZStd::unordered_set<AZ::u32> m_awakeBodyIds;
 

@@ -480,4 +480,56 @@ namespace JoltPhysics
             << "a stale handle resolved to the body that inherited its slot";
     }
 
+    TEST_F(JoltSceneTests, TheSceneSignalsTheEventsItHandsOutRegistrationFor)
+    {
+        // AzPhysics::Scene owns these events and hands out Register* helpers for them, but
+        // only a backend knows when they happen - and this one signalled none of them.
+        // Registration succeeded and the handler simply never ran, which is the same
+        // silent failure that hid the buoyancy gem's wind for a while.
+        int bodyAddedCount = 0;
+        int bodyRemovedCount = 0;
+        int configChangedCount = 0;
+        int gravityChangedCount = 0;
+        AZ::Vector3 gravityReported = AZ::Vector3::CreateZero();
+
+        AzPhysics::SceneEvents::OnSimulationBodyAdded::Handler addedHandler(
+            [&bodyAddedCount](AzPhysics::SceneHandle, AzPhysics::SimulatedBodyHandle) { ++bodyAddedCount; });
+        AzPhysics::SceneEvents::OnSimulationBodyRemoved::Handler removedHandler(
+            [&bodyRemovedCount](AzPhysics::SceneHandle, AzPhysics::SimulatedBodyHandle) { ++bodyRemovedCount; });
+        AzPhysics::SceneEvents::OnSceneConfigurationChanged::Handler configHandler(
+            [&configChangedCount](AzPhysics::SceneHandle, const AzPhysics::SceneConfiguration&) { ++configChangedCount; });
+        AzPhysics::SceneEvents::OnSceneGravityChangedEvent::Handler gravityHandler(
+            [&gravityChangedCount, &gravityReported](AzPhysics::SceneHandle, const AZ::Vector3& gravity)
+            {
+                ++gravityChangedCount;
+                gravityReported = gravity;
+            });
+
+        m_scene->RegisterSimulationBodyAddedHandler(addedHandler);
+        m_scene->RegisterSimulationBodyRemovedHandler(removedHandler);
+        m_scene->RegisterSceneConfigurationChangedEventHandler(configHandler);
+        m_scene->RegisterSceneGravityChangedEvent(gravityHandler);
+
+        auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto shapeConfig = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration bodyConfig;
+        bodyConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(colliderConfig, shapeConfig);
+        auto handle = m_scene->AddSimulatedBody(&bodyConfig);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+        EXPECT_EQ(bodyAddedCount, 1) << "nothing was told a body had joined the scene";
+
+        m_scene->RemoveSimulatedBody(handle);
+        EXPECT_EQ(bodyRemovedCount, 1) << "nothing was told a body had left the scene";
+
+        m_scene->SetGravity(AZ::Vector3(0.0f, 0.0f, -3.0f));
+        EXPECT_EQ(gravityChangedCount, 1) << "nothing was told the scene's gravity had changed";
+        EXPECT_NEAR(gravityReported.GetZ(), -3.0f, 1e-4f);
+
+        AzPhysics::SceneConfiguration newConfig = m_scene->GetConfiguration();
+        newConfig.m_gravity = AZ::Vector3(0.0f, 0.0f, -7.0f);
+        m_scene->UpdateConfiguration(newConfig);
+        EXPECT_EQ(configChangedCount, 1) << "nothing was told the scene configuration had changed";
+        EXPECT_EQ(gravityChangedCount, 2) << "a configuration change that moved gravity did not report it";
+    }
+
 } // namespace JoltPhysics

@@ -231,6 +231,12 @@ namespace JoltPhysics
             return;
         }
 
+        // The interface owns these two and hands out registration for them, but only the
+        // backend knows when a frame's simulation begins and ends - so signalling is this
+        // class's job, and nothing did it. Registration succeeded and the handler simply
+        // never ran, which is the same silent failure the scene's own events had.
+        m_preSimulateEvent.Signal(deltaTime);
+
         const float fixedDeltaTime = m_systemConfig.m_fixedTimestep;
         m_accumulatedTime += deltaTime;
 
@@ -291,6 +297,9 @@ namespace JoltPhysics
 
         m_simulating = false;
         FlushDeferredSceneRemovals();
+
+        // After the removals, so a handler sees the system in the state the frame left it.
+        m_postSimulateEvent.Signal(deltaTime);
     }
 
     void JoltSystem::FlushDeferredSceneRemovals()
