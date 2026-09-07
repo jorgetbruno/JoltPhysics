@@ -613,6 +613,38 @@ namespace JoltPhysics
         EXPECT_NEAR(filtered.m_hits[0].m_distance, 9.3f, 0.05f) << "the hit reported was not the far box";
     }
 
+    TEST_F(JoltSceneQueryTests, AnOverlapFilterSeesEachBodyOnceWithTheShapeItStruck)
+    {
+        // The callback used to be asked about every candidate body before narrow phase -
+        // where no collider is known yet, so the shape argument was null - and then asked
+        // again per hit with the real one. A callback that dereferenced the shape crashed
+        // on the first call; one that counted what it saw counted double. Only soft bodies
+        // go to the early call now, and only to avoid an assertion walking their faces.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 0);
+
+        AzPhysics::OverlapRequest request;
+        request.m_pose = AZ::Transform::CreateIdentity();
+        request.m_shapeConfiguration = AZStd::make_shared<Physics::SphereShapeConfiguration>(2.0f);
+
+        int calls = 0;
+        int callsWithNoShape = 0;
+        request.m_filterCallback = [&calls, &callsWithNoShape](const AzPhysics::SimulatedBody*, const Physics::Shape* shape)
+        {
+            ++calls;
+            if (shape == nullptr)
+            {
+                ++callsWithNoShape;
+            }
+            return true;
+        };
+
+        const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+
+        EXPECT_EQ(hits.m_hits.size(), 1u);
+        EXPECT_EQ(calls, 1) << "the filter callback was invoked more than once for a single body";
+        EXPECT_EQ(callsWithNoShape, 0) << "the filter callback was invoked without the collider that was struck";
+    }
+
     TEST_F(JoltSceneQueryTests, AnUnboundedOverlapIsStreamedToItsCallbackAndIgnoresTheResultCap)
     {
         // More bodies than the request's default cap of 32, which is the case the

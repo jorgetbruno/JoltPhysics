@@ -2,6 +2,7 @@
 #include <Scene/JoltScene.h>
 #include <RigidBody/JoltRigidBody.h>
 #include <RigidBody/JoltStaticRigidBody.h>
+#include <SoftBody/JoltSoftBody.h>
 #include <Shape/JoltShapeUtils.h>
 #include <System/CollisionLayerFilters.h>
 #include <Utils/Conversions.h>
@@ -148,8 +149,12 @@ namespace JoltPhysics
         //! to avoid cloth still walked those faces. Consulted here, the body is rejected in
         //! the broad phase and the faces are never touched.
         //!
-        //! Only the body is available at this point, not the sub-shape, so a callback that
-        //! discriminates on the collider still gets its second look per hit afterwards.
+        //! Only soft bodies are put to the callback here, and only because of that
+        //! assertion. Everything else is left to the per-hit call, which can hand the
+        //! callback the collider it actually struck. Asking about every body at this point
+        //! meant the callback was invoked twice for each one - once now with a null shape,
+        //! once later with the real one - so a callback that dereferenced the shape
+        //! crashed on the first call and one that counted what it saw counted double.
         class SceneQueryPreNarrowPhaseBodyFilter final : public JPH::BodyFilter
         {
         public:
@@ -168,12 +173,13 @@ namespace JoltPhysics
 
                 const AzPhysics::SimulatedBody* simulatedBody =
                     m_scene->GetSimulatedBodyFromHandle(m_scene->GetBodyHandleFromJoltId(body.GetID()));
-                if (!simulatedBody)
+                if (!simulatedBody || azrtti_cast<const JoltSoftBody*>(simulatedBody) == nullptr)
                 {
                     return true;
                 }
                 // OverlapFilterCallback returns bool, unlike the raycast and shapecast
-                // callbacks which return a QueryHitType.
+                // callbacks which return a QueryHitType. A soft body has no Physics::Shape
+                // to name, so the null here is the same answer the per-hit call would give.
                 return m_request.m_filterCallback(simulatedBody, nullptr);
             }
 
@@ -580,15 +586,27 @@ namespace JoltPhysics
             queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags(0);
             FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
 
+            // A soft body was already put to the callback before narrow phase, and asking
+            // again would be the double call this filter exists to avoid.
+            const bool alreadyFiltered = queryHit.m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle &&
+                azrtti_cast<const JoltSoftBody*>(scene->GetSimulatedBodyFromHandle(queryHit.m_bodyHandle)) != nullptr;
+
             if (unbounded)
             {
-                if (!PassesFilterCallback(request, queryHit, scene))
+                if (!alreadyFiltered && !PassesFilterCallback(request, queryHit, scene))
                 {
                     continue;
                 }
                 deliveredAnyHit = true;
                 callerWantsMore =
                     request.m_unboundedOverlapHitCallback(AZStd::optional<AzPhysics::SceneQueryHit>(AZStd::move(queryHit)));
+            }
+            else if (alreadyFiltered)
+            {
+                if (result.m_hits.size() < request.m_maxResults)
+                {
+                    result.m_hits.push_back(queryHit);
+                }
             }
             else
             {

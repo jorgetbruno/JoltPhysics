@@ -70,7 +70,11 @@ feature, trust the topic sections below the milestones.**
   body details" for the current, more precise description.
 - **[superseded — see "Scene queries and rigid body details"]** *Scene-query filter
   callbacks receive `nullptr` for the `Physics::Shape*` argument.* Hits now carry
-  the collider they came from, and the callbacks receive it.
+  the collider they came from, and the callbacks receive it. Soft bodies remain the
+  exception, and always will: they hold no `Physics::Shape` to name. An overlap
+  consults the callback about a soft body before narrow phase — the only way to keep
+  a caller's filter from walking the faces of a collapsed one — and that call, alone,
+  passes `nullptr`.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.
