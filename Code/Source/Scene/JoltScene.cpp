@@ -78,17 +78,22 @@ namespace JoltPhysics
     {
         ClearDeferredDeletions();
 
-        for (auto& [crc, body] : m_simulatedBodies)
-        {
-            delete body;
-        }
-        m_simulatedBodies.clear();
-
+        // Joints first. A constraint holds raw Body pointers, so destroying the bodies
+        // while the physics system still holds constraints that reference them leaves it
+        // pointing at freed memory for the length of the loop. Nothing dereferences them
+        // in that window today, which is what kept this harmless; the order costs nothing
+        // and stops it depending on that.
         for (auto& [crc, joint] : m_joints)
         {
             delete joint;
         }
         m_joints.clear();
+
+        for (auto& [crc, body] : m_simulatedBodies)
+        {
+            delete body;
+        }
+        m_simulatedBodies.clear();
 
         m_contactListener.reset();
         m_softBodyContactListener.reset();

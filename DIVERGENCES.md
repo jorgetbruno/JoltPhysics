@@ -834,9 +834,17 @@ have no single pose to blend.
   costs the boundary crossings it actually sees plus one impulse per occupant per tick.
   A body removed while inside is dropped when it fails to resolve, since its Exit event
   will never arrive.
-- **Sleeping bodies are not woken by a region**, matching PhysX: a force region does not
-  hold a scene awake. A body already at rest inside a region stays at rest until
-  something else disturbs it.
+- **A region wakes the bodies inside it.** Applying an impulse activates a sleeping body
+  in Jolt (`BodyInterface::AddImpulse` calls `ActivateBodies` when the body is not
+  active), so a body at rest inside a region is woken again on the next tick and a
+  constant region holds everything in it awake. This entry used to claim the opposite.
+  Give a region a shape no larger than it needs, or switch the component off when its
+  effect is not wanted, if that cost matters.
+- **Forces are applied once per frame, not once per fixed step.** A constant force gives
+  the same result either way, since force times the frame's elapsed time is the same
+  impulse. A velocity-dependent one - simple drag, linear damping - does not: it is
+  integrated explicitly from the velocity at the start of the frame, so a long frame
+  overshoots where PhysX, which applies these per step, would not.
 - **`JoltWindProvider` supplies `Physics::WindRequests`.** AzFramework declares that
   interface and leaves the implementation to the physics backend; the only one in 26.05
   ships with PhysX, which a Jolt project disables, so everything that reads wind (cloth,

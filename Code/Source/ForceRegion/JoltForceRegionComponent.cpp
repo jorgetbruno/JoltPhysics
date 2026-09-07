@@ -196,9 +196,15 @@ namespace JoltPhysics
             const AZ::Vector3 force = m_forceRegion.CalculateNetForce(entityParams, regionParams);
             if (!force.IsZero())
             {
-                // Force over the frame becomes an impulse, so the result does not depend on
-                // frame rate. A sleeping body feels nothing until something wakes it, which
-                // matches PhysX and keeps a region from holding the whole scene awake.
+                // Force over the frame becomes an impulse, so a constant force gives the
+                // same result at any frame rate. A velocity-dependent one - drag, linear
+                // damping - does not: it is integrated explicitly here from the velocity
+                // at the start of the frame, so a long frame overshoots. PhysX applies
+                // these per fixed step for that reason.
+                //
+                // Applying an impulse wakes a sleeping body (Jolt's AddImpulse activates
+                // it), so a region does hold the bodies inside it awake. This comment used
+                // to claim the opposite, and DIVERGENCES with it.
                 rigidBody->ApplyLinearImpulse(force * deltaTime);
             }
             ++it;

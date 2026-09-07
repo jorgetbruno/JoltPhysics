@@ -96,7 +96,10 @@ namespace JoltPhysics
         AZ::Vector3 CalculateForce(
             const JoltForceRegionEntityParams& entity, const JoltForceRegionParams& region) const override;
 
-        float m_magnitude = 10.0f;
+        // PhysX's point force defaults to 1, and the world- and local-space forces
+        // above default to 10 in both. A migrating project's point regions were ten
+        // times as strong here as they were there.
+        float m_magnitude = 1.0f;
     };
 
     //! Drag proportional to speed squared, opposing motion - water, thick air.
