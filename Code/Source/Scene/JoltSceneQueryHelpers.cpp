@@ -552,10 +552,25 @@ namespace JoltPhysics
         query.CollideShape(shape, JPH::Vec3::sReplicate(1.0f), pose, settings, JPH::RVec3::sZero(), collector,
             broadPhaseLayerFilter, objectLayerFilter, bodyFilter, shapeFilter);
 
+        // An unbounded overlap hands each hit to the caller as it is found instead of
+        // building a vector, which is the whole point of it: a query expecting thousands
+        // of hits should not pay for storing them, and m_maxResults does not apply. The
+        // engine states the protocol exactly - each hit in turn, a false return ends the
+        // query, and a final empty optional says there are no more (PhysicsSceneQueries.h).
+        // It was read by nothing here, so such a request quietly behaved like an ordinary
+        // overlap and stopped at the cap, and the callback never fired at all.
+        const bool unbounded = request.m_unboundedOverlapHitCallback != nullptr;
+        bool deliveredAnyHit = false;
+        bool callerWantsMore = true;
+
         // CollideShape reports every contact point; an overlap query reports one hit per body.
         AZStd::unordered_set<AZ::u32> reportedBodies;
         for (const auto& hit : collector.mHits)
         {
+            if (!callerWantsMore)
+            {
+                break;
+            }
             if (!reportedBodies.insert(hit.mBodyID2.GetIndexAndSequenceNumber()).second)
             {
                 continue;
@@ -564,7 +579,32 @@ namespace JoltPhysics
             AzPhysics::SceneQueryHit queryHit;
             queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags(0);
             FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
-            AppendHitIfAccepted(result, request, queryHit, scene);
+
+            if (unbounded)
+            {
+                if (!PassesFilterCallback(request, queryHit, scene))
+                {
+                    continue;
+                }
+                deliveredAnyHit = true;
+                callerWantsMore =
+                    request.m_unboundedOverlapHitCallback(AZStd::optional<AzPhysics::SceneQueryHit>(AZStd::move(queryHit)));
+            }
+            else
+            {
+                AppendHitIfAccepted(result, request, queryHit, scene);
+            }
+        }
+
+        if (unbounded)
+        {
+            // "then called with {}, then never called again" - but only if the caller did
+            // not end the query itself, where the engine leaves the final call unspecified.
+            if (callerWantsMore)
+            {
+                request.m_unboundedOverlapHitCallback(AZStd::optional<AzPhysics::SceneQueryHit>{});
+            }
+            return deliveredAnyHit;
         }
 
         return !result.m_hits.empty();

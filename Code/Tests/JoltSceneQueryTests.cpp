@@ -613,4 +613,69 @@ namespace JoltPhysics
         EXPECT_NEAR(filtered.m_hits[0].m_distance, 9.3f, 0.05f) << "the hit reported was not the far box";
     }
 
+    TEST_F(JoltSceneQueryTests, AnUnboundedOverlapIsStreamedToItsCallbackAndIgnoresTheResultCap)
+    {
+        // More bodies than the request's default cap of 32, which is the case the
+        // unbounded form exists for. The callback was read by nothing, so the request
+        // behaved like an ordinary overlap: it stopped at the cap and never fired.
+        constexpr int BodyCount = 40;
+        for (int i = 0; i < BodyCount; ++i)
+        {
+            CreateStaticBox(
+                AZ::Vector3(static_cast<float>(i) * 0.5f, 0.0f, 0.0f), AZ::Vector3(0.25f, 0.25f, 0.25f));
+        }
+
+        AzPhysics::OverlapRequest request;
+        request.m_pose = AZ::Transform::CreateTranslation(AZ::Vector3(10.0f, 0.0f, 0.0f));
+        request.m_shapeConfiguration = AZStd::make_shared<Physics::SphereShapeConfiguration>(30.0f);
+
+        int delivered = 0;
+        int endOfHitsCalls = 0;
+        request.m_unboundedOverlapHitCallback = [&delivered, &endOfHitsCalls](AZStd::optional<AzPhysics::SceneQueryHit>&& hit)
+        {
+            if (hit.has_value())
+            {
+                ++delivered;
+            }
+            else
+            {
+                ++endOfHitsCalls;
+            }
+            return true;
+        };
+
+        const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+
+        EXPECT_EQ(delivered, BodyCount) << "the callback was not handed every overlapping body";
+        EXPECT_EQ(endOfHitsCalls, 1) << "the callback was never told the hits had ended";
+        EXPECT_TRUE(hits.m_hits.empty()) << "an unbounded overlap should stream its hits rather than build the vector";
+    }
+
+    TEST_F(JoltSceneQueryTests, AnUnboundedOverlapStopsWhenItsCallbackSaysSo)
+    {
+        for (int i = 0; i < 10; ++i)
+        {
+            CreateStaticBox(
+                AZ::Vector3(static_cast<float>(i) * 0.5f, 0.0f, 0.0f), AZ::Vector3(0.25f, 0.25f, 0.25f));
+        }
+
+        AzPhysics::OverlapRequest request;
+        request.m_pose = AZ::Transform::CreateTranslation(AZ::Vector3(2.0f, 0.0f, 0.0f));
+        request.m_shapeConfiguration = AZStd::make_shared<Physics::SphereShapeConfiguration>(30.0f);
+
+        int delivered = 0;
+        request.m_unboundedOverlapHitCallback = [&delivered](AZStd::optional<AzPhysics::SceneQueryHit>&& hit)
+        {
+            if (hit.has_value())
+            {
+                ++delivered;
+            }
+            return delivered < 3; // "found enough, stop"
+        };
+
+        m_scene->QueryScene(&request);
+
+        EXPECT_EQ(delivered, 3) << "the query kept going after the callback asked it to stop";
+    }
+
 } // namespace JoltPhysics
