@@ -187,6 +187,11 @@ namespace JoltPhysics
     JoltRagdoll::JoltRagdoll(const Physics::RagdollConfiguration& configuration)
         : m_configuration(configuration)
     {
+        // Every other body type takes its entity from the configuration here; the ragdoll
+        // did not, so it carried an invalid one for its whole life. Anything that asked
+        // which entity a ragdoll belonged to - a query hit, a trigger event, a collision
+        // event, the node bodies this hands its id to - was told "no entity".
+        m_entityId = configuration.m_entityId;
     }
 
     JoltRagdoll::~JoltRagdoll()
@@ -408,6 +413,21 @@ namespace JoltPhysics
         DisableSimulation();
     }
 
+    AZStd::vector<JPH::BodyID> JoltRagdoll::GetPartBodyIds() const
+    {
+        AZStd::vector<JPH::BodyID> bodyIds;
+        if (m_ragdoll == nullptr)
+        {
+            return bodyIds;
+        }
+        bodyIds.reserve(m_numNodes);
+        for (size_t i = 0; i < m_numNodes; ++i)
+        {
+            bodyIds.push_back(m_ragdoll->GetBodyID(static_cast<int>(i)));
+        }
+        return bodyIds;
+    }
+
     void JoltRagdoll::EnableSimulation(const Physics::RagdollState& initialState)
     {
         if (!m_ragdoll || m_simulated)
@@ -415,6 +435,17 @@ namespace JoltPhysics
             return;
         }
         m_ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
+
+        // The parts exist only now, so this is the first moment they can be pointed at
+        // this ragdoll's handle. Without it a raycast that struck a ragdoll reported a
+        // position and a normal and nothing else - no entity, no body handle - and a
+        // query filter callback was handed a null body and could not tell what it had
+        // been asked about.
+        if (m_scene != nullptr)
+        {
+            m_scene->RegisterJoltBodyIdsFor(m_bodyHandle, GetPartBodyIds());
+        }
+
         m_simulated = true;
         m_simulating = true; // keep the SimulatedBody-level flag in sync
         m_bodyMotionType = JPH::EMotionType::Dynamic; // the parts are built dynamic
@@ -436,6 +467,14 @@ namespace JoltPhysics
             return;
         }
         m_ragdoll->RemoveFromPhysicsSystem();
+
+        // Jolt reuses body ids, so leaving these mapped would point a future body at a
+        // ragdoll that no longer owns it.
+        if (m_scene != nullptr)
+        {
+            m_scene->UnregisterJoltBodyIds(GetPartBodyIds());
+        }
+
         m_simulated = false;
         m_simulating = false; // keep the SimulatedBody-level flag in sync
     }

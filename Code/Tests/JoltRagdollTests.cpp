@@ -10,6 +10,7 @@
 #include <System/JoltSystem.h>
 
 #include <AzFramework/Physics/Configuration/StaticRigidBodyConfiguration.h>
+#include <AzFramework/Physics/Common/PhysicsSceneQueries.h>
 #include <AzFramework/Physics/Ragdoll.h>
 #include <AzFramework/Physics/Shape.h>
 #include <AzFramework/Physics/ShapeConfiguration.h>
@@ -593,6 +594,42 @@ namespace JoltPhysics
         Physics::RagdollState state;
         ragdoll->GetState(state);
         EXPECT_LT(GetChildAngleRelativeToRootDegrees(state), 10.0f);
+    }
+
+    TEST_F(JoltRagdollTests, AQueryThatStrikesARagdollSaysWhichEntityItHit)
+    {
+        // A ragdoll's parts are built by Jolt when the ragdoll is enabled, not by the gem
+        // when it is added, so nothing mapped their body ids back to the ragdoll. A ray
+        // that struck one came back with a position and a normal and nothing else: no
+        // entity id, no body handle, and a filter callback handed a null body with no way
+        // to tell what it was being asked about. Shooting at a ragdoll is not an exotic
+        // thing to want to do.
+        Physics::RagdollConfiguration config;
+        MakeTwoNodeRagdoll(config, 5.0f);
+        const AZ::EntityId ragdollEntityId(0x9A6D0111);
+        config.m_entityId = ragdollEntityId;
+
+        auto handle = m_scene->AddSimulatedBody(&config);
+        ASSERT_NE(handle, AzPhysics::InvalidSimulatedBodyHandle);
+        auto* ragdoll = azdynamic_cast<JoltRagdoll*>(m_scene->GetSimulatedBodyFromHandle(handle));
+        ASSERT_NE(ragdoll, nullptr);
+        ragdoll->EnableSimulation(config.m_initialState);
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3(0.0f, 0.0f, 10.0f);
+        request.m_direction = -AZ::Vector3::CreateAxisZ();
+        request.m_distance = 20.0f;
+
+        const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        ASSERT_FALSE(hits.m_hits.empty()) << "the ray did not reach the ragdoll at all";
+        EXPECT_EQ(hits.m_hits[0].m_entityId, ragdollEntityId) << "the hit could not name the entity it struck";
+        EXPECT_EQ(hits.m_hits[0].m_bodyHandle, handle) << "the hit could not name the body it struck";
+
+        // Once disabled the parts are gone, and their ids must not still point here: Jolt
+        // reuses body ids, so a stale mapping would name this ragdoll for someone else.
+        ragdoll->DisableSimulation();
+        const AzPhysics::SceneQueryHits afterDisable = m_scene->QueryScene(&request);
+        EXPECT_TRUE(afterDisable.m_hits.empty()) << "a disabled ragdoll was still in the world";
     }
 
 } // namespace JoltPhysics

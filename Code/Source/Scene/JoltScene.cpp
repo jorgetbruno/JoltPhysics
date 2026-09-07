@@ -441,6 +441,29 @@ namespace JoltPhysics
         return handle;
     }
 
+    void JoltScene::RegisterJoltBodyIdsFor(
+        AzPhysics::SimulatedBodyHandle handle, const AZStd::vector<JPH::BodyID>& bodyIds)
+    {
+        for (const JPH::BodyID& bodyId : bodyIds)
+        {
+            if (!bodyId.IsInvalid())
+            {
+                m_bodyHandleByJoltId[bodyId.GetIndexAndSequenceNumber()] = handle;
+            }
+        }
+    }
+
+    void JoltScene::UnregisterJoltBodyIds(const AZStd::vector<JPH::BodyID>& bodyIds)
+    {
+        for (const JPH::BodyID& bodyId : bodyIds)
+        {
+            if (!bodyId.IsInvalid())
+            {
+                m_bodyHandleByJoltId.erase(bodyId.GetIndexAndSequenceNumber());
+            }
+        }
+    }
+
     AzPhysics::SimulatedBodyHandle JoltScene::GetBodyHandleFromJoltId(JPH::BodyID bodyId) const
     {
         if (auto found = m_bodyHandleByJoltId.find(bodyId.GetIndexAndSequenceNumber());

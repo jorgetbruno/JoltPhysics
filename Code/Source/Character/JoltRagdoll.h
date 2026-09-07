@@ -110,6 +110,8 @@ namespace JoltPhysics
         void DriveToPose(const Physics::RagdollState& targetPose, float deltaTime);
         //! Switches every ragdoll body to the given motion type; a no-op when unchanged.
         void SetBodiesMotionType(JPH::EMotionType motionType);
+        //! The Jolt bodies Jolt built for this ragdoll's nodes; empty before it is created.
+        AZStd::vector<JPH::BodyID> GetPartBodyIds() const;
 
         //! Reads one node's world-space state from its Jolt body.
         void ReadNodeState(size_t nodeIndex, Physics::RagdollNodeState& nodeState) const;

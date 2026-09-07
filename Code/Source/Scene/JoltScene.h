@@ -166,6 +166,14 @@ namespace JoltPhysics
         //! Maps a Jolt body id back to the scene's simulated body handle (for queries and events).
         AzPhysics::SimulatedBodyHandle GetBodyHandleFromJoltId(JPH::BodyID bodyId) const;
 
+        //! Points extra Jolt bodies at a simulated body's handle, so hits and events on
+        //! them resolve to the body that owns them. For bodies Jolt creates itself rather
+        //! than the gem: a ragdoll's parts exist only once the ragdoll is enabled, so they
+        //! cannot be registered when the ragdoll is added to the scene, and until they
+        //! were, a query that struck a ragdoll came back with no entity and no handle.
+        void RegisterJoltBodyIdsFor(AzPhysics::SimulatedBodyHandle handle, const AZStd::vector<JPH::BodyID>& bodyIds);
+        void UnregisterJoltBodyIds(const AZStd::vector<JPH::BodyID>& bodyIds);
+
         //! Resolves the {friction, restitution} for a contact sub-shape: the per-collider
         //! material when the body is a compound (sub-shape index maps to collider order),
         //! otherwise the body's own material. Returns false when the body-level
