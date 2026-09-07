@@ -166,6 +166,35 @@ namespace JoltPhysics
         AzPhysics::Scene* m_scene = nullptr;
     };
 
+    TEST_F(JoltJointTests, RemovingABodyRemovesTheJointsAttachedToIt)
+    {
+        // A Jolt constraint holds raw Body pointers. Removing a body left every joint
+        // attached to it registered with the physics system, aimed at memory the body's
+        // destructor was about to free - a door whose frame despawned, a rope whose anchor
+        // did. The next step walked that pointer.
+        auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));
+        auto childHandle = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 3.0f));
+
+        JoltFixedJointConfiguration config;
+        SetFrames(config, AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.0f, 0.0f, 3.0f), AZ::Vector3(0.0f, 0.0f, 5.0f));
+        auto jointHandle = m_scene->AddJoint(&config, anchorHandle, childHandle);
+        ASSERT_NE(jointHandle, AzPhysics::InvalidJointHandle);
+        ASSERT_NE(m_scene->GetJointFromHandle(jointHandle), nullptr);
+
+        SimulateSteps(10);
+
+        // The anchor goes away; the joint must go with it.
+        m_scene->RemoveSimulatedBody(anchorHandle);
+        EXPECT_EQ(m_scene->GetJointFromHandle(jointHandle), nullptr)
+            << "the joint outlived the body it was attached to";
+
+        // And the world keeps stepping: the child simply falls, unattached.
+        SimulateSteps(60);
+        auto* child = GetBody(childHandle);
+        ASSERT_NE(child, nullptr);
+        EXPECT_LT(child->GetPosition().GetZ(), 2.9f) << "the child was still held up by a joint that should be gone";
+    }
+
     TEST_F(JoltJointTests, FixedJointKeepsRelativeTransform)
     {
         auto anchorHandle = CreateStaticBox(AZ::Vector3(0.0f, 0.0f, 5.0f), AZ::Vector3(0.5f, 0.5f, 0.5f));

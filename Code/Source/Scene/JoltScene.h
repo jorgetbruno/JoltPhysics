@@ -89,6 +89,10 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyList GetSimulatedBodiesFromHandle(
             const AzPhysics::SimulatedBodyHandleList& bodyHandles) override;
         void RemoveSimulatedBody(AzPhysics::SimulatedBodyHandle& bodyHandle) override;
+
+        //! Removes every joint attached to a body, so the physics system is not left
+        //! holding a constraint that points at a destroyed one.
+        void RemoveJointsReferencingBody(AzPhysics::SimulatedBodyHandle bodyHandle);
         void RemoveSimulatedBodies(AzPhysics::SimulatedBodyHandleList& bodyHandles) override;
         void EnableSimulationOfBody(AzPhysics::SimulatedBodyHandle bodyHandle) override;
         void DisableSimulationOfBody(AzPhysics::SimulatedBodyHandle bodyHandle) override;

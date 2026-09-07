@@ -950,12 +950,42 @@ namespace JoltPhysics
         return bodies;
     }
 
+    void JoltScene::RemoveJointsReferencingBody(AzPhysics::SimulatedBodyHandle bodyHandle)
+    {
+        // A Jolt constraint holds raw Body pointers. Removing a body used to leave every
+        // joint attached to it registered with the physics system, pointing at memory the
+        // body's destructor was about to free - so a door whose frame was despawned, or a
+        // rope whose anchor was, left the solver walking a dangling pointer on the next
+        // step. Collected first because RemoveJoint edits m_joints.
+        AZStd::vector<AzPhysics::JointHandle> jointsToRemove;
+        for (size_t index = 0; index < m_joints.size(); ++index)
+        {
+            const auto* joint = m_joints[index].second;
+            if (joint == nullptr)
+            {
+                continue;
+            }
+            if (joint->GetParentBodyHandle() == bodyHandle || joint->GetChildBodyHandle() == bodyHandle)
+            {
+                jointsToRemove.push_back(
+                    AzPhysics::JointHandle(m_joints[index].first, static_cast<AzPhysics::JointIndex>(index)));
+            }
+        }
+
+        for (const AzPhysics::JointHandle& jointHandle : jointsToRemove)
+        {
+            RemoveJoint(jointHandle);
+        }
+    }
+
     void JoltScene::RemoveSimulatedBody(AzPhysics::SimulatedBodyHandle& bodyHandle)
     {
         if (bodyHandle == AzPhysics::InvalidSimulatedBodyHandle)
         {
             return;
         }
+
+        RemoveJointsReferencingBody(bodyHandle);
 
         const auto index = AZStd::get<AzPhysics::SimulatedBodyIndex>(bodyHandle);
         if (index < m_simulatedBodies.size() && m_simulatedBodies[index].second)
