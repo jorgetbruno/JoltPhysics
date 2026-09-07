@@ -75,6 +75,15 @@ feature, trust the topic sections below the milestones.**
   consults the callback about a soft body before narrow phase — the only way to keep
   a caller's filter from walking the faces of a collapsed one — and that call, alone,
   passes `nullptr`.
+- **Static friction is ignored; Jolt has one friction coefficient.** A material carries
+  both a static and a dynamic value, as PhysX's does, but Jolt models friction as a single
+  number per body and the dynamic value is what it means. A material whose two differ logs
+  a warning once rather than silently behaving as though the static value had been typed
+  in. There is no per-body pair of coefficients to map onto.
+- **Restitution combines as the maximum of the two materials, friction as their geometric
+  mean.** These are Jolt's own combine rules. PhysX defaults both to the average and lets
+  a material choose Minimum, Multiply or Maximum instead; that choice is not wrapped, so a
+  material's combine mode has no effect here.
 - **Query collision-group filtering is single-directional** (query group mask must
   contain the body's collision layer). PhysX additionally applies the symmetric
   body-group check against the query's layer; queries have no layer in practice.

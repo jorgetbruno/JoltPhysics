@@ -103,8 +103,11 @@ namespace JoltPhysics
 
     TEST_F(JoltMaterialTests, BouncySphereBouncesHigherThanDeadSphere)
     {
-        // Static slab, default material.
+        // Static slab, explicitly dead: Jolt combines restitution with max(), so a slab
+        // left on the default material - which now matches PhysX at 0.5 rather than
+        // Jolt's 0 - would decide the bounce whatever the spheres are made of.
         auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
         auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
         slabShape->m_dimensions = AZ::Vector3(20.0f, 20.0f, 1.0f);
         AzPhysics::StaticRigidBodyConfiguration slabConfig;
@@ -128,7 +131,7 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&sphereConfig);
         };
 
-        auto deadSphere = createSphere(-2.0f, {});
+        auto deadSphere = createSphere(-2.0f, CreateMaterialAsset(0.5f, 0.0f));
         auto bouncySphere = createSphere(2.0f, CreateMaterialAsset(0.5f, 0.9f));
 
         // Simulate, recording the maximum height of each sphere after its first contact.
@@ -203,6 +206,10 @@ namespace JoltPhysics
         auto dropSphere = [this](float x)
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            // Explicitly dead, so only the surface under test decides the bounce.
+            // Jolt combines restitution with max(), and the default material now matches
+            // PhysX at 0.5 - a probe that leaves its material unset brings that with it.
+            colliderConfig->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
             auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
             sphereShape->m_radius = 0.5f;
             AzPhysics::RigidBodyConfiguration sphereConfig;
@@ -286,6 +293,10 @@ namespace JoltPhysics
         auto dropSphere = [this](float x)
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            // Explicitly dead, so only the surface under test decides the bounce.
+            // Jolt combines restitution with max(), and the default material now matches
+            // PhysX at 0.5 - a probe that leaves its material unset brings that with it.
+            colliderConfig->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
             auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
             sphereShape->m_radius = 0.5f;
             AzPhysics::RigidBodyConfiguration sphereConfig;
@@ -394,9 +405,12 @@ namespace JoltPhysics
         ASSERT_EQ(slabBody->GetColliderCount(), 1u);
         EXPECT_EQ(slabBody->GetColliderMaterial(0).get(), bouncyMaterial.get());
 
-        // A default (dead) sphere dropped onto the bouncy slab rebounds (restitution
-        // combines as max of the two materials).
+        // A dead sphere dropped onto the bouncy slab rebounds (restitution combines as
+        // max of the two materials).
         auto sphereCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        // Explicitly dead, so the slab's material is the only thing that can make it
+        // bounce - restitution combines with max(), and the default is no longer 0.
+        sphereCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
         auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
         AzPhysics::RigidBodyConfiguration sphereConfig;
         sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
@@ -442,6 +456,9 @@ namespace JoltPhysics
         m_scene->AddSimulatedBody(&slabConfig);
 
         auto sphereCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        // Explicitly dead, so the slab's material is the only thing that can make it
+        // bounce - restitution combines with max(), and the default is no longer 0.
+        sphereCollider->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
         auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
         AzPhysics::RigidBodyConfiguration sphereConfig;
         sphereConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
@@ -531,6 +548,10 @@ namespace JoltPhysics
         auto dropSphere = [this](float x)
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            // Explicitly dead, so only the surface under test decides the bounce.
+            // Jolt combines restitution with max(), and the default material now matches
+            // PhysX at 0.5 - a probe that leaves its material unset brings that with it.
+            colliderConfig->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
             auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
             sphereShape->m_radius = 0.5f;
             AzPhysics::RigidBodyConfiguration sphereConfig;
@@ -623,6 +644,8 @@ namespace JoltPhysics
         m_scene->AddSimulatedBody(&slabConfig);
 
         auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+        // Explicitly dead - see the note in the drop helpers above.
+        colliderConfig->m_materialSlots.SetMaterialAsset(0, CreateMaterialAsset(0.5f, 0.0f));
         auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
         sphereShape->m_radius = 0.5f;
         AzPhysics::RigidBodyConfiguration sphereConfig;

@@ -198,6 +198,10 @@ namespace JoltPhysics
         AzPhysics::SimulatedBodyHandle CreateDynamicSphere(const AZ::Vector3& position, float radius = 0.5f)
         {
             auto colliderConfig = AZStd::make_shared<Physics::ColliderConfiguration>();
+            // Explicitly dead, so only the terrain's material decides the bounce: Jolt
+            // combines restitution with max(), and the default material now matches
+            // PhysX at 0.5 rather than Jolt's 0.
+            colliderConfig->m_materialSlots.SetMaterialAsset(0, CreateMaterialAssetForTest(0.5f, 0.0f));
             auto sphereShape = AZStd::make_shared<Physics::SphereShapeConfiguration>();
             sphereShape->m_radius = radius;
 

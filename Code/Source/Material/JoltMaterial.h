@@ -29,7 +29,11 @@ namespace JoltPhysics
         float GetDensity() const { return m_density; }
 
         static constexpr float DefaultFriction = 0.5f;
-        static constexpr float DefaultRestitution = 0.0f;
+        //! PhysX's default material configuration ships 0.5, and a project migrating to
+        //! this gem inherits every surface it never authored a material for. Jolt's own
+        //! default is 0, which is what this used to be - so a level that felt right under
+        //! PhysX went completely dead, with no setting named in any document to explain it.
+        static constexpr float DefaultRestitution = 0.5f;
         static constexpr float DefaultDensity = 1000.0f;
 
     private:

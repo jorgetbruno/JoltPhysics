@@ -297,7 +297,10 @@ namespace JoltPhysics
         boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(boxCollider, boxShape);
         auto boxHandle = m_scene->AddSimulatedBody(&boxConfig);
 
-        SimulateSeconds(2.0f);
+        // Long enough for the box to stop bouncing as well as land: the default material
+        // now matches PhysX's restitution of 0.5 rather than Jolt's 0, so a body dropped
+        // on an unauthored surface takes a few bounces to settle.
+        SimulateSeconds(5.0f);
 
         // The compound's colliders span z in [-1, 1], so a unit box rests at z = 1.5.
         EXPECT_NEAR(m_scene->GetSimulatedBodyFromHandle(boxHandle)->GetPosition().GetZ(), 1.5f, 0.1f);
