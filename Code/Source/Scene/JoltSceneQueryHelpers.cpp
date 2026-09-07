@@ -188,9 +188,50 @@ namespace JoltPhysics
             JoltScene* m_scene;
         };
 
-        // Applies the request's filter callback (if any) to a candidate hit.
-        // Returns true when the hit should be included in the results.
-        bool PassesFilterCallback(
+        //! Fills a shape-cast hit from a Jolt result, using the penetration data when the
+        //! cast started already overlapping.
+        //!
+        //! Jolt reports such a body as a hit at fraction 0 carrying a penetration depth
+        //! and axis. Read as an ordinary hit that gives a distance of zero and the surface
+        //! normal at the contact point - neither of which tells a caller which way to move
+        //! to get out, which is the whole point of asking for MTD. The separate
+        //! CollideShape pass below was meant to cover this and almost never ran, because
+        //! it only runs when there were no hits at all and an initial overlap is a hit.
+        void FillShapeCastHit(
+            AzPhysics::SceneQueryHit& queryHit,
+            const JPH::ShapeCastResult& hit,
+            const AzPhysics::ShapeCastRequest& request,
+            JPH::PhysicsSystem* physicsSystem)
+        {
+            const bool startedInContact = hit.mFraction <= 0.0f && hit.mPenetrationDepth > 0.0f;
+            const bool wantsMtd =
+                (request.m_hitFlags & AzPhysics::SceneQuery::HitFlags::MTD) == AzPhysics::SceneQuery::HitFlags::MTD;
+
+            queryHit.m_position = Conversions::FromJolt(hit.mContactPointOn2);
+            if (startedInContact && wantsMtd)
+            {
+                // Negative distance is the depth, and the normal is the direction out,
+                // which is the convention the CollideShape recovery below already used.
+                queryHit.m_distance = -hit.mPenetrationDepth;
+                queryHit.m_normal = Conversions::FromJolt(-hit.mPenetrationAxis.Normalized());
+            }
+            else
+            {
+                queryHit.m_distance = hit.mFraction * request.m_distance;
+                queryHit.m_normal =
+                    GetSurfaceNormal(physicsSystem, hit.mBodyID2, hit.mSubShapeID2, hit.mContactPointOn2);
+            }
+            queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
+                                    AzPhysics::SceneQuery::ResultFlags::Position |
+                                    AzPhysics::SceneQuery::ResultFlags::Normal;
+        }
+
+        //! What the request's filter callback makes of a candidate hit. Touch when there
+        //! is no callback. Block means "report this one and stop looking": the engine
+        //! defines Touch as reported but not blocking and Block as reported and blocking,
+        //! and collapsing the two to a yes/no meant a multi-hit cast kept collecting past
+        //! a body the caller had said should stop it.
+        AzPhysics::SceneQuery::QueryHitType ClassifyHit(
             const AzPhysics::SceneQueryRequest& request,
             const AzPhysics::SceneQueryHit& queryHit,
             JoltScene* scene)
@@ -209,25 +250,37 @@ namespace JoltPhysics
             {
                 if (raycastRequest->m_filterCallback)
                 {
-                    return raycastRequest->m_filterCallback(body, shape) != AzPhysics::SceneQuery::QueryHitType::None;
+                    return raycastRequest->m_filterCallback(body, shape);
                 }
             }
             else if (const auto* shapecastRequest = azdynamic_cast<const AzPhysics::ShapeCastRequest*>(&request))
             {
                 if (shapecastRequest->m_filterCallback)
                 {
-                    return shapecastRequest->m_filterCallback(body, shape) != AzPhysics::SceneQuery::QueryHitType::None;
+                    return shapecastRequest->m_filterCallback(body, shape);
                 }
             }
             else if (const auto* overlapRequest = azdynamic_cast<const AzPhysics::OverlapRequest*>(&request))
             {
                 if (overlapRequest->m_filterCallback)
                 {
-                    return overlapRequest->m_filterCallback(body, shape);
+                    // An overlap's callback answers yes or no; there is nothing behind a
+                    // hit for a Block to stop.
+                    return overlapRequest->m_filterCallback(body, shape)
+                        ? AzPhysics::SceneQuery::QueryHitType::Touch
+                        : AzPhysics::SceneQuery::QueryHitType::None;
                 }
             }
 
-            return true;
+            return AzPhysics::SceneQuery::QueryHitType::Touch;
+        }
+
+        bool PassesFilterCallback(
+            const AzPhysics::SceneQueryRequest& request,
+            const AzPhysics::SceneQueryHit& queryHit,
+            JoltScene* scene)
+        {
+            return ClassifyHit(request, queryHit, scene) != AzPhysics::SceneQuery::QueryHitType::None;
         }
 
         //! How many hits this request may return: what it asked for, bounded by the
@@ -253,7 +306,10 @@ namespace JoltPhysics
             return AZStd::min(request.m_maxResults, bufferSize);
         }
 
-        void AppendHitIfAccepted(
+        //! Appends the hit if the filter accepts it, and says what the filter made of it
+        //! so a caller walking hits in order knows whether to stop. None means the hit was
+        //! rejected or the result cap was already reached.
+        AzPhysics::SceneQuery::QueryHitType AppendHitIfAccepted(
             AzPhysics::SceneQueryHits& result,
             const AzPhysics::SceneQueryRequest& request,
             AzPhysics::SceneQueryHit& queryHit,
@@ -261,12 +317,14 @@ namespace JoltPhysics
         {
             if (result.m_hits.size() >= ResultCapFor(request, scene))
             {
-                return;
+                return AzPhysics::SceneQuery::QueryHitType::None;
             }
-            if (PassesFilterCallback(request, queryHit, scene))
+            const AzPhysics::SceneQuery::QueryHitType hitType = ClassifyHit(request, queryHit, scene);
+            if (hitType != AzPhysics::SceneQuery::QueryHitType::None)
             {
                 result.m_hits.push_back(queryHit);
             }
+            return hitType;
         }
     }
 
@@ -378,12 +436,19 @@ namespace JoltPhysics
                                             AzPhysics::SceneQuery::ResultFlags::Position |
                                             AzPhysics::SceneQuery::ResultFlags::Normal;
                     FillCommonHitData(queryHit, hit.mBodyID, hit.mSubShapeID2, scene);
-                    AppendHitIfAccepted(result, request, queryHit, scene);
+                    const AzPhysics::SceneQuery::QueryHitType hitType =
+                        AppendHitIfAccepted(result, request, queryHit, scene);
 
                     if (!request.m_reportMultipleHits && !result.m_hits.empty())
                     {
                         // Single-hit mode: the nearest candidate the callback accepted is
                         // the answer, and the rest of the sorted list is behind it.
+                        break;
+                    }
+                    if (hitType == AzPhysics::SceneQuery::QueryHitType::Block)
+                    {
+                        // "Reported, and it should block the query": everything left in
+                        // the sorted list is further away and behind this one.
                         break;
                     }
                 }
@@ -472,18 +537,18 @@ namespace JoltPhysics
             for (const auto& hit : collector.mHits)
             {
                 AzPhysics::SceneQueryHit queryHit;
-                queryHit.m_distance = hit.mFraction * request.m_distance;
-                queryHit.m_position = Conversions::FromJolt(hit.mContactPointOn2);
-                queryHit.m_normal = GetSurfaceNormal(physicsSystem, hit.mBodyID2, hit.mSubShapeID2, hit.mContactPointOn2);
-                queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
-                                        AzPhysics::SceneQuery::ResultFlags::Position |
-                                        AzPhysics::SceneQuery::ResultFlags::Normal;
+                FillShapeCastHit(queryHit, hit, request, physicsSystem);
                 FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
-                AppendHitIfAccepted(result, request, queryHit, scene);
+                const AzPhysics::SceneQuery::QueryHitType hitType =
+                    AppendHitIfAccepted(result, request, queryHit, scene);
 
                 if (!request.m_reportMultipleHits && !result.m_hits.empty())
                 {
                     // Single-hit mode: the nearest candidate the callback accepted.
+                    break;
+                }
+                if (hitType == AzPhysics::SceneQuery::QueryHitType::Block)
+                {
                     break;
                 }
             }
@@ -498,12 +563,7 @@ namespace JoltPhysics
                 const JPH::ShapeCastResult& hit = collector.mHit;
 
                 AzPhysics::SceneQueryHit queryHit;
-                queryHit.m_distance = hit.mFraction * request.m_distance;
-                queryHit.m_position = Conversions::FromJolt(hit.mContactPointOn2);
-                queryHit.m_normal = GetSurfaceNormal(physicsSystem, hit.mBodyID2, hit.mSubShapeID2, hit.mContactPointOn2);
-                queryHit.m_resultFlags = AzPhysics::SceneQuery::ResultFlags::Distance |
-                                        AzPhysics::SceneQuery::ResultFlags::Position |
-                                        AzPhysics::SceneQuery::ResultFlags::Normal;
+                FillShapeCastHit(queryHit, hit, request, physicsSystem);
                 FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
             }

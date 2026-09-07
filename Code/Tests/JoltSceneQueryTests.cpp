@@ -710,4 +710,64 @@ namespace JoltPhysics
         EXPECT_EQ(delivered, 3) << "the query kept going after the callback asked it to stop";
     }
 
+    TEST_F(JoltSceneQueryTests, AShapeCastThatStartsInsideSomethingReportsHowToGetOut)
+    {
+        // Jolt reports a body the cast already overlaps as a hit at fraction 0 carrying a
+        // penetration depth and axis. Read as an ordinary hit that gave a distance of zero
+        // and the surface normal at the contact point, neither of which tells a caller
+        // which way to move to get out - which is the whole point of asking for MTD.
+        CreateStaticBox(AZ::Vector3::CreateZero(), AZ::Vector3(2.0f, 2.0f, 2.0f));
+
+        AzPhysics::ShapeCastRequest request;
+        request.m_shapeConfiguration = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.5f);
+        // Started inside the box, aimed along +X.
+        request.m_start = AZ::Transform::CreateTranslation(AZ::Vector3(0.2f, 0.0f, 0.0f));
+        request.m_direction = AZ::Vector3::CreateAxisX();
+        request.m_distance = 5.0f;
+        request.m_hitFlags = AzPhysics::SceneQuery::HitFlags::MTD;
+
+        const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+        ASSERT_EQ(hits.m_hits.size(), 1u);
+
+        EXPECT_LT(hits.m_hits[0].m_distance, 0.0f)
+            << "a cast that started overlapping reported a distance of " << hits.m_hits[0].m_distance
+            << " rather than how deep it was";
+        EXPECT_GT(hits.m_hits[0].m_normal.GetLength(), 0.5f) << "no direction was given to move out along";
+    }
+
+    TEST_F(JoltSceneQueryTests, ABlockingHitStopsAMultiHitCast)
+    {
+        // The engine defines Touch as reported but not blocking, and Block as reported and
+        // blocking. Both were collapsed to "not None", so a multi-hit ray kept collecting
+        // everything behind a body the caller had said should stop it.
+        CreateStaticBox(AZ::Vector3(5.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 0);
+        CreateStaticBox(AZ::Vector3(10.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 1);
+        CreateStaticBox(AZ::Vector3(15.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 2);
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3::CreateZero();
+        request.m_direction = AZ::Vector3::CreateAxisX();
+        request.m_distance = 50.0f;
+        request.m_reportMultipleHits = true;
+
+        // Everything touches, so all three come back.
+        request.m_filterCallback = [](const AzPhysics::SimulatedBody*, const Physics::Shape*)
+        {
+            return AzPhysics::SceneQuery::QueryHitType::Touch;
+        };
+        EXPECT_EQ(m_scene->QueryScene(&request).m_hits.size(), 3u);
+
+        // The second one blocks, so the third is never reported.
+        int seen = 0;
+        request.m_filterCallback = [&seen](const AzPhysics::SimulatedBody*, const Physics::Shape*)
+        {
+            ++seen;
+            return seen == 2 ? AzPhysics::SceneQuery::QueryHitType::Block
+                             : AzPhysics::SceneQuery::QueryHitType::Touch;
+        };
+        const AzPhysics::SceneQueryHits blocked = m_scene->QueryScene(&request);
+        EXPECT_EQ(blocked.m_hits.size(), 2u) << "the cast carried on past a hit that said it should stop";
+        EXPECT_NEAR(blocked.m_hits[1].m_distance, 9.5f, 0.05f) << "the blocking hit itself was not reported";
+    }
+
 } // namespace JoltPhysics
