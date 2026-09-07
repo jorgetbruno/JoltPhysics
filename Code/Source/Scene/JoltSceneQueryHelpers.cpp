@@ -321,7 +321,16 @@ namespace JoltPhysics
         const SceneQueryObjectLayerFilter objectLayerFilter(request.m_collisionGroup.GetMask());
         const SceneQueryColliderFilter shapeFilter(scene);
 
-        if (request.m_reportMultipleHits)
+        // A filter callback has to be consulted during the search, not after it. The
+        // closest-hit collector keeps one hit chosen by distance alone, so a callback that
+        // rejects it - "not the body I am standing on", "not my own car" - left the caller
+        // with no hit at all, when the whole point of the callback was to be told what is
+        // behind the thing it rejected. Walking every candidate in order costs more, so it
+        // is only done when there is a callback to make it necessary. The same reasoning
+        // is already written down for SceneQueryColliderFilter.
+        const bool collectEveryCandidate = request.m_reportMultipleHits || request.m_filterCallback != nullptr;
+
+        if (collectEveryCandidate)
         {
             JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
             query.CastRay(ray, JPH::RayCastSettings(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
@@ -341,6 +350,13 @@ namespace JoltPhysics
                                             AzPhysics::SceneQuery::ResultFlags::Normal;
                     FillCommonHitData(queryHit, hit.mBodyID, hit.mSubShapeID2, scene);
                     AppendHitIfAccepted(result, request, queryHit, scene);
+
+                    if (!request.m_reportMultipleHits && !result.m_hits.empty())
+                    {
+                        // Single-hit mode: the nearest candidate the callback accepted is
+                        // the answer, and the rest of the sorted list is behind it.
+                        break;
+                    }
                 }
 
                 return !result.m_hits.empty();
@@ -414,8 +430,11 @@ namespace JoltPhysics
 
         JPH::ShapeCastSettings settings;
 
-        const bool reportMultiple = request.m_reportMultipleHits;
-        if (reportMultiple)
+        // See the note in Raycast: a filter callback that rejects the nearest hit must
+        // leave the caller with the next one, not with nothing, so every candidate is
+        // collected whenever there is a callback to reject one.
+        const bool collectEveryCandidate = request.m_reportMultipleHits || request.m_filterCallback != nullptr;
+        if (collectEveryCandidate)
         {
             JPH::AllHitCollisionCollector<JPH::CastShapeCollector> collector;
             query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
@@ -432,6 +451,12 @@ namespace JoltPhysics
                                         AzPhysics::SceneQuery::ResultFlags::Normal;
                 FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
                 AppendHitIfAccepted(result, request, queryHit, scene);
+
+                if (!request.m_reportMultipleHits && !result.m_hits.empty())
+                {
+                    // Single-hit mode: the nearest candidate the callback accepted.
+                    break;
+                }
             }
         }
         else

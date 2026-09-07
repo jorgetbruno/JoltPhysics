@@ -550,4 +550,67 @@ namespace JoltPhysics
         EXPECT_FALSE(m_scene->QuerySceneAsyncBatch(1, {}, batchCallback));
     }
 
+    TEST_F(JoltSceneQueryTests, AFilterThatRejectsTheNearestBodyIsGivenTheOneBehindIt)
+    {
+        // The commonest use of a filter callback: "anything but that one" - my own body,
+        // the door I am opening, the crate I am carrying. The single-hit collector picks
+        // its one hit by distance alone, so applying the callback afterwards turned a
+        // rejection into no hit at all, and the wall behind was never reported.
+        const AzPhysics::SimulatedBodyHandle nearBox =
+            CreateStaticBox(AZ::Vector3(5.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 0);
+        CreateStaticBox(AZ::Vector3(10.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 1);
+
+        AzPhysics::RayCastRequest request;
+        request.m_start = AZ::Vector3::CreateZero();
+        request.m_direction = AZ::Vector3::CreateAxisX();
+        request.m_distance = 50.0f;
+        request.m_reportMultipleHits = false;
+
+        // Unfiltered, the near box is the answer: its face is half a metre in front of it.
+        const AzPhysics::SceneQueryHits unfiltered = m_scene->QueryScene(&request);
+        ASSERT_EQ(unfiltered.m_hits.size(), 1u);
+        EXPECT_NEAR(unfiltered.m_hits[0].m_distance, 4.5f, 0.05f);
+
+        const AZ::EntityId nearEntityId = m_scene->GetSimulatedBodyFromHandle(nearBox)->GetEntityId();
+        request.m_filterCallback = [nearEntityId](const AzPhysics::SimulatedBody* body, const Physics::Shape*)
+        {
+            return (body != nullptr && body->GetEntityId() == nearEntityId)
+                ? AzPhysics::SceneQuery::QueryHitType::None
+                : AzPhysics::SceneQuery::QueryHitType::Block;
+        };
+
+        const AzPhysics::SceneQueryHits filtered = m_scene->QueryScene(&request);
+        ASSERT_EQ(filtered.m_hits.size(), 1u)
+            << "rejecting the nearest body returned nothing at all, instead of the body behind it";
+        EXPECT_NEAR(filtered.m_hits[0].m_distance, 9.5f, 0.05f) << "the hit reported was not the far box";
+    }
+
+    TEST_F(JoltSceneQueryTests, AShapeCastFilterThatRejectsTheNearestBodyIsGivenTheOneBehindIt)
+    {
+        const AzPhysics::SimulatedBodyHandle nearBox =
+            CreateStaticBox(AZ::Vector3(5.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 0);
+        CreateStaticBox(AZ::Vector3(10.0f, 0.0f, 0.0f), AZ::Vector3::CreateOne(), 1);
+
+        AzPhysics::ShapeCastRequest request;
+        request.m_shapeConfiguration = AZStd::make_shared<Physics::SphereShapeConfiguration>(0.2f);
+        request.m_start = AZ::Transform::CreateIdentity();
+        request.m_direction = AZ::Vector3::CreateAxisX();
+        request.m_distance = 50.0f;
+        request.m_reportMultipleHits = false;
+
+        const AZ::EntityId nearEntityId = m_scene->GetSimulatedBodyFromHandle(nearBox)->GetEntityId();
+        request.m_filterCallback = [nearEntityId](const AzPhysics::SimulatedBody* body, const Physics::Shape*)
+        {
+            return (body != nullptr && body->GetEntityId() == nearEntityId)
+                ? AzPhysics::SceneQuery::QueryHitType::None
+                : AzPhysics::SceneQuery::QueryHitType::Block;
+        };
+
+        const AzPhysics::SceneQueryHits filtered = m_scene->QueryScene(&request);
+        ASSERT_EQ(filtered.m_hits.size(), 1u)
+            << "rejecting the nearest body returned nothing at all, instead of the body behind it";
+        // A 0.2 m sphere stops 0.2 m short of the far box's face at x = 9.5.
+        EXPECT_NEAR(filtered.m_hits[0].m_distance, 9.3f, 0.05f) << "the hit reported was not the far box";
+    }
+
 } // namespace JoltPhysics
