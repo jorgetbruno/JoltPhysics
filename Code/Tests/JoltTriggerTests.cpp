@@ -362,4 +362,57 @@ namespace JoltPhysics
         EXPECT_EQ(exitCount, 0) << "the box left the trigger volume by falling asleep in it";
     }
 
+    TEST_F(JoltTriggerTests, TheBodyThatEnteredIsToldAsWellAsTheTrigger)
+    {
+        // The engine specifies that trigger events fire "on both the trigger body and the
+        // body that entered/exited the trigger", with each handler receiving its own
+        // body's handle. Only the trigger was told, so a character that wanted to know
+        // which volume it had walked into had to register a handler on every volume in
+        // the level instead of one on itself.
+        auto triggerCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        triggerCollider->m_isTrigger = true;
+        auto triggerShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        triggerShape->m_dimensions = AZ::Vector3(10.0f, 10.0f, 2.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration triggerConfig;
+        triggerConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(triggerCollider, triggerShape);
+        auto triggerHandle = m_scene->AddSimulatedBody(&triggerConfig);
+        ASSERT_NE(triggerHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        auto boxCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        auto boxShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        AzPhysics::RigidBodyConfiguration boxConfig;
+        boxConfig.m_position = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        boxConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(boxCollider, boxShape);
+        auto boxHandle = m_scene->AddSimulatedBody(&boxConfig);
+        ASSERT_NE(boxHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // The handler goes on the falling box, not on the volume.
+        int boxEnterCount = 0;
+        int boxExitCount = 0;
+        AzPhysics::SimulatedBodyHandle handleGivenToTheBox = AzPhysics::InvalidSimulatedBodyHandle;
+
+        auto* box = m_scene->GetSimulatedBodyFromHandle(boxHandle);
+        ASSERT_NE(box, nullptr);
+
+        AzPhysics::SimulatedBodyEvents::OnTriggerEnter::Handler enterHandler(
+            [&boxEnterCount, &handleGivenToTheBox](
+                AzPhysics::SimulatedBodyHandle bodyHandle, const AzPhysics::TriggerEvent&)
+            {
+                ++boxEnterCount;
+                handleGivenToTheBox = bodyHandle;
+            });
+        AzPhysics::SimulatedBodyEvents::OnTriggerExit::Handler exitHandler(
+            [&boxExitCount](AzPhysics::SimulatedBodyHandle, const AzPhysics::TriggerEvent&) { ++boxExitCount; });
+        box->RegisterOnTriggerEnterHandler(enterHandler);
+        box->RegisterOnTriggerExitHandler(exitHandler);
+
+        SimulateSeconds(0.7f);
+        EXPECT_EQ(boxEnterCount, 1) << "the body that entered the trigger was never told";
+        EXPECT_EQ(handleGivenToTheBox, boxHandle) << "the handler was given a handle that was not its own body";
+
+        SimulateSeconds(2.0f);
+        EXPECT_EQ(boxExitCount, 1) << "the body that left the trigger was never told";
+    }
+
 } // namespace JoltPhysics

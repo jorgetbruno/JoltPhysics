@@ -1554,9 +1554,20 @@ namespace JoltPhysics
             // dispatching through a dangling pointer.
             triggerEvent.m_triggerBody = GetSimulatedBodyFromHandle(triggerEvent.m_triggerBodyHandle);
             triggerEvent.m_otherBody = GetSimulatedBodyFromHandle(triggerEvent.m_otherBodyHandle);
+            // Both parties are told, which is what the engine specifies: "these events
+            // will be triggered on both the trigger body and the body that
+            // entered/exited the trigger". Only the trigger used to hear about it, so a
+            // character that wanted to know which volume it had walked into had to
+            // register on every volume in the level rather than on itself. The handle
+            // each handler receives is its own body's, which is what makes the event
+            // readable from either side. Collision events already work this way.
             if (triggerEvent.m_triggerBody)
             {
                 triggerEvent.m_triggerBody->ProcessTriggerEvent(triggerEvent);
+            }
+            if (triggerEvent.m_otherBody)
+            {
+                triggerEvent.m_otherBody->ProcessTriggerEvent(triggerEvent);
             }
         }
 
