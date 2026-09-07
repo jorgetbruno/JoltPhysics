@@ -789,4 +789,46 @@ namespace JoltPhysics
         EXPECT_NE(leftHits.m_hits[0].m_physicsMaterialId, rightHits.m_hits[0].m_physicsMaterialId);
     }
 
+    TEST_F(JoltMaterialTests, EverySlotOfAColliderIsResolvedBeforeTheBodyIsSimulated)
+    {
+        // The contact callback runs on Jolt's narrowphase job threads. Resolving a
+        // triangle's material slot there went through FindOrCreateMaterial, which inserts
+        // into a process-wide map with no lock - so the first contact against a slot no
+        // body had used yet *created* the material on a worker, and two workers meeting
+        // unseen slots in the same step raced on that map. Only slot 0 was resolved when
+        // a body was built, so every slot from 1 up was reached that way exactly once.
+        //
+        // A race is not observable from one thread; what is asserted here is the property
+        // that makes it impossible - once the body exists, every slot's material exists
+        // too, and the callback has nothing left to create.
+        // A box rather than a trimesh: the slot list lives on the collider configuration,
+        // so any shape carries it, and cooking a mesh here would leak one - the extra
+        // reference the shared-mesh cache takes is released by the system component,
+        // which these tests do not run.
+        auto slabShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        slabShape->m_dimensions = AZ::Vector3(20.0f, 20.0f, 1.0f);
+
+        const AZ::Data::Asset<Physics::MaterialAsset> deadAsset = CreateMaterialAsset(0.5f, 0.0f);
+        const AZ::Data::Asset<Physics::MaterialAsset> bouncyAsset = CreateMaterialAsset(0.5f, 0.9f);
+
+        auto slabCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        slabCollider->m_materialSlots.SetSlots({ "dead", "bouncy" });
+        slabCollider->m_materialSlots.SetMaterialAsset(0, deadAsset);
+        slabCollider->m_materialSlots.SetMaterialAsset(1, bouncyAsset);
+
+        auto* materialManager = AZ::Interface<Physics::MaterialManager>::Get();
+        ASSERT_NE(materialManager, nullptr);
+
+        const Physics::MaterialId bouncyId = Physics::MaterialId::CreateFromAssetId(bouncyAsset.GetId());
+        ASSERT_EQ(materialManager->GetMaterial(bouncyId), nullptr)
+            << "the second slot's material existed before any body referenced it";
+
+        AzPhysics::StaticRigidBodyConfiguration slabConfig;
+        slabConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPair(slabCollider, slabShape);
+        m_scene->AddSimulatedBody(&slabConfig);
+
+        EXPECT_NE(materialManager->GetMaterial(bouncyId), nullptr)
+            << "the second slot was left for the first contact to create, which happens on a narrowphase worker";
+    }
+
 } // namespace JoltPhysics

@@ -70,6 +70,11 @@ namespace JoltPhysics
         //! contacts of existing bodies. Null when the index is out of range.
         AZStd::shared_ptr<Physics::Material> GetColliderMaterial(size_t colliderIndex) const;
 
+        //! The material one slot of a collider's material list resolves to. Resolved when
+        //! the body was built, so the contact callback can read it from a job thread.
+        AZStd::shared_ptr<Physics::Material> GetColliderMaterialForSlot(
+            size_t colliderIndex, size_t slotIndex) const;
+
         //! The configuration the given collider was created with (nullptr when the
         //! index is out of range or the collider came from a prebuilt Physics::Shape).
         const Physics::ColliderConfiguration* GetColliderConfiguration(size_t colliderIndex) const;

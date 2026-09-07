@@ -676,12 +676,27 @@ namespace JoltPhysics
             return rigidBody ? rigidBody->GetColliderConfiguration(index) : staticBody->GetColliderConfiguration(index);
         };
 
+        auto getColliderSlotMaterial = [rigidBody, staticBody](size_t colliderIndex, size_t slotIndex)
+        {
+            return rigidBody ? rigidBody->GetColliderMaterialForSlot(colliderIndex, slotIndex)
+                             : staticBody->GetColliderMaterialForSlot(colliderIndex, slotIndex);
+        };
+
         // Per-face trimesh materials: the mesh's tree carries a 5-bit material slot
         // index per triangle (baked by JoltMeshUtils from the product's per-face
         // table), resolved live against the collider's slot list.
-        auto resolvePerFaceMaterial = [&outFriction, &outRestitution](
+        //
+        // The slot's material is looked up in the table the body resolved when it was
+        // built, never asked of the MaterialManager. This runs on Jolt's narrowphase job
+        // threads, and resolving a slot there went through FindOrCreateMaterial, which
+        // inserts into a process-wide map with no lock: the first contact against a slot
+        // no body had used yet created the material on a worker, so two workers meeting
+        // unseen slots in the same step raced on that map. Only slot 0 is resolved at
+        // creation by the single-argument ResolveMaterial, so every slot from 1 up was
+        // reached this way exactly once - on whichever thread happened to touch it first.
+        auto resolvePerFaceMaterial = [&outFriction, &outRestitution, &getColliderSlotMaterial](
             const JPH::MeshShape* meshShape, const JPH::SubShapeID& meshSubShapeId,
-            const Physics::ColliderConfiguration* colliderConfig)
+            const Physics::ColliderConfiguration* colliderConfig, size_t colliderIndex)
         {
             const size_t slotCount = colliderConfig ? colliderConfig->m_materialSlots.GetSlotsCount() : 0;
             if (slotCount == 0)
@@ -689,8 +704,8 @@ namespace JoltPhysics
                 return false;
             }
             const AZ::u32 slotIndex = meshShape->GetMaterialIndex(meshSubShapeId);
-            const auto values = JoltMaterialManager::GetFrictionRestitution(
-                JoltMaterialManager::ResolveMaterial(*colliderConfig, slotIndex).get());
+            const auto values =
+                JoltMaterialManager::GetFrictionRestitution(getColliderSlotMaterial(colliderIndex, slotIndex).get());
             outFriction = values.first;
             outRestitution = values.second;
             return true;
@@ -714,7 +729,7 @@ namespace JoltPhysics
         if (const JPH::Shape* leafShape = UnwrapDecoratedShape(shape);
             leafShape && leafShape->GetSubType() == JPH::EShapeSubType::Mesh &&
             resolvePerFaceMaterial(
-                static_cast<const JPH::MeshShape*>(leafShape), subShapeId, getColliderConfig(0)))
+                static_cast<const JPH::MeshShape*>(leafShape), subShapeId, getColliderConfig(0), 0))
         {
             return true;
         }
@@ -783,7 +798,8 @@ namespace JoltPhysics
                 if (const JPH::Shape* childShape = UnwrapDecoratedShape(compoundShape->GetSubShape(subShapeIndex).mShape);
                     childShape && childShape->GetSubType() == JPH::EShapeSubType::Mesh &&
                     resolvePerFaceMaterial(
-                        static_cast<const JPH::MeshShape*>(childShape), remainder, getColliderConfig(colliderIndex)))
+                        static_cast<const JPH::MeshShape*>(childShape), remainder, getColliderConfig(colliderIndex),
+                        colliderIndex))
                 {
                     return true;
                 }

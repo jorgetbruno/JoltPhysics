@@ -22,9 +22,29 @@ namespace JoltPhysics
         AZStd::shared_ptr<Physics::Shape> m_shape;
         AZStd::shared_ptr<Physics::Material> m_material;
 
+        //! Every slot of the collider's material list, resolved once when the body is
+        //! built. A trimesh collider carries one slot per painted surface and the
+        //! contact callback needs whichever the touched triangle names - but that
+        //! callback runs on Jolt's narrowphase job threads, and resolving a slot there
+        //! meant calling FindOrCreateMaterial, which inserts into a process-wide map
+        //! with no lock. Two workers meeting an unseen slot in the same step raced on
+        //! it. Resolved here instead, the callback only indexes this vector.
+        AZStd::vector<AZStd::shared_ptr<Physics::Material>> m_slotMaterials;
+
         AZStd::shared_ptr<Physics::Material> Get() const
         {
             return m_shape ? m_shape->GetMaterial() : m_material;
+        }
+
+        //! The material for one slot of this collider, clamped to the slots that exist,
+        //! falling back to the collider's own material when it has no slot list.
+        AZStd::shared_ptr<Physics::Material> GetSlot(size_t slotIndex) const
+        {
+            if (m_slotMaterials.empty())
+            {
+                return Get();
+            }
+            return m_slotMaterials[AZStd::min(slotIndex, m_slotMaterials.size() - 1)];
         }
     };
 
@@ -42,6 +62,12 @@ namespace JoltPhysics
         //! registered.
         static AZStd::shared_ptr<Physics::Material> ResolveMaterial(
             const Physics::ColliderConfiguration& colliderConfiguration, size_t slotIndex = 0);
+
+        //! Every slot of a collider's material list, resolved in one pass. Empty when the
+        //! collider has no slots. Call it while building a body, never from a contact
+        //! callback: it can create materials, and the manager's map is not thread safe.
+        static AZStd::vector<AZStd::shared_ptr<Physics::Material>> ResolveMaterialSlots(
+            const Physics::ColliderConfiguration& colliderConfiguration);
 
         //! Reads the current {friction, restitution} values from a material
         //! (defaults when the material is null or not a JoltMaterial).

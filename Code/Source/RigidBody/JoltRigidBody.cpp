@@ -171,7 +171,9 @@ namespace JoltPhysics
             // cooking it a second time.
             m_colliderMaterials.push_back(
                 { colliderConfig && shapeConfig ? JoltShapeUtils::CreateShape(*colliderConfig, *shapeConfig) : nullptr,
-                  colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr });
+                  colliderConfig ? JoltMaterialManager::ResolveMaterial(*colliderConfig) : nullptr,
+                  colliderConfig ? JoltMaterialManager::ResolveMaterialSlots(*colliderConfig)
+                                 : AZStd::vector<AZStd::shared_ptr<Physics::Material>>{} });
         }
         for (const AZStd::shared_ptr<Physics::Shape>& prebuiltShape : prebuiltShapes)
         {
@@ -269,6 +271,13 @@ namespace JoltPhysics
     size_t JoltRigidBody::GetColliderCount() const
     {
         return m_colliderMaterials.size();
+    }
+
+    AZStd::shared_ptr<Physics::Material> JoltRigidBody::GetColliderMaterialForSlot(
+        size_t colliderIndex, size_t slotIndex) const
+    {
+        return colliderIndex < m_colliderMaterials.size() ? m_colliderMaterials[colliderIndex].GetSlot(slotIndex)
+                                                          : nullptr;
     }
 
     AZStd::shared_ptr<Physics::Material> JoltRigidBody::GetColliderMaterial(size_t colliderIndex) const
