@@ -1,3 +1,4 @@
+#include <cmath>
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -1230,6 +1231,53 @@ namespace JoltPhysics
         EXPECT_FLOAT_EQ(vehicleComponent->GetConfiguration().m_maxEngineTorque, 987.0f);
 
         entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, ADifferentialAimedBelowMinusOneIsRefusedRatherThanIndexingOffTheArray)
+    {
+        // Jolt reads -1 as "no wheel on this side" and indexes the wheel array with
+        // anything else, so a differential authored at -2 walked off the front of it. The
+        // validation only checked the upper bound.
+        JoltVehicleConfiguration config = MakeCarConfiguration();
+        config.m_differentials.clear();
+        JoltVehicleDifferential differential;
+        differential.m_leftWheel = -2;
+        differential.m_rightWheel = 3;
+        config.m_differentials.push_back(differential);
+
+        {
+            JoltWarningCatcher warnings;
+            CreateVehicle(AZ::Vector3(0.0f, 0.0f, 1.0f), config, AZ::Vector3(2.0f, 1.0f, 0.5f), 1200.0f);
+            EXPECT_TRUE(warnings.ContainsWarningWith("drive wheel index out of range"))
+                << "an out-of-range differential was accepted without a word";
+        }
+
+        // The vehicle still builds; the differential is simply left unconnected.
+        ASSERT_NE(m_vehicle, nullptr);
+        EXPECT_TRUE(m_vehicle->IsValid());
+        DriveSteps(1.0f, 0.0f, 0.0f, 60);
+        EXPECT_FALSE(std::isnan(m_vehicle->GetSpeed()));
+    }
+
+    TEST_F(JoltVehicleTests, DriverInputBeyondTheAllowedRangeIsClamped)
+    {
+        // Jolt scales engine torque by the absolute forward input and sets the steer angle
+        // to the right input times the maximum, so a script handing over 5.0 got five times
+        // the engine's torque and steered well past the lock - neither of which the
+        // configuration lets anyone author.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        ASSERT_NE(m_vehicle, nullptr);
+
+        DriveSteps(1.0f, 5.0f, 0.0f, 30);
+        const float steerAtFive = m_vehicle->GetWheelSteerAngle(0);
+
+        DriveSteps(1.0f, 1.0f, 0.0f, 30);
+        const float steerAtOne = m_vehicle->GetWheelSteerAngle(0);
+
+        EXPECT_NEAR(steerAtFive, steerAtOne, 1e-3f)
+            << "steering input of 5 gave " << steerAtFive << " rad against " << steerAtOne << " rad for 1";
+        EXPECT_LE(AZStd::abs(steerAtOne), AZ::DegToRad(35.0f) + 1e-3f) << "the wheel steered past its authored lock";
     }
 
 } // namespace JoltPhysics

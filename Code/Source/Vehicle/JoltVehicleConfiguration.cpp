@@ -192,7 +192,10 @@ namespace JoltPhysics
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleDifferential::m_limitedSlipRatio,
                         "Limited slip ratio", "Max/min wheel speed ratio beyond which all torque goes to the "
                         "slower wheel. Larger is closer to an open differential.")
-                        ->Attribute(AZ::Edit::Attributes::Min, 1.0f)
+                        // Jolt asserts on `> 1.0f`, strictly, inside the per-step
+                        // differential maths - so the inclusive 1.0 this used to allow
+                        // asserted on every step of a vehicle authored with it.
+                        ->Attribute(AZ::Edit::Attributes::Min, 1.01f)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltVehicleDifferential::m_engineTorqueRatio,
                         "Engine torque ratio", "Share of the engine's torque; all differentials should sum to 1.")
                         ->Attribute(AZ::Edit::Attributes::Min, 0.0f)

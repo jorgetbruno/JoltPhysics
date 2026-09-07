@@ -59,6 +59,14 @@ namespace JoltPhysics
         void SetBrakeInput(float brake);
         void SetHandBrakeInput(float handbrake);
 
+        //! The driver input as last set, so a rebuild can put it back. Jolt bakes the
+        //! configuration into the constraint, so changing it means building a new vehicle
+        //! - and a car mid-corner should not drop the throttle because of that.
+        [[nodiscard]] float GetForwardInput() const { return m_forwardInput; }
+        [[nodiscard]] float GetSteeringInput() const { return m_steeringInput; }
+        [[nodiscard]] float GetBrakeInput() const { return m_brakeInput; }
+        [[nodiscard]] float GetHandBrakeInput() const { return m_handBrakeInput; }
+
         //! Forces the transmission into the given gear (-1 = reverse, 0 = neutral,
         //! 1.. = forward gears) with the clutch fully engaged. In Automatic mode the
         //! auto-shifter takes over again from the new gear.

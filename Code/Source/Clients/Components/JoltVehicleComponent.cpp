@@ -282,6 +282,16 @@ namespace JoltPhysics
         if (!m_vehicle->IsValid())
         {
             DestroyVehicle();
+            return;
+        }
+
+        // Put back what the driver was doing before a configuration change rebuilt the
+        // vehicle under them.
+        if (m_hasPendingDriverInput)
+        {
+            m_vehicle->SetDriverInput(
+                m_pendingDriverInput[0], m_pendingDriverInput[1], m_pendingDriverInput[2], m_pendingDriverInput[3]);
+            m_hasPendingDriverInput = false;
         }
     }
 
@@ -447,6 +457,17 @@ namespace JoltPhysics
         // Jolt bakes the configuration into the constraint at creation, so runtime
         // config edits only land through a rebuild. Destroy now and let the tick
         // recreate exactly like first activation (the chassis body must still exist).
+        //
+        // The driver input comes across, because a rebuild is a consequence of editing
+        // the configuration and not of anything the driver did: a car mid-corner used to
+        // drop the throttle and centre the wheel the moment a script changed a setting.
+        if (m_vehicle)
+        {
+            m_pendingDriverInput = { m_vehicle->GetForwardInput(), m_vehicle->GetSteeringInput(),
+                                     m_vehicle->GetBrakeInput(), m_vehicle->GetHandBrakeInput() };
+            m_hasPendingDriverInput = true;
+        }
+
         DestroyVehicle();
         if (!AZ::TickBus::Handler::BusIsConnected())
         {
@@ -493,6 +514,11 @@ namespace JoltPhysics
         {
             AZ::Transform chassisWorld = AZ::Transform::CreateIdentity();
             AZ::TransformBus::EventResult(chassisWorld, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+            // Without the scale. The wheel pose is relative to the physics body, and wheel
+            // positions were sent to Jolt as authored, unscaled - so composing with a
+            // scaled entity transform pushed the wheels outward by the scale factor and
+            // drew them away from the car they belong to.
+            chassisWorld.ExtractUniformScale();
             return chassisWorld * wheelLocal;
         }
         return AZ::Transform::CreateIdentity();

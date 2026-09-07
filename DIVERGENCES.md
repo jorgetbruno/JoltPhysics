@@ -318,6 +318,11 @@ feature, trust the topic sections below the milestones.**
   configuration into the constraint at creation, so the component deliberately does
   not watch the config for changes - a rebuild mid-drive resets drivetrain state and
   should be explicit.
+- **Steering is a single angle applied to every steered wheel**: no Ackermann geometry, so
+  the inner and outer wheels of a turn take the same angle, and no rate limiting, so the
+  lock is reached the instant the input does. Jolt's wheeled controller offers neither and
+  the gem adds neither. A project coming from a vehicle model that had Ackermann will
+  notice it most in slow, full-lock manoeuvring.
 - **Terrain-dependent grip is a C++ hook**: `JoltVehicle::SetCombineFriction` wraps
   Jolt's combine-friction callback and hands the callback the entity under the wheel;
   it is not on the bus because an `AZStd::function` cannot cross into script. The

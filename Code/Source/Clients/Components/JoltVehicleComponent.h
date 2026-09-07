@@ -1,5 +1,6 @@
 #pragma once
 
+#include <AzCore/std/containers/array.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/TickBus.h>
 
@@ -93,6 +94,12 @@ namespace JoltPhysics
         AZStd::string m_serializedIdentifier;
 
         JoltVehicle* m_vehicle = nullptr;
+
+        //! Driver input carried across a RecreateVehicle: forward, steering, brake,
+        //! handbrake. A configuration change rebuilds the vehicle, and the driver did not
+        //! ask for the throttle to drop while that happened.
+        AZStd::array<float, 4> m_pendingDriverInput = { 0.0f, 0.0f, 0.0f, 0.0f };
+        bool m_hasPendingDriverInput = false;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
     };
 } // namespace JoltPhysics

@@ -163,6 +163,14 @@ namespace JoltPhysics
                 wheel.m_position = AZ::Vector3(x, y, -0.2f);
                 wheel.m_maxSteerAngleDegrees = steerDegrees;
                 wheel.m_radius = radius;
+                // A handbrake locks the rear wheels, not the steered ones. Jolt sums the
+                // brake and handbrake torques per wheel, so leaving the field's 1000 Nm
+                // on the front axle - twice the 500 Nm foot brake - made the handbrake a
+                // stronger, four-wheel brake and took the handbrake turn with it.
+                if (steerDegrees > 0.0f)
+                {
+                    wheel.m_maxHandBrakeTorque = 0.0f;
+                }
                 wheels.push_back(wheel);
             };
 
@@ -296,14 +304,6 @@ namespace JoltPhysics
             return;
         }
 
-        if (configuration.m_chassisMass > 0.0f)
-        {
-            if (JPH::MotionProperties* motionProperties = m_chassisBody->GetMotionProperties())
-            {
-                motionProperties->ScaleToMass(configuration.m_chassisMass);
-            }
-        }
-
         JoltVehicleConfiguration effectiveConfiguration = configuration;
         if (effectiveConfiguration.m_wheels.empty())
         {
@@ -350,6 +350,18 @@ namespace JoltPhysics
 
         m_scene->GetJoltPhysicsSystem()->AddConstraint(m_constraint);
         m_scene->GetJoltPhysicsSystem()->AddStepListener(m_constraint);
+
+        // After the vehicle exists, not before it is validated. Rescaling first meant a
+        // configuration that then failed to build - no wheels, no controller - still had
+        // its chassis mass rewritten and left that way, with the configuration's own "0
+        // means keep the body's mass" no longer true of the body.
+        if (effectiveConfiguration.m_chassisMass > 0.0f)
+        {
+            if (JPH::MotionProperties* motionProperties = m_chassisBody->GetMotionProperties())
+            {
+                motionProperties->ScaleToMass(effectiveConfiguration.m_chassisMass);
+            }
+        }
 
         if (m_vehicleType == JoltVehicleType::Tracked)
         {
@@ -405,7 +417,10 @@ namespace JoltPhysics
         const int wheelCount = static_cast<int>(configuration.m_wheels.size());
         for (const JoltVehicleDifferential& differentialConfig : EffectiveDifferentials(configuration))
         {
-            if (differentialConfig.m_leftWheel >= wheelCount || differentialConfig.m_rightWheel >= wheelCount)
+            // Jolt reads -1 as "no wheel on this side" and indexes the wheel array with
+            // anything else, so a negative index below -1 walked off the front of it.
+            if (differentialConfig.m_leftWheel >= wheelCount || differentialConfig.m_rightWheel >= wheelCount ||
+                differentialConfig.m_leftWheel < -1 || differentialConfig.m_rightWheel < -1)
             {
                 AZ_Warning("JoltPhysics", false,
                     "Vehicle%s has a drive wheel index out of range (left %d, right %d, %d wheels); this "
@@ -424,7 +439,10 @@ namespace JoltPhysics
             differential.mRightWheel = differentialConfig.m_rightWheel;
             differential.mDifferentialRatio = differentialConfig.m_differentialRatio;
             differential.mLeftRightSplit = differentialConfig.m_leftRightSplit;
-            differential.mLimitedSlipRatio = differentialConfig.m_limitedSlipRatio;
+            // Clamped above 1, not at it: Jolt asserts on `> 1.0f` strictly inside the
+            // per-step differential maths, so a value of exactly 1 - which the inspector
+            // used to accept, and old data may still carry - asserted on every step.
+            differential.mLimitedSlipRatio = AZStd::max(differentialConfig.m_limitedSlipRatio, 1.01f);
             differential.mEngineTorqueRatio = differentialConfig.m_engineTorqueRatio;
             controllerSettings->mDifferentials.push_back(differential);
         }
@@ -501,15 +519,23 @@ namespace JoltPhysics
             largestRadius = AZStd::max(largestRadius, wheel.m_radius);
         }
 
+        // The chassis' own object layer, so the wheels look for ground through the same
+        // collision layer and group the car itself uses. All three testers were built
+        // with the catch-all Moving layer, which collides with everything - so a car on a
+        // layer set up to ignore, say, foliage or a trigger volume still found ground on
+        // it, and the wheels climbed things the body passed straight through.
+        const JPH::ObjectLayer castLayer =
+            m_chassisBody != nullptr ? m_chassisBody->GetObjectLayer() : ObjectLayers::Moving;
+
         switch (configuration.m_collisionTester)
         {
         case JoltVehicleCollisionTester::Sphere:
-            return new JPH::VehicleCollisionTesterCastSphere(ObjectLayers::Moving, largestRadius, up);
+            return new JPH::VehicleCollisionTesterCastSphere(castLayer, largestRadius, up);
         case JoltVehicleCollisionTester::Cylinder:
-            return new JPH::VehicleCollisionTesterCastCylinder(ObjectLayers::Moving);
+            return new JPH::VehicleCollisionTesterCastCylinder(castLayer);
         case JoltVehicleCollisionTester::Ray:
         default:
-            return new JPH::VehicleCollisionTesterRay(ObjectLayers::Moving, up);
+            return new JPH::VehicleCollisionTesterRay(castLayer, up);
         }
     }
 
@@ -576,6 +602,12 @@ namespace JoltPhysics
                     "Tracked vehicle%s has no wheels on one of its sides. Wheels are assigned to the left or right "
                     "track by the sign of their Y position, so both signs need to be represented.",
                     Internal::NameClause(configuration.m_debugName).c_str());
+                // VehicleTrackSettings::mDrivenWheel has no default and is unsigned, so
+                // there is no "no wheel" value; the settings are handed to Jolt whether or
+                // not this track got any wheels, and an empty one carried whatever was on
+                // the stack into code that indexes the vehicle's wheel array with it.
+                // Wheel 0 exists whenever the vehicle does, so it is the safe answer.
+                track.mDrivenWheel = 0;
                 continue;
             }
 
@@ -669,7 +701,16 @@ namespace JoltPhysics
         }
         else if (m_wheeledController)
         {
-            m_wheeledController->SetDriverInput(m_forwardInput, m_steeringInput, m_brakeInput, m_handBrakeInput);
+            // Clamped, as the tracked path already clamps its steering. Jolt scales engine
+            // torque by the absolute forward input and sets the steer angle to the right
+            // input times the maximum, so a script handing over 2.0 got twice the engine's
+            // torque and steered past the lock - neither of which the configuration allows
+            // to be authored.
+            m_wheeledController->SetDriverInput(
+                AZStd::clamp(m_forwardInput, -1.0f, 1.0f),
+                AZStd::clamp(m_steeringInput, -1.0f, 1.0f),
+                AZStd::clamp(m_brakeInput, 0.0f, 1.0f),
+                AZStd::clamp(m_handBrakeInput, 0.0f, 1.0f));
         }
 
         // Wake the chassis when input is applied: a sleeping body makes the constraint
