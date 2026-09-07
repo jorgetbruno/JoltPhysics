@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include "JoltTestWarningCatcher.h"
 #include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -401,14 +402,25 @@ namespace JoltPhysics
         config.m_lockAngularX = config.m_lockAngularY = config.m_lockAngularZ = true;
 
         // Jolt documents EAllowedDOFs::None as invalid and crashing, so the gem warns and
-        // ignores the locks instead of handing that to Jolt.
-        AZ_TEST_START_TRACE_SUPPRESSION;
-        auto* body = AddConfiguredBox(m_scene, config);
-        AZ_TEST_STOP_TRACE_SUPPRESSION_NO_COUNT;
+        // ignores the locks instead of handing that to Jolt. Both halves are checked: the
+        // test used to swallow the diagnostic without counting it and then assert
+        // SUCCEED(), so it passed whether the gem warned, said nothing, or ignored the
+        // locks for some other reason entirely.
+        AzPhysics::RigidBody* body = nullptr;
+        {
+            JoltWarningCatcher warnings;
+            body = AddConfiguredBox(m_scene, config);
+            EXPECT_TRUE(warnings.ContainsWarningWith("degrees of freedom"))
+                << "locking every axis was accepted without a word";
+        }
 
         ASSERT_NE(body, nullptr);
+        const float startZ = body->GetPosition().GetZ();
         SimulateSeconds(0.25f);
-        SUCCEED();
+
+        // Ignored, not obeyed: the body falls as though nothing had been locked.
+        EXPECT_LT(body->GetPosition().GetZ(), startZ - 0.1f)
+            << "the body did not move, so the locks were handed to Jolt after all";
     }
 
     TEST_F(JoltRigidBodyTests, AnAuthoredInertiaTensorResistsRotationMoreThanTheComputedOne)

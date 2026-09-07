@@ -1,4 +1,5 @@
 #include <AzTest/AzTest.h>
+#include "JoltTestWarningCatcher.h"
 #include <AzFramework/Physics/Configuration/SystemConfiguration.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -861,12 +862,19 @@ namespace JoltPhysics
 
         JoltSoftBodyConfiguration configuration;
         configuration.m_settings = m_pendingSettings;
-        AZ_TEST_START_TRACE_SUPPRESSION;
-        m_softBodyHandle = m_scene->AddSimulatedBody(&configuration);
-        AZ_TEST_STOP_TRACE_SUPPRESSION_NO_COUNT;
+        {
+            JoltWarningCatcher warnings;
+            m_softBodyHandle = m_scene->AddSimulatedBody(&configuration);
+            EXPECT_FALSE(warnings.m_warnings.empty()) << "a mesh soft body with no asset was refused silently";
+        }
 
-        // The add fails gracefully rather than crashing or leaving a particle-less body.
-        EXPECT_TRUE(SoftBody() == nullptr || SoftBody()->GetVertexCount() == 0);
+        // Pinned, rather than "either outcome will do". What the gem actually does is
+        // create the body and leave it with no particles, so it sits in the scene inert:
+        // it simulates nothing, collides with nothing and reports nothing. The old
+        // assertion accepted a null body or an empty one and swallowed the diagnostic
+        // without counting it, so it passed whatever happened.
+        ASSERT_NE(SoftBody(), nullptr) << "the body is created; it is simply left empty";
+        EXPECT_EQ(SoftBody()->GetVertexCount(), 0u) << "a mesh soft body with no asset produced particles";
     }
 
     //! Records what arrives on the soft body notification bus.

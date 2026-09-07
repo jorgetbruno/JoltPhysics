@@ -1271,4 +1271,34 @@ namespace JoltPhysics
         EXPECT_LE(AZStd::abs(steerAtOne), AZ::DegToRad(35.0f) + 1e-3f) << "the wheel steered past its authored lock";
     }
 
+    TEST_F(JoltVehicleTests, BrakingStopsTheCarSoonerThanCoasting)
+    {
+        // The brake phase of the drive test asserts the car is slow after six seconds of
+        // braking, which engine braking and rolling resistance would also achieve on their
+        // own - so it could not tell a working brake from no brake at all. This compares
+        // the two.
+        auto measureSpeedAfter = [this](float brake)
+        {
+            CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 200.0f, 1.0f));
+            CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+            DriveSteps(1.0f, 0.0f, 0.0f, 180); // get it moving
+            const float speedBefore = m_vehicle->GetSpeed();
+            EXPECT_GT(speedBefore, 3.0f) << "the car never got up to speed";
+
+            DriveSteps(0.0f, 0.0f, brake, 60); // one second, brake or coast
+            const float speedAfter = m_vehicle->GetSpeed();
+
+            m_vehicle.reset();
+            return AZStd::make_pair(speedBefore, speedAfter);
+        };
+
+        const auto coasting = measureSpeedAfter(0.0f);
+        const auto braking = measureSpeedAfter(1.0f);
+
+        EXPECT_LT(braking.second, coasting.second - 1.0f)
+            << "a second of full braking left the car at " << braking.second << " m/s against " << coasting.second
+            << " m/s coasting; the brake is doing nothing the drivetrain would not do anyway";
+    }
+
 } // namespace JoltPhysics

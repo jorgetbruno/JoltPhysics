@@ -62,6 +62,14 @@ namespace JoltPhysics
 
         AZ::Vector3 gravity = m_scene->GetGravity();
         EXPECT_FLOAT_EQ(gravity.GetZ(), -20.0f);
+
+        // And it reached Jolt. Reading the value back only proves the setter stored it -
+        // GetGravity answers from the scene's own copy, so this test passed unchanged even
+        // with the line that forwards to the physics system deleted.
+        auto* joltScene = azdynamic_cast<JoltScene*>(m_scene);
+        ASSERT_NE(joltScene, nullptr);
+        ASSERT_NE(joltScene->GetJoltPhysicsSystem(), nullptr);
+        EXPECT_FLOAT_EQ(joltScene->GetJoltPhysicsSystem()->GetGravity().GetZ(), -20.0f);
     }
 
     TEST_F(JoltSceneTests, SceneCanBeDisabled)
