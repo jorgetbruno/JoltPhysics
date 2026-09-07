@@ -563,6 +563,57 @@ namespace JoltPhysics
         EXPECT_NEAR(body->GetPosition().GetZ(), 1.0f, 0.1f);
     }
 
+    TEST_F(JoltRigidBodyTests, AKinematicBodyStopsAtItsTargetInsteadOfSailingPast)
+    {
+        // MoveKinematic works by setting a velocity that carries the body to the target in
+        // one step, and nothing clears it afterwards. A target set once and then left -
+        // which is what a platform driven from a script does between transform changes -
+        // therefore kept moving at that speed forever, and a frame that ran two steps
+        // moved it twice as far as asked.
+        auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
+        ASSERT_NE(body, nullptr);
+        body->SetKinematic(true);
+
+        body->SetKinematicTarget(AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 1.0f)));
+
+        // One step reaches it...
+        SimulateSeconds(1.0f / 60.0f);
+        EXPECT_NEAR(body->GetPosition().GetZ(), 1.0f, 0.05f);
+
+        // ...and ten more with nothing further asked of it leave it there.
+        SimulateSeconds(10.0f / 60.0f);
+        EXPECT_NEAR(body->GetPosition().GetZ(), 1.0f, 0.05f)
+            << "the body kept moving after it reached the target it was given";
+    }
+
+    TEST_F(JoltRigidBodyTests, AKinematicBodyCoversTheSameGroundWhateverTheStepCount)
+    {
+        // The target is set once, as a transform change from a script would set it, and
+        // then a whole second of simulation runs. Where the body ends up must not depend
+        // on how many steps that second was cut into.
+        auto measure = [this](int stepsInTheSecond)
+        {
+            auto* body = CreateDynamicBox(AZ::Vector3::CreateZero());
+            body->SetKinematic(true);
+            body->SetKinematicTarget(AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 1.0f)));
+
+            const float stepTime = 1.0f / static_cast<float>(stepsInTheSecond);
+            for (int i = 0; i < stepsInTheSecond; ++i)
+            {
+                m_scene->StartSimulation(stepTime);
+                m_scene->FinishSimulation();
+            }
+            return body->GetPosition().GetZ();
+        };
+
+        const float atOneStep = measure(1);
+        const float atSixtySteps = measure(60);
+        EXPECT_NEAR(atOneStep, 1.0f, 0.05f);
+        EXPECT_NEAR(atSixtySteps, atOneStep, 0.05f)
+            << "the body ended at " << atSixtySteps << " over sixty steps against " << atOneStep
+            << " over one; the target's velocity is being spent more than once";
+    }
+
     TEST_F(JoltRigidBodyTests, DisabledSimulationFreezesBodyUntilReenabled)
     {
         auto* body = CreateDynamicBox(AZ::Vector3(0.0f, 0.0f, 10.0f));

@@ -201,6 +201,14 @@ namespace JoltPhysics
                 // frame rate - see ResetCharacterVelocitiesForTick.
                 character->ApplyRequestedVelocity(deltaTime);
             }
+            else if (auto* rigidBody = azdynamic_cast<JoltRigidBody*>(body); rigidBody && rigidBody->HasKinematicTarget())
+            {
+                // Re-aimed every step at the target it was last given, so the velocity
+                // Jolt derives is sized for this step and falls to zero on arrival. Set
+                // once and left alone, it carried the body past the target and moved it
+                // twice as far on a frame that ran two steps.
+                rigidBody->ApplyKinematicTargetForStep(deltaTime);
+            }
         }
 
         // The base class owns these events and hands out handler registration, but only

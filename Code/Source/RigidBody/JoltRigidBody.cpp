@@ -411,17 +411,34 @@ namespace JoltPhysics
 
     void JoltRigidBody::SetKinematicTarget(const AZ::Transform& targetPosition)
     {
-        if (m_scene && !m_bodyId.IsInvalid())
+        // Remembered, not just handed to Jolt once. MoveKinematic works by setting a
+        // velocity that carries the body to the target in one step of the given length,
+        // and nothing clears that velocity afterwards - so a target set once per frame
+        // moved the body twice as far on a frame that ran two steps, and carried on
+        // sailing past the target on every step after it arrived. The scene re-aims the
+        // body at this target on each step instead, which makes the velocity fall to
+        // zero exactly on arrival.
+        m_kinematicTarget = targetPosition;
+        m_hasKinematicTarget = true;
+
+        ApplyKinematicTargetForStep(
+            m_scene && m_scene->GetCurrentDeltaTime() > 0.0f ? m_scene->GetCurrentDeltaTime() : 1.0f / 60.0f);
+    }
+
+    void JoltRigidBody::ApplyKinematicTargetForStep(float deltaTime)
+    {
+        if (!m_hasKinematicTarget || !m_scene || m_bodyId.IsInvalid() || deltaTime <= 0.0f)
         {
-            if (auto* bodyInterface = m_scene->GetBodyInterface())
-            {
-                bodyInterface->MoveKinematic(
-                    m_bodyId,
-                    Conversions::ToJolt(targetPosition.GetTranslation()),
-                    Conversions::ToJolt(targetPosition.GetRotation()),
-                    m_scene->GetCurrentDeltaTime() > 0.0f ? m_scene->GetCurrentDeltaTime() : 1.0f / 60.0f
-                );
-            }
+            return;
+        }
+
+        if (auto* bodyInterface = m_scene->GetBodyInterface())
+        {
+            bodyInterface->MoveKinematic(
+                m_bodyId,
+                Conversions::ToJolt(m_kinematicTarget.GetTranslation()),
+                Conversions::ToJolt(m_kinematicTarget.GetRotation()),
+                deltaTime);
         }
     }
 

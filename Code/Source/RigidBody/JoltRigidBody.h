@@ -100,6 +100,16 @@ namespace JoltPhysics
         void SetKinematic(bool isKinematic) override;
         bool IsKinematic() const override;
         void SetKinematicTarget(const AZ::Transform& targetPosition) override;
+
+        //! Re-aims the body at its kinematic target for a step of the given length.
+        //! Jolt's MoveKinematic works by setting a velocity that carries the body to the
+        //! target in one step and never clears it, so a target set once per frame
+        //! overshot whenever a frame ran more than one step, and kept drifting after it
+        //! arrived. Re-aiming each step makes the velocity fall to zero on arrival, which
+        //! is what "reach this pose in the next step and stop" means. A no-op for a body
+        //! with no target.
+        void ApplyKinematicTargetForStep(float deltaTime);
+        [[nodiscard]] bool HasKinematicTarget() const { return m_hasKinematicTarget; }
         bool IsGravityEnabled() const override;
         void SetGravityEnabled(bool enabled) override;
         void SetSimulationEnabled(bool enabled) override;
@@ -159,6 +169,9 @@ namespace JoltPhysics
         JPH::RefConst<JPH::Shape> m_baseShape; //!< Unshifted shape from creation; re-wrapped on COM offset changes.
         AZ::EntityId m_entityId;
         bool m_isKinematic = false;
+        //! Where SetKinematicTarget last asked this body to be, re-aimed at every step.
+        AZ::Transform m_kinematicTarget = AZ::Transform::CreateIdentity();
+        bool m_hasKinematicTarget = false;
         bool m_isSensor = false;
         bool m_simulationEnabled = true;
         bool m_removedFromWorld = false;
