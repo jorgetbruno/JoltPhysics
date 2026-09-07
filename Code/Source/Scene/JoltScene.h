@@ -55,6 +55,14 @@ namespace JoltPhysics
 
         void StartSimulation(float deltaTime) override;
         void FinishSimulation() override;
+
+        //! Discards what AddVelocityForTick asked for on every character in this scene.
+        //! The engine defines that request as lasting until the end of the game tick, so
+        //! it is cleared once per frame - by JoltSystem::Simulate, after it has run
+        //! however many fixed steps the frame's elapsed time paid for - and not per step.
+        //! A frame that steps twice must move the character twice, and a frame that steps
+        //! none must not bank the request for the next one.
+        void ResetCharacterVelocitiesForTick();
         void SetEnabled(bool enable) override;
         [[nodiscard]] bool IsEnabled() const override;
         [[nodiscard]] const AzPhysics::SceneConfiguration& GetConfiguration() const override;

@@ -335,6 +335,36 @@ namespace JoltPhysics
             entity->Deactivate();
             return fallen;
         }
+
+        static constexpr float DrivenSpeed = 3.0f;
+
+        //! How far a script-driven character travels in one second of *simulation*, asking
+        //! for the same velocity once per frame the way a movement script does. Like the
+        //! fall, the answer must not depend on the frame rate.
+        float DrivenDistanceAtFrameRate(float framesPerSecond)
+        {
+            auto entity = CreateCharacter(AZ::Vector3(0.0f, 0.0f, 50.0f));
+            const float frameDeltaTime = 1.0f / framesPerSecond;
+            const AZ::Vector3 requested(DrivenSpeed, 0.0f, 0.0f);
+
+            AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, frameDeltaTime, AZ::ScriptTimePoint());
+            const float startX = EntityPosition(entity->GetId()).GetX();
+
+            const int frames = static_cast<int>(framesPerSecond);
+            for (int frame = 0; frame < frames; ++frame)
+            {
+                // The order a movement script runs in: ask for this tick's velocity, then
+                // let the frame's physics happen.
+                Physics::CharacterRequestBus::Event(
+                    entity->GetId(), &Physics::CharacterRequests::AddVelocityForTick, requested);
+                m_system->Simulate(frameDeltaTime);
+                AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, frameDeltaTime, AZ::ScriptTimePoint());
+            }
+
+            const float travelled = EntityPosition(entity->GetId()).GetX() - startX;
+            entity->Deactivate();
+            return travelled;
+        }
     };
 
     TEST_F(JoltCharacterFrameRateTests, ACharacterFallsAtTheSameRateWhateverTheFrameRate)
@@ -354,6 +384,26 @@ namespace JoltPhysics
         EXPECT_NEAR(at240, at60, 0.5f)
             << "the character fell " << at240 << " m at 240fps against " << at60
             << " m at 60fps; gravity is being applied per frame instead of per step";
+    }
+
+    TEST_F(JoltCharacterFrameRateTests, AScriptedCharacterCoversTheSameGroundWhateverTheFrameRate)
+    {
+        // The engine defines AddVelocityForTick as a request that lasts until the end of
+        // the game tick (AzFramework/Physics/Character.h). The scene cleared it once per
+        // *physics step* instead, which is a different clock and only the same one at
+        // exactly the physics rate. Above it most frames run no step, so several frames'
+        // requests piled into the single step that did run; below it one frame runs
+        // several steps and only the first was driven.
+        const float at60 = DrivenDistanceAtFrameRate(60.0f);
+        const float at120 = DrivenDistanceAtFrameRate(120.0f);
+        const float at30 = DrivenDistanceAtFrameRate(30.0f);
+
+        // A second at 3 m/s is 3 m, whoever is watching.
+        EXPECT_NEAR(at60, DrivenSpeed, 0.2f) << "a second of driving did not cover a second's worth of ground";
+        EXPECT_NEAR(at120, at60, 0.2f) << "the character covered " << at120 << " m at 120fps against " << at60
+                                       << " m at 60fps; the per-tick request is being spent per step";
+        EXPECT_NEAR(at30, at60, 0.2f) << "the character covered " << at30 << " m at 30fps against " << at60
+                                      << " m at 60fps; steps after the first in a frame are undriven";
     }
 
     TEST_F(JoltMotionInterpolationTests, MotionIsNotInterpolatedUnlessAsked)

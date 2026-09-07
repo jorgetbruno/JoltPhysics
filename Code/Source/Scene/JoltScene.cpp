@@ -193,10 +193,13 @@ namespace JoltPhysics
         {
             if (auto* character = azdynamic_cast<JoltCharacter*>(body))
             {
+                // The per-step request is consumed and cleared here, inside
+                // ApplyRequestedVelocity. The per-*tick* request is not: it belongs to the
+                // game tick that asked for it and has to survive every step that tick
+                // drives, so JoltSystem::Simulate clears it once the frame's stepping is
+                // done. Clearing it here instead made scripted movement scale with the
+                // frame rate - see ResetCharacterVelocitiesForTick.
                 character->ApplyRequestedVelocity(deltaTime);
-                // Per-tick and per-step requests coincide in this backend: the scene
-                // applies accumulated requests once per simulation step.
-                character->ResetRequestedVelocityForTick();
             }
         }
 
@@ -210,6 +213,17 @@ namespace JoltPhysics
 
         ++m_simulationStep;
         m_physicsSystem->Update(deltaTime, m_collisionSteps, m_tempAllocator, m_jobSystem);
+    }
+
+    void JoltScene::ResetCharacterVelocitiesForTick()
+    {
+        for (auto& [crc, body] : m_simulatedBodies)
+        {
+            if (auto* character = azdynamic_cast<JoltCharacter*>(body))
+            {
+                character->ResetRequestedVelocityForTick();
+            }
+        }
     }
 
     void JoltScene::FinishSimulation()

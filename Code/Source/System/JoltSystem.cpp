@@ -275,6 +275,20 @@ namespace JoltPhysics
             ++m_stepCount;
         }
 
+        // The game tick is over, so the velocity requests made for it are over too. This
+        // sits outside the step loop on purpose, and covers disabled scenes as well: a
+        // frame whose elapsed time paid for no step must still discard what it asked for,
+        // or the request is banked and spent alongside the next frame's. Banking it is
+        // what made scripted character movement scale with the frame rate - a character
+        // driven at 120fps covered twice the ground it did at 60.
+        for (size_t index = 0; index < sceneCountAtEntry && index < m_sceneList.size(); ++index)
+        {
+            if (auto* joltScene = azdynamic_cast<JoltScene*>(m_sceneList[index].get()))
+            {
+                joltScene->ResetCharacterVelocitiesForTick();
+            }
+        }
+
         m_simulating = false;
         FlushDeferredSceneRemovals();
     }

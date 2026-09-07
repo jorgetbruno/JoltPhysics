@@ -141,7 +141,17 @@ namespace JoltPhysics
             return m_scene->AddSimulatedBody(&configuration);
         }
 
-        //! Requests the given velocity for the character each step and simulates.
+        //! One whole game frame: the fixed steps that frame's elapsed time pays for, and
+        //! then the end of the frame, where the requests made for this tick expire.
+        //! Stepping the scene directly instead would run physics without ever ending a
+        //! tick - a state the engine is never in - and it hid the per-tick velocity
+        //! accumulating across steps for as long as these tests have existed.
+        void StepFrame(float frameDeltaTime)
+        {
+            m_system->Simulate(frameDeltaTime);
+        }
+
+        //! Requests the given velocity for the character each frame and simulates.
         void WalkCharacter(JoltCharacter* character, const AZ::Vector3& velocity, float seconds)
         {
             const float fixedDeltaTime = 1.0f / 60.0f;
@@ -149,8 +159,7 @@ namespace JoltPhysics
             for (int i = 0; i < steps; ++i)
             {
                 character->AddVelocityForTick(velocity);
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                StepFrame(fixedDeltaTime);
             }
         }
 
@@ -160,8 +169,7 @@ namespace JoltPhysics
             const int steps = static_cast<int>(seconds / fixedDeltaTime);
             for (int i = 0; i < steps; ++i)
             {
-                m_scene->StartSimulation(fixedDeltaTime);
-                m_scene->FinishSimulation();
+                StepFrame(fixedDeltaTime);
             }
         }
 
@@ -299,8 +307,7 @@ namespace JoltPhysics
                 velocity += AZ::Vector3(0.0f, 0.0f, -9.81f) * fixedDeltaTime;
             }
             character->AddVelocityForTick(velocity);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            StepFrame(fixedDeltaTime);
         }
 
         // Capsule center should rest at half height (0.9 m) above the ground (z=0).
@@ -386,8 +393,7 @@ namespace JoltPhysics
         for (int i = 0; i < 60; ++i)
         {
             character->AddVelocityForTick(AZ::Vector3(2.0f, 0.0f, -1.0f));
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            StepFrame(fixedDeltaTime);
             if (!character->IsOnGround())
             {
                 ++airborneSteps;
@@ -474,8 +480,7 @@ namespace JoltPhysics
                 velocity += AZ::Vector3(0.0f, 0.0f, -9.81f) * fixedDeltaTime;
             }
             character->AddVelocityForTick(velocity);
-            m_scene->StartSimulation(fixedDeltaTime);
-            m_scene->FinishSimulation();
+            StepFrame(fixedDeltaTime);
         }
 
         EXPECT_TRUE(character->IsOnGround());
