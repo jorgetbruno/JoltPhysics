@@ -238,7 +238,13 @@ namespace JoltPhysics
 
     bool JoltStaticRigidBodyComponent::IsPhysicsEnabled() const
     {
-        return m_bodyHandle != AzPhysics::InvalidSimulatedBodyHandle;
+        // In the simulation, not merely built - see the note on the dynamic component.
+        // Enable/DisablePhysics here are unguarded, so this reported enabled while the
+        // body sat outside the simulation, and OnPhysicsEnabled/OnPhysicsDisabled
+        // handlers registering against the bus were told the wrong thing.
+        const AzPhysics::SimulatedBody* body =
+            const_cast<JoltStaticRigidBodyComponent*>(this)->GetSimulatedBody();
+        return body != nullptr && body->m_simulating;
     }
 
     AzPhysics::SimulatedBodyHandle JoltStaticRigidBodyComponent::GetSimulatedBodyHandle() const

@@ -301,6 +301,66 @@ namespace JoltPhysics
         entity->Deactivate();
     }
 
+    class JoltPhysicsEnableTests : public JoltComponentBodyCreationTests
+    {
+    protected:
+        static constexpr float FrameDeltaTime = 1.0f / 60.0f;
+
+        AZStd::unique_ptr<AZ::Entity> CreateDynamicBody(const AZ::Vector3& position)
+        {
+            auto entity = AZStd::make_unique<AZ::Entity>("Prop");
+            entity->CreateComponent<AzFramework::TransformComponent>();
+            auto* collider = entity->CreateComponent<JoltBoxColliderComponent>();
+            collider->GetShapeConfiguration().m_dimensions = AZ::Vector3::CreateOne();
+            entity->CreateComponent<JoltRigidBodyComponent>();
+
+            entity->Init();
+            AZ::TransformBus::Event(entity->GetId(), &AZ::TransformBus::Events::SetWorldTranslation, position);
+            entity->Activate();
+            return entity;
+        }
+
+        static bool PhysicsEnabledOn(AZ::EntityId entityId)
+        {
+            bool enabled = false;
+            AzPhysics::SimulatedBodyComponentRequestsBus::EventResult(
+                enabled, entityId, &AzPhysics::SimulatedBodyComponentRequests::IsPhysicsEnabled);
+            return enabled;
+        }
+    };
+
+    TEST_F(JoltPhysicsEnableTests, EnablePhysicsPutsABodyBackAfterDisablePhysicsTookItOut)
+    {
+        // The three calls are one contract: whatever DisablePhysics does, EnablePhysics
+        // has to undo. It could not, because EnablePhysics guards on IsPhysicsEnabled and
+        // that reported whether a body had ever been built rather than whether it was in
+        // the simulation - so it stayed true through the disable and the guard swallowed
+        // every attempt to switch physics back on. A prop a script picked up could never
+        // be dropped.
+        auto entity = CreateDynamicBody(AZ::Vector3(0.0f, 0.0f, 20.0f));
+        SimulateFrames(FrameDeltaTime, 2);
+        ASSERT_TRUE(PhysicsEnabledOn(entity->GetId()));
+
+        AzPhysics::SimulatedBodyComponentRequestsBus::Event(
+            entity->GetId(), &AzPhysics::SimulatedBodyComponentRequests::DisablePhysics);
+        EXPECT_FALSE(PhysicsEnabledOn(entity->GetId()))
+            << "a body taken out of the simulation still reports that it is in it";
+
+        const float parkedZ = EntityPosition(entity->GetId()).GetZ();
+        SimulateFrames(FrameDeltaTime, 30);
+        EXPECT_NEAR(EntityPosition(entity->GetId()).GetZ(), parkedZ, 1e-3f) << "a disabled body kept falling";
+
+        AzPhysics::SimulatedBodyComponentRequestsBus::Event(
+            entity->GetId(), &AzPhysics::SimulatedBodyComponentRequests::EnablePhysics);
+        EXPECT_TRUE(PhysicsEnabledOn(entity->GetId())) << "the body was not put back into the simulation";
+
+        SimulateFrames(FrameDeltaTime, 30);
+        EXPECT_LT(EntityPosition(entity->GetId()).GetZ(), parkedZ - 0.5f)
+            << "the body did not resume falling: EnablePhysics could not undo DisablePhysics";
+
+        entity->Deactivate();
+    }
+
     class JoltCharacterFrameRateTests : public JoltComponentBodyCreationTests
     {
     protected:

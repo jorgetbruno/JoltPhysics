@@ -607,7 +607,14 @@ namespace JoltPhysics
 
     bool JoltRigidBodyComponent::IsPhysicsEnabled() const
     {
-        return GetRigidBodyConst() != nullptr;
+        // Whether the body is in the simulation, not whether one was ever built. The
+        // difference matters because EnablePhysics guards on this: reporting "a body
+        // exists" made the answer stay true through DisablePhysics, so EnablePhysics
+        // returned at its own guard and nothing could be put back into the simulation
+        // once it had been taken out. m_simulating is the engine's own flag for this,
+        // maintained by the scene's Enable/DisableSimulationOfBody.
+        const AzPhysics::RigidBody* body = GetRigidBodyConst();
+        return body != nullptr && body->m_simulating;
     }
 
     AzPhysics::SimulatedBodyHandle JoltRigidBodyComponent::GetSimulatedBodyHandle() const
