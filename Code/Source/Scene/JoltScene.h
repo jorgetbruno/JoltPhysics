@@ -278,6 +278,14 @@ namespace JoltPhysics
 
         //! Whether the body with the given Jolt id is a sensor (trigger). Lock-free;
         //! safe to call from the contact listener.
+        //!
+        //! Lock-free is a claim about *when*, not about the container. This set, and
+        //! m_bodyHandleByJoltId and m_simulatedBodies alongside it, are read from Jolt's
+        //! job threads during a step and written only from the main thread outside one:
+        //! bodies are added and removed between steps, never during. Nothing enforces
+        //! that. Adding or removing a body from inside a contact callback, or from another
+        //! thread while the scene is stepping, is a data race that no lock in this class
+        //! would catch.
         bool IsSensorBody(JPH::BodyID bodyId) const
         {
             return m_sensorBodyIds.contains(bodyId.GetIndexAndSequenceNumber());

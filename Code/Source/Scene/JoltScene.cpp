@@ -2284,9 +2284,20 @@ namespace JoltPhysics
         // body pair - matching how rigid body collisions are reported. The same pass also
         // collects the particle indices for the soft body notification bus, which is the
         // detail the generic collision events cannot carry.
+        //
+        // These three are built fresh each time, on a job thread, through the O3DE
+        // allocator. They cannot be reused between calls: Jolt runs this for different
+        // soft bodies concurrently, and shared scratch would need a lock on the
+        // narrowphase to be worth less than it costs. What is avoidable is the rehashing
+        // as they grow, so they are sized up front - a soft body touches few distinct
+        // bodies in a step however many particles are involved.
         AZStd::unordered_map<AZ::u32, AZStd::vector<AzPhysics::Contact>> contactsByBody;
         AZStd::unordered_map<AZ::u32, AZStd::vector<JoltSoftBodyParticleContact>> particlesByBody;
         AZStd::unordered_map<AZ::u32, JPH::BodyID> bodyIdByKey;
+        constexpr size_t ExpectedTouchedBodies = 8;
+        contactsByBody.reserve(ExpectedTouchedBodies);
+        particlesByBody.reserve(ExpectedTouchedBodies);
+        bodyIdByKey.reserve(ExpectedTouchedBodies);
 
         const JPH::RMat44 softBodyTransform = inSoftBody.GetCenterOfMassTransform();
         const auto& vertices = inManifold.GetVertices();
