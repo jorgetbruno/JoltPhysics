@@ -5,6 +5,7 @@
 #include <AzCore/RTTI/AttributeReader.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Script/ScriptContextAttributes.h>
+#include <AzCore/std/string/string.h>
 
 namespace JoltPhysics
 {
@@ -65,8 +66,52 @@ namespace JoltPhysics
             return scope;
         }
 
+        //! The module a bus was reflected into, empty when it was given none.
+        AZStd::string ModuleOf(const char* busName) const
+        {
+            const AZ::BehaviorEBus* bus = FindBus(busName);
+            EXPECT_NE(bus, nullptr) << busName << " is not reflected to script";
+            AZStd::string module;
+            if (bus != nullptr)
+            {
+                if (AZ::Attribute* attribute = AZ::FindAttribute(AZ::Script::Attributes::Module, bus->m_attributes))
+                {
+                    AZ::AttributeReader(nullptr, attribute).Read<AZStd::string>(module);
+                }
+            }
+            return module;
+        }
+
         AZ::BehaviorContext* m_behaviorContext = nullptr;
     };
+
+    TEST_F(JoltScriptReflectionTests, EveryGameplayBusIsWhereTheDocumentationSaysItIs)
+    {
+        // Scope decides whether editor python can see a bus at all; Module decides what
+        // it is CALLED once it can. Getting the second wrong fails identically to getting
+        // the first wrong - "'NoneType' object is not callable", naming nothing - so
+        // fixing only the scope left the same symptom and a second round of diagnosis.
+        // Both halves are pinned, and the names below are the ones DIVERGENCES publishes.
+        //
+        // RigidBodyRequestBus is AzFramework's, not this gem's; it belongs beside the
+        // other AzPhysics buses in azlmbr.physics, which is also where a script written
+        // against PhysX looks for it.
+        EXPECT_EQ(ModuleOf("RigidBodyRequestBus"), "physics")
+            << "the rigid body bus is not at azlmbr.physics.RigidBodyRequestBus";
+
+        // The gem's own buses are deliberately unhomed, which puts them in azlmbr.bus
+        // (only unhomed CLASSES land in azlmbr.default). Moving them would rename them
+        // for every script already written against them, so it is a decision to take
+        // once and on purpose - this pins the current answer so it cannot drift silently.
+        for (const char* busName :
+             { "JoltVehicleRequestBus", "JoltCharacterGameplayRequestBus", "JoltJointRequestBus",
+               "JoltJointNotificationBus", "JoltSoftBodyRequestBus", "JoltSoftBodyNotificationBus" })
+        {
+            EXPECT_EQ(ModuleOf(busName), "")
+                << busName << " grew a module; editor python now calls it something else, "
+                   "so DIVERGENCES and any automation using it need updating too";
+        }
+    }
 
     TEST_F(JoltScriptReflectionTests, EveryGameplayBusIsReachableFromTheEditorAndAutomation)
     {

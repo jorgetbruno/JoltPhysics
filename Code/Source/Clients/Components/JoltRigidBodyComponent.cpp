@@ -35,6 +35,15 @@ namespace JoltPhysics
                 behaviorContext->EBus<Physics::RigidBodyRequestBus>("RigidBodyRequestBus")
                     ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
                     ->Attribute(AZ::Script::Attributes::Category, "Physics")
+                    // Module "physics", so editor python finds this at
+                    // azlmbr.physics.RigidBodyRequestBus - beside AzFramework's own
+                    // SimulatedBodyComponentRequestBus, and where a script written against
+                    // PhysX already looks. Without it the bus lands in azlmbr.bus, and a
+                    // bus in an unexpected namespace fails EXACTLY as one that was never
+                    // reflected: "'NoneType' object is not callable", naming nothing. That
+                    // is indistinguishable from the Scope bug below, and cost a second
+                    // round of diagnosis after the Scope was fixed.
+                    ->Attribute(AZ::Script::Attributes::Module, "physics")
                     // Common, not the default Launcher-only scope. Without it the bus is
                     // absent from editor python, which is where automated tests run: a
                     // project chasing a car that stood on its nose could not read

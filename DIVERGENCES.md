@@ -596,6 +596,47 @@ feature, trust the topic sections below the milestones.**
   not - without it a script cannot construct a bus address, and every joint event fails to
   bind. The registration is guarded so another gem doing the same is harmless.
 
+## Script bindings: what the buses are called from editor Python
+
+Two attributes decide whether a script can reach a bus, and they fail identically -
+`TypeError: 'NoneType' object is not callable`, naming nothing - so a bus in the wrong
+namespace is indistinguishable from one that was never reflected. Both are pinned by
+`JoltScriptReflectionTests`.
+
+- **`Scope` decides whether the bus exists for editor Python at all.** The default is
+  `ScopeFlags::Launcher`, which hides a bus from the editor - and therefore from every
+  headless test driven through `Editor.exe --runpython`. Every gameplay bus in this gem
+  is `ScopeFlags::Common`.
+- **`Module` decides what it is called.** An unhomed *bus* lands in `azlmbr.bus`; an
+  unhomed *class* lands in `azlmbr.default`. They do not go to the same place, which is
+  its own trap.
+
+| bus | editor Python name |
+| --- | --- |
+| `Physics::RigidBodyRequestBus` | `azlmbr.physics.RigidBodyRequestBus` |
+| `JoltVehicleRequestBus` | `azlmbr.bus.JoltVehicleRequestBus` |
+| `JoltCharacterGameplayRequestBus` | `azlmbr.bus.JoltCharacterGameplayRequestBus` |
+| `JoltJointRequestBus` | `azlmbr.bus.JoltJointRequestBus` |
+| `JoltJointNotificationBus` | `azlmbr.bus.JoltJointNotificationBus` |
+| `JoltSoftBodyRequestBus` | `azlmbr.bus.JoltSoftBodyRequestBus` |
+| `JoltSoftBodyNotificationBus` | `azlmbr.bus.JoltSoftBodyNotificationBus` |
+
+`RigidBodyRequestBus` is the exception because it is not this gem's bus: AzFramework
+declares it and leaves the binding to whichever backend is running, so it is homed in
+`physics` beside AzFramework's own `SimulatedBodyComponentRequestBus` - and that is where
+a script written against PhysX already looks for it.
+
+    import azlmbr.bus as bus
+    import azlmbr.physics
+
+    com = azlmbr.physics.RigidBodyRequestBus(bus.Event, 'GetCenterOfMassLocal', car)
+    speed = bus.JoltVehicleRequestBus(bus.Event, 'GetSpeed', car)
+
+The gem's own buses are left unhomed rather than gathered under `azlmbr.jolt`: moving
+them renames them for every script already written against them, and the automation in
+the sibling test projects addresses them as `azlmbr.bus.*` today. It is a decision worth
+taking once and on purpose rather than as a side effect.
+
 ## Gear and rack-and-pinion joints
 
 - **No PhysX counterpart:** the PhysX gem wraps neither, so these are exposed
