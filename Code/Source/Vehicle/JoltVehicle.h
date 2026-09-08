@@ -7,6 +7,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 
+#include <JoltPhysics/JoltPhysicsBus.h>
 #include <Vehicle/JoltVehicleConfiguration.h>
 
 namespace JPH
@@ -124,22 +125,19 @@ namespace JoltPhysics
         //! Whether the suspension is fully compressed and riding its hard stop.
         bool IsWheelSuspensionBottomedOut(AZ::u32 wheelIndex) const;
 
-        //! Called per wheel per step to combine the tire's friction with the ground's;
-        //! Jolt's default multiplies by the ground body's friction. otherEntity is the
-        //! entity of the body under the wheel (invalid for bodies without one), which is
-        //! what makes terrain-dependent grip possible. C++ only - an AZStd::function
-        //! cannot cross into script.
+        //! The two per-wheel callbacks. Both are declared on JoltVehicleRequests, which
+        //! is where the contract is written down - including the threading rules, which
+        //! matter: these run on a Jolt job thread inside the step, with bodies locked.
+        //! Passing an empty function restores Jolt's own default.
         //!
-        //! **This runs on one of Jolt's simulation job threads, inside the step, with
-        //! bodies locked.** The entity id is handed over because it is the only thing safe
-        //! to key off - it must not be used to reach back into the engine from here. An
-        //! EBus dispatch (RigidBodyRequestBus, TransformBus, a material lookup) either
-        //! lands on a handler written for the main thread or calls the locking body
-        //! interface from inside a callback that already holds those locks. Look the
-        //! entity up in a table the game filled on the main thread, and do nothing else.
-        using CombineFrictionFunction = AZStd::function<void(
-            AZ::u32 wheelIndex, float& longitudinalFriction, float& lateralFriction, AZ::EntityId otherEntity)>;
+        //! JoltVehicleComponent remembers whatever is set here and re-applies it after a
+        //! RecreateVehicle; nothing else does, so a caller holding a JoltVehicle directly
+        //! owns that itself.
+        using CombineFrictionFunction = JoltVehicleRequests::CombineFrictionFunction;
+        using TireMaxImpulseFunction = JoltVehicleRequests::TireMaxImpulseFunction;
         void SetCombineFriction(CombineFrictionFunction combineFriction);
+        //! No-op on a tracked vehicle: the tyre model belongs to the wheeled controller.
+        void SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse);
 
         //! Replaces the scene gravity for this vehicle alone (driving on walls, loops);
         //! reset restores normal gravity and the chassis' gravity factor.

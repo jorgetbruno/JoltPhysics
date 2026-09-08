@@ -352,6 +352,22 @@ feature, trust the topic sections below the milestones.**
 - **The chassis is force-woken on driver input**: Jolt's vehicle anti-sleep only resets
   the sleep timer, so a body that fell asleep while parked would never wake up again
   (deadlock that leaves the tire constraints inactive).
+- **Both of Jolt's per-wheel callbacks are on the bus**: `SetCombineFriction` (combine the
+  tyre's friction with the ground's, given the entity under the wheel) and
+  `SetTireMaxImpulse` (decide the largest impulse the tyre may apply this step). They are
+  C++ only - an `AZStd::function` does not cross into script - and `JoltVehicleComponent`
+  remembers both, so `RecreateVehicle` puts them back instead of silently reverting to
+  Jolt's defaults. Passing an empty function restores the default deliberately.
+
+  `SetTireMaxImpulse` is the one worth knowing about, because Jolt's default is
+  `longitudinal = longitudinalFriction * suspensionImpulse` and
+  `lateral = lateralFriction * suspensionImpulse`, clamped in two independent loops with
+  **no coupling between them**. A wheel can therefore spend its friction budget twice,
+  once braking and again cornering, which is why braking into a turn behaves as its own
+  failure case rather than as a longer stop. A friction circle - scale both down by the
+  same factor once `sqrt(long^2 + lat^2)` exceeds the budget - is the usual replacement;
+  the gem does not impose one, because which curve a project wants is a handling
+  decision, not a correctness one. Tracked vehicles have no tyre model and ignore it.
 - **The full Jolt tuning surface is exposed** where PhysXVehicle had its own model:
   per-wheel tire friction curves (`LinearCurve` points; empty keeps Jolt's default),
   wheel inertia/damping, suspension preload, force point and spring mode; engine

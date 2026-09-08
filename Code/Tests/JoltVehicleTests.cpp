@@ -2,6 +2,9 @@
 #include <AzTest/AzTest.h>
 #include <AzCore/UnitTest/TestTypes.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzCore/std/parallel/atomic.h>
+#include <AzCore/std/parallel/mutex.h>
+#include <AzCore/std/parallel/scoped_lock.h>
 
 #include "JoltTestWarningCatcher.h"
 
@@ -907,6 +910,170 @@ namespace JoltPhysics
             << "grippy " << grippyDistance << " m, slippery " << slipperyDistance << " m";
     }
 
+    TEST_F(JoltVehicleTests, ATireImpulseCallbackDecidesHowMuchGripTheWheelsGet)
+    {
+        // Jolt's default clamps the longitudinal and lateral impulses in two independent
+        // loops, so a wheel can spend its friction budget twice - once braking and again
+        // cornering - and braking into a turn is its own failure case rather than simply
+        // a longer stop. A project that wants a friction circle has to replace the whole
+        // rule, so this proves the replacement is genuinely in the loop and not decorative.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(400.0f, 100.0f, 1.0f));
+
+        float defaultDistance = 0.0f;
+        {
+            CreateVehicle(AZ::Vector3(0.0f, 20.0f, 0.9f));
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            const float startX = GetChassis()->GetPosition().GetX();
+            DriveSteps(1.0f, 0.0f, 0.0f, 180);
+            defaultDistance = GetChassis()->GetPosition().GetX() - startX;
+        }
+        ASSERT_GT(defaultDistance, 1.0f) << "the baseline car did not drive; the rest proves nothing";
+
+        float starvedDistance = 0.0f;
+        {
+            CreateVehicle(AZ::Vector3(0.0f, -20.0f, 0.9f));
+            m_vehicle->SetTireMaxImpulse(
+                [](AZ::u32, float& longitudinalImpulse, float& lateralImpulse, float suspensionImpulse,
+                    float, float lateralFriction, float, float, float)
+                {
+                    // No drive or brake force at all; keep the tyre standing up sideways
+                    // so the car stays put rather than sliding off the slab.
+                    longitudinalImpulse = 0.0f;
+                    lateralImpulse = lateralFriction * suspensionImpulse;
+                });
+            DriveSteps(0.0f, 0.0f, 0.0f, 60);
+            const float startX = GetChassis()->GetPosition().GetX();
+            DriveSteps(1.0f, 0.0f, 0.0f, 180);
+            starvedDistance = GetChassis()->GetPosition().GetX() - startX;
+        }
+
+        EXPECT_LT(starvedDistance, 0.5f)
+            << "a tyre allowed no longitudinal impulse still drove " << starvedDistance << " m";
+        EXPECT_LT(starvedDistance, defaultDistance * 0.1f)
+            << "default " << defaultDistance << " m, starved " << starvedDistance << " m";
+    }
+
+    TEST_F(JoltVehicleTests, TheTireImpulseCallbackIsHandedTheWheelLoadAndItsFrictions)
+    {
+        // The arguments are the whole point: without the suspension impulse and the two
+        // frictions a caller cannot rebuild Jolt's own rule, let alone a friction circle.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+
+        // Written from a Jolt job thread; read here once the steps have finished.
+        struct Observed
+        {
+            int m_calls = 0;
+            int m_wheelIndexOutOfRange = 0;
+            int m_negative = 0;
+            int m_notFinite = 0;
+            int m_loadedCalls = 0;
+            int m_grippingCalls = 0;
+            AZ::u32 m_highestWheelIndex = 0;
+            float m_minDeltaTime = 1000.0f;
+            float m_maxDeltaTime = -1000.0f;
+            float m_maxSuspensionImpulse = 0.0f;
+            float m_maxLongitudinalFriction = 0.0f;
+        };
+        Observed observed;
+        AZStd::mutex observedMutex;
+
+        m_vehicle->SetTireMaxImpulse(
+            [&](AZ::u32 wheelIndex, float& longitudinalImpulse, float& lateralImpulse, float suspensionImpulse,
+                float longitudinalFriction, float lateralFriction, float longitudinalSlip, float lateralSlip,
+                float deltaTime)
+            {
+                {
+                    AZStd::scoped_lock lock(observedMutex);
+                    ++observed.m_calls;
+                    observed.m_highestWheelIndex = AZStd::max(observed.m_highestWheelIndex, wheelIndex);
+                    if (wheelIndex >= 4)
+                    {
+                        ++observed.m_wheelIndexOutOfRange;
+                    }
+                    // Frictions come off the tyre curves, whose first point is (0, 0) in
+                    // Jolt's default - so zero is normal on a wheel that is not slipping,
+                    // and only a NEGATIVE value would be nonsense.
+                    if (suspensionImpulse < 0.0f || longitudinalFriction < 0.0f || lateralFriction < 0.0f ||
+                        deltaTime <= 0.0f)
+                    {
+                        ++observed.m_negative;
+                    }
+                    if (!std::isfinite(longitudinalSlip) || !std::isfinite(lateralSlip) ||
+                        !std::isfinite(suspensionImpulse) || !std::isfinite(deltaTime))
+                    {
+                        ++observed.m_notFinite;
+                    }
+                    if (suspensionImpulse > 0.0f)
+                    {
+                        ++observed.m_loadedCalls;
+                    }
+                    if (longitudinalFriction > 0.0f)
+                    {
+                        ++observed.m_grippingCalls;
+                    }
+                    observed.m_minDeltaTime = AZStd::min(observed.m_minDeltaTime, deltaTime);
+                    observed.m_maxDeltaTime = AZStd::max(observed.m_maxDeltaTime, deltaTime);
+                    observed.m_maxSuspensionImpulse = AZStd::max(observed.m_maxSuspensionImpulse, suspensionImpulse);
+                    observed.m_maxLongitudinalFriction =
+                        AZStd::max(observed.m_maxLongitudinalFriction, longitudinalFriction);
+                }
+                longitudinalImpulse = longitudinalFriction * suspensionImpulse;
+                lateralImpulse = lateralFriction * suspensionImpulse;
+            });
+
+        DriveSteps(0.5f, 0.0f, 0.0f, 120);
+
+        // The callback holds references to the block above, which dies with this scope.
+        m_vehicle->SetTireMaxImpulse({});
+
+        EXPECT_GT(observed.m_calls, 0) << "the callback was never reached";
+        EXPECT_EQ(observed.m_wheelIndexOutOfRange, 0) << "a wheel index past the wheel count was handed over";
+        EXPECT_EQ(observed.m_negative, 0) << "a negative load, friction or timestep was handed over";
+        EXPECT_EQ(observed.m_notFinite, 0) << "a non-finite argument was handed over";
+        EXPECT_EQ(observed.m_highestWheelIndex, 3u) << "not every wheel was offered to the callback";
+
+        // The two that make the arguments usable rather than merely well-formed: the
+        // wheel really carries load, and the tyre curve really gets evaluated and passed
+        // in. Zero friction at zero slip is correct, so this asserts it is not ALWAYS zero.
+        EXPECT_GT(observed.m_loadedCalls, 0)
+            << "no wheel ever carried load, so the impulses were meaningless";
+        EXPECT_GT(observed.m_grippingCalls, 0)
+            << "longitudinal friction was zero on every call; the tyre curve is not reaching the callback";
+
+        // The step is the gem's fixed timestep, not something rescaled behind the caller.
+        EXPECT_GT(observed.m_minDeltaTime, 0.0f);
+        EXPECT_LE(observed.m_maxDeltaTime, 0.1f)
+            << "deltaTime ranged " << observed.m_minDeltaTime << ".." << observed.m_maxDeltaTime
+            << " s; max suspension impulse " << observed.m_maxSuspensionImpulse
+            << ", max longitudinal friction " << observed.m_maxLongitudinalFriction;
+    }
+
+    TEST_F(JoltVehicleTests, ATrackedVehicleIgnoresATireImpulseCallback)
+    {
+        // A tank has no tyre model - the callback lives on the wheeled controller - so
+        // setting one must be a no-op rather than a crash or a silently dead vehicle.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f), MakeTrackedConfiguration(), AZ::Vector3(3.0f, 1.5f, 0.6f), 2000.0f);
+
+        AZStd::atomic<int> calls{ 0 };
+        m_vehicle->SetTireMaxImpulse(
+            [&](AZ::u32, float& longitudinalImpulse, float& lateralImpulse, float, float, float, float, float, float)
+            {
+                ++calls;
+                longitudinalImpulse = 0.0f;
+                lateralImpulse = 0.0f;
+            });
+
+        DriveSteps(0.0f, 0.0f, 0.0f, 60);
+        const float startX = GetChassis()->GetPosition().GetX();
+        DriveSteps(1.0f, 0.0f, 0.0f, 180);
+        const float travelled = GetChassis()->GetPosition().GetX() - startX;
+
+        EXPECT_EQ(calls.load(), 0) << "a tracked vehicle called a tyre callback it has no tyres for";
+        EXPECT_GT(travelled, 1.0f) << "the tank stopped driving once a tyre callback was set";
+    }
+
     TEST_F(JoltVehicleTests, AutomaticTransmissionShiftsUpUnderFullThrottle)
     {
         CreateStaticBox(AZ::Vector3(150.0f, 0.0f, -0.5f), AZ::Vector3(500.0f, 50.0f, 1.0f));
@@ -1220,6 +1387,69 @@ namespace JoltPhysics
         busConfig.m_maxEngineTorque = 987.0f;
         JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetVehicleConfiguration, busConfig);
         EXPECT_FLOAT_EQ(vehicleComponent->GetConfiguration().m_maxEngineTorque, 987.0f);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, ThePerWheelCallbacksReachTheVehicleOverTheBusAndSurviveARebuild)
+    {
+        // JoltVehicle lives in a private header, so the bus is the ONLY way a project can
+        // reach these at all - and a config edit rebuilds the constraint they were set on,
+        // which would otherwise drop them back to Jolt's defaults without saying so.
+        VehicleTestDefaultWorld defaultWorld(m_sceneHandle);
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -1.1f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("VehicleCallbackEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        auto* vehicleComponent = entity->CreateComponent<JoltVehicleComponent>();
+        vehicleComponent->GetConfiguration() = MakeCarConfiguration();
+        entity->Init();
+        entity->Activate();
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        AZStd::atomic<int> tireCalls{ 0 };
+        AZStd::atomic<int> frictionCalls{ 0 };
+
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetTireMaxImpulse,
+            JoltVehicleRequests::TireMaxImpulseFunction(
+                [&](AZ::u32, float& longitudinalImpulse, float& lateralImpulse, float suspensionImpulse,
+                    float longitudinalFriction, float lateralFriction, float, float, float)
+                {
+                    ++tireCalls;
+                    longitudinalImpulse = longitudinalFriction * suspensionImpulse;
+                    lateralImpulse = lateralFriction * suspensionImpulse;
+                }));
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetCombineFriction,
+            JoltVehicleRequests::CombineFrictionFunction(
+                [&](AZ::u32, float&, float&, AZ::EntityId)
+                {
+                    ++frictionCalls;
+                }));
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 30; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetForwardInput, 1.0f);
+            m_system->Simulate(fixedDeltaTime);
+        }
+        ASSERT_GT(tireCalls.load(), 0) << "the tyre callback never arrived over the bus";
+        ASSERT_GT(frictionCalls.load(), 0) << "the friction callback never arrived over the bus";
+
+        // Rebuild the way a runtime configuration edit does, then check both are still live.
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::RecreateVehicle);
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+        tireCalls = 0;
+        frictionCalls = 0;
+        for (int i = 0; i < 30; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetForwardInput, 1.0f);
+            m_system->Simulate(fixedDeltaTime);
+        }
+
+        EXPECT_GT(tireCalls.load(), 0) << "RecreateVehicle dropped the tyre callback";
+        EXPECT_GT(frictionCalls.load(), 0) << "RecreateVehicle dropped the friction callback";
 
         entity->Deactivate();
     }

@@ -6,6 +6,7 @@
 #include <AzCore/Interface/Interface.h>
 #include <AzCore/Math/Transform.h>
 #include <AzCore/std/containers/span.h>
+#include <AzCore/std/functional.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/utility/pair.h>
 
@@ -190,6 +191,49 @@ namespace JoltPhysics
         //! C++: read, edit fields, write back, then RecreateVehicle to apply.
         virtual JoltVehicleConfiguration GetVehicleConfiguration() const = 0;
         virtual void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) = 0;
+
+        //! THREADING, for both callbacks below. They run on one of Jolt's simulation job
+        //! threads, inside the step, with bodies locked. The wheel index and the floats
+        //! are the only things safe to key off; an EBus dispatch from in here
+        //! (RigidBodyRequestBus, TransformBus, a material lookup) either lands on a
+        //! handler written for the main thread or calls the locking body interface from
+        //! inside a callback that already holds those locks. Read a table the game filled
+        //! on the main thread, do the arithmetic, and return.
+        //!
+        //! Both are C++ only - an AZStd::function cannot cross into script - and both are
+        //! remembered by the component, so RecreateVehicle puts them back rather than
+        //! silently dropping to Jolt's default. Pass an empty function to restore that
+        //! default deliberately.
+
+        //! Combines the tyre's friction with the ground's, per wheel per step. Jolt's
+        //! default multiplies both by the ground body's friction. otherEntity is the
+        //! entity of the body under the wheel, invalid for a body without one - which is
+        //! what makes terrain-dependent grip possible.
+        using CombineFrictionFunction = AZStd::function<void(
+            AZ::u32 wheelIndex, float& longitudinalFriction, float& lateralFriction,
+            AZ::EntityId otherEntity)>;
+        virtual void SetCombineFriction(CombineFrictionFunction combineFriction) = 0;
+
+        //! Decides the largest impulse the tyre may apply to the ground this step, per
+        //! wheel. Jolt's default is
+        //!
+        //!     longitudinalImpulse = longitudinalFriction * suspensionImpulse;
+        //!     lateralImpulse      = lateralFriction * suspensionImpulse;
+        //!
+        //! which clamps the two directions in independent loops with no coupling between
+        //! them, so a wheel can spend its friction budget twice - once braking and again
+        //! cornering. That is why braking into a turn is its own failure case rather than
+        //! simply a longer stop. A friction circle is the usual cure: scale both down by
+        //! the same factor when sqrt(long^2 + lat^2) exceeds the budget, so the tyre
+        //! trades grip between the two instead of getting both in full.
+        //!
+        //! Wheeled and motorcycle vehicles only - a tracked vehicle has no tyre model and
+        //! ignores this.
+        using TireMaxImpulseFunction = AZStd::function<void(
+            AZ::u32 wheelIndex, float& longitudinalImpulse, float& lateralImpulse,
+            float suspensionImpulse, float longitudinalFriction, float lateralFriction,
+            float longitudinalSlip, float lateralSlip, float deltaTime)>;
+        virtual void SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse) = 0;
     };
 
     using JoltVehicleRequestBus = AZ::EBus<JoltVehicleRequests>;

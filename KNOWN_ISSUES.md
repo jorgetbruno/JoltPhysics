@@ -186,7 +186,10 @@ deviations from PhysX behavior.
   list with limited slip (AWD), suspension preload/force point/spring modes, per-axis
   driver input setters, slip/contact wheel readouts, motorcycle lean tuning and
   runtime toggles, authorable tracked driven wheels, `RecreateVehicle` for runtime
-  config edits, a C++ combine-friction hook for terrain-dependent grip, and vehicle
+  config edits, both of Jolt's C++ per-wheel hooks on the bus (combine-friction for
+  terrain-dependent grip, and tire-max-impulse for the tyre model itself - Jolt's
+  default clamps longitudinal and lateral independently, so a friction circle has to
+  be supplied here; both are re-applied across `RecreateVehicle`), and vehicle
   constraint debug draw under `jolt_Debug` (see DIVERGENCES.md, M7/vehicles). The
   configuration is also scriptable (behavior-context reflected, carried by the bus),
   per-vehicle gravity override and solver/collision-test knobs are exposed, and the

@@ -85,6 +85,8 @@ namespace JoltPhysics
         void RecreateVehicle() override;
         JoltVehicleConfiguration GetVehicleConfiguration() const override;
         void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) override;
+        void SetCombineFriction(CombineFrictionFunction combineFriction) override;
+        void SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse) override;
 
     private:
         void CreateVehicle();
@@ -100,6 +102,13 @@ namespace JoltPhysics
         //! ask for the throttle to drop while that happened.
         AZStd::array<float, 4> m_pendingDriverInput = { 0.0f, 0.0f, 0.0f, 0.0f };
         bool m_hasPendingDriverInput = false;
+
+        //! The per-wheel callbacks, kept here rather than only on the vehicle. They are
+        //! set on the constraint, and RecreateVehicle builds a new one - a car that
+        //! quietly reverted to Jolt's tyre model because something edited its
+        //! configuration would be a genuinely hard fault to account for.
+        CombineFrictionFunction m_combineFriction;
+        TireMaxImpulseFunction m_tireMaxImpulse;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
     };
 } // namespace JoltPhysics

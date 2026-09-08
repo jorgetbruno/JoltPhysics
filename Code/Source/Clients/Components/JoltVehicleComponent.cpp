@@ -296,6 +296,35 @@ namespace JoltPhysics
                 m_pendingDriverInput[0], m_pendingDriverInput[1], m_pendingDriverInput[2], m_pendingDriverInput[3]);
             m_hasPendingDriverInput = false;
         }
+
+        // Same for the per-wheel callbacks: they were set on the constraint that was just
+        // thrown away, so re-apply them to the new one.
+        if (m_combineFriction)
+        {
+            m_vehicle->SetCombineFriction(m_combineFriction);
+        }
+        if (m_tireMaxImpulse)
+        {
+            m_vehicle->SetTireMaxImpulse(m_tireMaxImpulse);
+        }
+    }
+
+    void JoltVehicleComponent::SetCombineFriction(CombineFrictionFunction combineFriction)
+    {
+        m_combineFriction = AZStd::move(combineFriction);
+        if (m_vehicle)
+        {
+            m_vehicle->SetCombineFriction(m_combineFriction);
+        }
+    }
+
+    void JoltVehicleComponent::SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse)
+    {
+        m_tireMaxImpulse = AZStd::move(tireMaxImpulse);
+        if (m_vehicle)
+        {
+            m_vehicle->SetTireMaxImpulse(m_tireMaxImpulse);
+        }
     }
 
     void JoltVehicleComponent::DestroyVehicle()

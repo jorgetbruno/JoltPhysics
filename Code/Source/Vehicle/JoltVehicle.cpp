@@ -836,6 +836,39 @@ namespace JoltPhysics
             });
     }
 
+    void JoltVehicle::SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse)
+    {
+        // The tyre model lives on the wheeled controller, which a tracked vehicle does
+        // not have - its tracks are driven through a different path entirely.
+        if (!m_wheeledController)
+        {
+            return;
+        }
+        if (!tireMaxImpulse)
+        {
+            // Restore Jolt's default, copied from WheeledVehicleController's own
+            // initializer: each direction is friction * suspension impulse, with no
+            // coupling, which is exactly the behaviour a caller overrides this to change.
+            m_wheeledController->SetTireMaxImpulseCallback(
+                [](JPH::uint, float& outLongitudinalImpulse, float& outLateralImpulse, float inSuspensionImpulse,
+                    float inLongitudinalFriction, float inLateralFriction, float, float, float)
+                {
+                    outLongitudinalImpulse = inLongitudinalFriction * inSuspensionImpulse;
+                    outLateralImpulse = inLateralFriction * inSuspensionImpulse;
+                });
+            return;
+        }
+        m_wheeledController->SetTireMaxImpulseCallback(
+            [callback = AZStd::move(tireMaxImpulse)](JPH::uint inWheelIndex, float& outLongitudinalImpulse,
+                float& outLateralImpulse, float inSuspensionImpulse, float inLongitudinalFriction,
+                float inLateralFriction, float inLongitudinalSlip, float inLateralSlip, float inDeltaTime)
+            {
+                callback(static_cast<AZ::u32>(inWheelIndex), outLongitudinalImpulse, outLateralImpulse,
+                    inSuspensionImpulse, inLongitudinalFriction, inLateralFriction,
+                    inLongitudinalSlip, inLateralSlip, inDeltaTime);
+            });
+    }
+
     float JoltVehicle::GetSpeed() const
     {
         if (!m_chassisBody)
