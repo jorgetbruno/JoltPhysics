@@ -281,6 +281,29 @@ feature, trust the topic sections below the milestones.**
   part of this engine release), so the vehicle system is exposed through the gem's own
   `JoltVehicleComponent` and `JoltVehicleRequestBus` (rule 5 of the project brief).
   There is no PhysXVehicle-API compatibility layer.
+- **The vehicle's axes are fixed: forward is +X, up is +Z, and the track runs along
+  +Y.** `JoltVehicle` sets `mForward = AxisX()` / `mUp = AxisZ()` on the constraint and
+  `mWheelForward = AxisX()` / `mWheelUp = AxisZ()` / `mSteeringAxis = AxisZ()` on every
+  wheel, so a wheel's `m_position` puts the **wheelbase along X and the track along Y**,
+  with the suspension travelling along Z. None of that is configurable, and it is not the
+  same convention as Jolt's own samples (Y-up).
+
+  Laying the wheelbase out along Y instead - which the orientation of an imported car
+  model invites - puts both "front" wheels on the same side of the car. It does not fail
+  loudly: the vehicle spawns, the wheels turn, and it crabs sideways and will not
+  accelerate straight. Nothing in the warning log or the viewport names the cause. It
+  cost a project most of a milestone.
+- **`GetWheelTransform` returns a frame whose +Y is the axle and +Z is up - and that axle
+  points to the chassis's RIGHT, which is the chassis's -Y.** The gem asks Jolt for the
+  wheel in that model space (`GetWheelWorldTransform(i, AxisY(), AxisZ())`), and Jolt
+  builds the wheel basis as `right = forward x up`, which for forward +X and up +Z is -Y.
+  So the returned frame is the chassis frame turned 180 degrees about Z.
+
+  This matters to anything hanging a visual wheel off that transform: an offset authored
+  along the returned frame's +Y moves the mesh **inboard on the right of the car and
+  outboard on the left**, which is the opposite of what "the wheel's own +Y" suggests.
+  Measured, in a project whose wheels stood proud of the bodywork: a mesh child authored
+  at local -0.25 m came out 0.25 m further out than its wheel, on both sides.
 - **Chassis mass is set via `JoltVehicleConfiguration::m_chassisMass`** (applied with
   `ScaleToMass`, default 1200 kg) instead of relying on the rigid body's mass, so a car
   weighs what the vehicle configuration says whatever its chassis collider computes from
