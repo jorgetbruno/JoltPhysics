@@ -26,6 +26,9 @@ namespace JoltPhysics
                 behaviorContext->EBus<JoltCharacterGameplayRequestBus>("JoltCharacterGameplayRequestBus")
                     ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // Common, not the default Launcher-only scope: the default hides the
+                    // bus from editor python, so automation cannot reach it at all.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround)
                     ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal)
                     ->Event("GetGravityMultiplier", &JoltCharacterGameplayRequests::GetGravityMultiplier)

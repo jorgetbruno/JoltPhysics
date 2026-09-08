@@ -33,6 +33,9 @@ namespace JoltPhysics
             {
                 behaviorContext->EBus<JoltVehicleRequestBus>("JoltVehicleRequestBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // Common, not the default Launcher-only scope: the default hides the
+                    // bus from editor python, so automation cannot reach it at all.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Event("SetDriverInput", &JoltVehicleRequests::SetDriverInput)
                     ->Event("SetForwardInput", &JoltVehicleRequests::SetForwardInput)
                     ->Event("SetSteeringInput", &JoltVehicleRequests::SetSteeringInput)

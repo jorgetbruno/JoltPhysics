@@ -35,6 +35,13 @@ namespace JoltPhysics
                 behaviorContext->EBus<Physics::RigidBodyRequestBus>("RigidBodyRequestBus")
                     ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::RuntimeOwn)
                     ->Attribute(AZ::Script::Attributes::Category, "Physics")
+                    // Common, not the default Launcher-only scope. Without it the bus is
+                    // absent from editor python, which is where automated tests run: a
+                    // project chasing a car that stood on its nose could not read
+                    // GetCenterOfMassLocal to see where the mass actually was, only infer
+                    // it from how the car behaved. Every other gameplay bus in the gem is
+                    // Common for the same reason.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Event("EnablePhysics", &Physics::RigidBodyRequests::EnablePhysics)
                     ->Event("DisablePhysics", &Physics::RigidBodyRequests::DisablePhysics)
                     ->Event("IsPhysicsEnabled", &Physics::RigidBodyRequests::IsPhysicsEnabled)

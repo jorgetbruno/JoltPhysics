@@ -84,6 +84,9 @@ namespace JoltPhysics
             {
                 behaviorContext->EBus<JoltJointRequestBus>("JoltJointRequestBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // Common, not the default Launcher-only scope: the default hides the
+                    // bus from editor python, so automation cannot reach it at all.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Event("GetPosition", &JoltJointRequests::GetPosition)
                     ->Event("GetVelocity", &JoltJointRequests::GetVelocity)
                     ->Event("GetTransform", &JoltJointRequests::GetTransform)
@@ -97,6 +100,9 @@ namespace JoltPhysics
 
                 behaviorContext->EBus<JoltJointNotificationBus>("JoltJointNotificationBus")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    // Common, not the default Launcher-only scope: the default hides the
+                    // bus from editor python, so automation cannot reach it at all.
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Handler<JoltJointNotificationBusHandler>()
                     ;
             });

@@ -2,7 +2,9 @@
 #include <AzCore/UnitTest/TestTypes.h>
 
 #include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/RTTI/AttributeReader.h>
 #include <AzCore/RTTI/BehaviorContext.h>
+#include <AzCore/Script/ScriptContextAttributes.h>
 
 namespace JoltPhysics
 {
@@ -46,8 +48,47 @@ namespace JoltPhysics
             }
         }
 
+        //! The scope a bus was reflected with. Absent means Jolt's - sorry, O3DE's -
+        //! default, which is Launcher only.
+        AZ::Script::Attributes::ScopeFlags ScopeOf(const char* busName) const
+        {
+            const AZ::BehaviorEBus* bus = FindBus(busName);
+            EXPECT_NE(bus, nullptr) << busName << " is not reflected to script";
+            AZ::Script::Attributes::ScopeFlags scope = AZ::Script::Attributes::ScopeFlags::Launcher;
+            if (bus != nullptr)
+            {
+                if (AZ::Attribute* attribute = AZ::FindAttribute(AZ::Script::Attributes::Scope, bus->m_attributes))
+                {
+                    AZ::AttributeReader(nullptr, attribute).Read<AZ::Script::Attributes::ScopeFlags>(scope);
+                }
+            }
+            return scope;
+        }
+
         AZ::BehaviorContext* m_behaviorContext = nullptr;
     };
+
+    TEST_F(JoltScriptReflectionTests, EveryGameplayBusIsReachableFromTheEditorAndAutomation)
+    {
+        // The default scope is Launcher only, and a Launcher-only bus is not merely
+        // hidden from the editor's Python - it is absent, so the call fails as
+        // "'NoneType' object is not callable" rather than as anything naming the bus.
+        //
+        // That is how it presented in a project: a car stood on its nose, the suspect was
+        // the centre of mass, and RigidBodyRequestBus - the only bus that reports it -
+        // could not be called from the test that would have measured it. The value had to
+        // be established indirectly instead, by authoring an offset and watching the peak
+        // pitch fall. Every bus below can be the one somebody needs to read next, so they
+        // are pinned together rather than one at a time.
+        for (const char* busName :
+             { "RigidBodyRequestBus", "JoltVehicleRequestBus", "JoltCharacterGameplayRequestBus",
+               "JoltJointRequestBus", "JoltJointNotificationBus",
+               "JoltSoftBodyRequestBus", "JoltSoftBodyNotificationBus" })
+        {
+            EXPECT_EQ(ScopeOf(busName), AZ::Script::Attributes::ScopeFlags::Common)
+                << busName << " is not ScopeFlags::Common, so editor python cannot see it";
+        }
+    }
 
     TEST_F(JoltScriptReflectionTests, VehicleConfigClassesExposeTheirHandlingCurves)
     {
