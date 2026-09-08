@@ -1201,12 +1201,23 @@ have no single pose to blend.
   step produced. A scene that is never stepped never delivers its callbacks. The single
   request form is copied on queueing, since only a borrowed pointer is passed in.
 - **Query hits carry the material they struck** (`ResultFlags::Material` and
-  `m_physicsMaterialId`), resolved per collider from the same sub-shape mapping the hit
-  already carries. Footstep audio, impact decals and surface VFX all key off it, and the
-  field was never filled, so every surface came back as the default material. The
-  per-face table is deliberately not consulted: resolving it needs the touching triangle,
-  and the collider-level material is the honest answer for a hit rather than a guess at
-  which face a shape cast grazed.
+  `m_physicsMaterialId`), resolved from the sub-shape the hit already carries. Footstep
+  audio, impact decals and surface VFX all key off it, and the field was never filled, so
+  every surface came back as the default material. Queries now resolve it exactly as
+  contacts do, in three cases:
+  - a **triangle mesh** answers from its baked per-face slot table, so a ray that strikes
+    the road part of a road-and-grass mesh reports the road;
+  - a **heightfield** answers from the provider's per-square index list, so a ray at
+    painted terrain reports the surface it struck;
+  - anything else answers with the collider's own material.
+
+  Both of the first two once stopped at the collider-level material, on the reasoning
+  that the sub-shape was a guess. It is not - it is exactly what the manifold resolves
+  against, and the engine expects the per-face answer too: it documents
+  `HitFlags::FaceIndex` as required for per-face material data and puts it in the default
+  set. The heightfield arithmetic is shared with the contact path
+  (`HeightfieldColliderIndexForSubShape`) rather than written twice, because having it in
+  one place only was how the two answers came to disagree.
 - **Query hits identify the collider they came from.** Rigid and static bodies build
   one `Physics::Shape` per collider at creation, in compound sub-shape order, so a
   hit's Jolt sub-shape id maps straight to a collider: `SceneQueryHit::m_shape` is

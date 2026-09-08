@@ -241,6 +241,26 @@ namespace JoltPhysics
             return hits.m_hits.empty() ? -1000.0f : hits.m_hits[0].m_position.GetZ();
         }
 
+        //! The material a downward ray reports, or an invalid id when it hit nothing.
+        Physics::MaterialId RaycastMaterialDownZ(const AZ::Vector3& start)
+        {
+            AzPhysics::RayCastRequest request;
+            request.m_start = start;
+            request.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+            request.m_distance = 100.0f;
+
+            AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&request);
+            if (hits.m_hits.empty())
+            {
+                return Physics::MaterialId();
+            }
+            EXPECT_TRUE(
+                (hits.m_hits[0].m_resultFlags & AzPhysics::SceneQuery::ResultFlags::Material) ==
+                AzPhysics::SceneQuery::ResultFlags::Material)
+                << "the hit carries no material at all";
+            return hits.m_hits[0].m_physicsMaterialId;
+        }
+
         AZStd::unique_ptr<JoltSystem> m_system;
         AzPhysics::SceneHandle m_sceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
@@ -409,6 +429,77 @@ namespace JoltPhysics
         EXPECT_TRUE(bouncyTouched);
         EXPECT_LT(deadMaxAfterBounce, 0.7f);
         EXPECT_GT(bouncyMaxAfterBounce, 1.0f);
+    }
+
+    TEST_F(JoltHeightfieldTests, ARaycastAtTerrainReportsTheMaterialOfTheSquareItStruck)
+    {
+        // Contacts have resolved terrain materials per square for a long time; queries
+        // did not, because that arithmetic lived only on the contact path. A ray reported
+        // collider 0's material however the surface was painted, so footstep audio and
+        // impact effects keyed off a raycast heard one surface for the whole heightfield.
+        MockHeightfieldProvider provider(GetProviderEntityId(), 8, 8, AZ::Vector2(1.0f, 1.0f));
+
+        provider.m_materials = {
+            CreateMaterialAssetForTest(0.1f, 0.0f),
+            CreateMaterialAssetForTest(0.9f, 0.5f),
+        };
+        // Left half (x < 4) surface 0, right half surface 1 - the same split the contact
+        // test uses, so the two paths are being asked the same question.
+        for (AZ::u32 y = 0; y < 8; ++y)
+        {
+            for (AZ::u32 x = 0; x < 8; ++x)
+            {
+                provider.m_materialIndices[y * 8 + x] = x < 4 ? 0 : 1;
+            }
+        }
+
+        CreateHeightfieldBody(provider);
+
+        const Physics::MaterialId leftSurface =
+            Physics::MaterialId::CreateFromAssetId(provider.m_materials[0].GetId());
+        const Physics::MaterialId rightSurface =
+            Physics::MaterialId::CreateFromAssetId(provider.m_materials[1].GetId());
+        ASSERT_NE(leftSurface, rightSurface) << "the two surfaces are indistinguishable";
+
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(1.5f, -1.5f, 10.0f)), leftSurface);
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(2.5f, -5.5f, 10.0f)), leftSurface);
+        // The half that used to come back as surface 0 whatever was painted there.
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(5.5f, -1.5f, 10.0f)), rightSurface);
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(6.5f, -5.5f, 10.0f)), rightSurface);
+    }
+
+    TEST_F(JoltHeightfieldTests, ARaycastReadsTheSquareGridTheRightWayRound)
+    {
+        // A row/column transposition or a wrong stride survives an x-only split, because
+        // every row is painted the same. Splitting along y instead catches both.
+        MockHeightfieldProvider provider(GetProviderEntityId(), 8, 8, AZ::Vector2(1.0f, 1.0f));
+
+        provider.m_materials = {
+            CreateMaterialAssetForTest(0.1f, 0.0f),
+            CreateMaterialAssetForTest(0.9f, 0.5f),
+        };
+        for (AZ::u32 y = 0; y < 8; ++y)
+        {
+            for (AZ::u32 x = 0; x < 8; ++x)
+            {
+                provider.m_materialIndices[y * 8 + x] = y < 4 ? 0 : 1;
+            }
+        }
+
+        CreateHeightfieldBody(provider);
+
+        const Physics::MaterialId nearSurface =
+            Physics::MaterialId::CreateFromAssetId(provider.m_materials[0].GetId());
+        const Physics::MaterialId farSurface =
+            Physics::MaterialId::CreateFromAssetId(provider.m_materials[1].GetId());
+
+        // 8 samples at 1 m spacing is 7 squares, so the surface runs y = 0 to -7 and every
+        // probe below stays well inside it - a ray off the edge hits nothing and reports an
+        // invalid id, which reads as a material mismatch rather than as a miss.
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(1.5f, -1.5f, 10.0f)), nearSurface);
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(5.5f, -2.5f, 10.0f)), nearSurface);
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(1.5f, -4.5f, 10.0f)), farSurface);
+        EXPECT_EQ(RaycastMaterialDownZ(AZ::Vector3(5.5f, -5.5f, 10.0f)), farSurface);
     }
 
 } // namespace JoltPhysics

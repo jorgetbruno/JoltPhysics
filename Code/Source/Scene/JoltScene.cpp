@@ -642,6 +642,45 @@ namespace JoltPhysics
 
             return {};
         }
+
+        //! The collider index a heightfield sub-shape names.
+        //!
+        //! For a heightfield body those are the same thing: ResolveHeightfieldMaterialData
+        //! rebuilds m_colliderMaterials as one entry per provider surface material, so the
+        //! per-square material index IS the collider index.
+        //!
+        //! Jolt encodes the sub-shape as (x + y * sampleCount) * 2 + triangle
+        //! (HeightFieldShape::EncodeSubShapeID), and the gem's table holds
+        //! (sampleCount - 1) squared entries with each quad taking its bottom-left
+        //! sample's index (JoltHeightfieldUtils::PadMaterialIndices).
+        //!
+        //! Shared by the contact and the query path deliberately: the arithmetic lived
+        //! only on the contact path, so a query against terrain reported collider 0's
+        //! material however the surface was painted, and footstep audio keyed off a
+        //! raycast heard one surface for the whole heightfield.
+        AZ::u32 HeightfieldColliderIndexForSubShape(
+            const JPH::HeightFieldShape& heightFieldShape,
+            const JPH::SubShapeID& subShapeId,
+            const AZStd::vector<AZ::u8>& materialIndices,
+            size_t colliderCount)
+        {
+            const AZ::u32 sampleCount = heightFieldShape.GetSampleCount();
+            if (sampleCount < 2 || colliderCount == 0)
+            {
+                return 0;
+            }
+
+            JPH::SubShapeID remainder;
+            const AZ::u32 triangleId = subShapeId.PopID(heightFieldShape.GetSubShapeIDBitsRecursive(), remainder);
+            const AZ::u32 square = triangleId >> 1;
+            const AZ::u32 squareX = square % sampleCount;
+            const AZ::u32 squareY = square / sampleCount;
+
+            const size_t indexPosition = squareY * (sampleCount - 1) + squareX;
+            const AZ::u32 materialIndex =
+                indexPosition < materialIndices.size() ? materialIndices[indexPosition] : 0;
+            return materialIndex < colliderCount ? materialIndex : 0;
+        }
     } // namespace
 
     const Physics::ColliderConfiguration* JoltScene::GetColliderConfigurationForSubShape(
@@ -770,8 +809,24 @@ namespace JoltPhysics
         // HitFlags::FaceIndex as required for per-face material data and puts it in the
         // default set, and footstep audio, decals and surface effects all key off it.
         //
-        // Heightfields are not covered here yet - a query against terrain still reports
-        // the collider material rather than the square's - see KNOWN_ISSUES.
+        // Heightfields answer from the same per-square table the contact path uses, via
+        // the shared helper, so a ray at painted terrain reports the surface it struck
+        // rather than collider 0's. Checked before the per-face table below because a
+        // heightfield carries no mesh slots and would otherwise fall straight through.
+        if (staticBody != nullptr)
+        {
+            if (const JPH::HeightFieldShape* heightFieldShape = JoltHeightfieldUtils::UnwrapHeightField(baseShape))
+            {
+                const AZ::u32 heightfieldIndex = HeightfieldColliderIndexForSubShape(
+                    *heightFieldShape, subShapeId, staticBody->GetHeightfieldMaterialIndices(), colliderCount);
+                if (AZStd::shared_ptr<Physics::Material> heightfieldMaterial =
+                        staticBody->GetColliderMaterial(heightfieldIndex))
+                {
+                    return heightfieldMaterial;
+                }
+            }
+        }
+
         if (const AZStd::optional<AZ::u32> slotIndex = FindPerFaceMaterialSlot(baseShape, subShapeId))
         {
             if (AZStd::shared_ptr<Physics::Material> slotMaterial =
@@ -913,22 +968,11 @@ namespace JoltPhysics
                 return false;
             }
 
-            const auto& materialIndices = staticBody->GetHeightfieldMaterialIndices();
-
-            JPH::SubShapeID remainder;
-            const AZ::u32 triangleId = subShapeId.PopID(heightFieldShape->GetSubShapeIDBitsRecursive(), remainder);
-            const AZ::u32 square = triangleId >> 1;
-            const AZ::u32 sampleCount = heightFieldShape->GetSampleCount();
-            const AZ::u32 squareX = square % sampleCount;
-            const AZ::u32 squareY = square / sampleCount;
-
-            const size_t indexPosition = squareY * (sampleCount - 1) + squareX;
-            const AZ::u8 materialIndex =
-                indexPosition < materialIndices.size() ? materialIndices[indexPosition] : 0;
-            const AZ::u8 clampedIndex = materialIndex < colliderCount ? materialIndex : 0;
+            const AZ::u32 colliderIndex = HeightfieldColliderIndexForSubShape(
+                *heightFieldShape, subShapeId, staticBody->GetHeightfieldMaterialIndices(), colliderCount);
 
             const auto heightfieldValues =
-                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(clampedIndex).get());
+                JoltMaterialManager::GetFrictionRestitution(getColliderMaterial(colliderIndex).get());
             outFriction = heightfieldValues.first;
             outRestitution = heightfieldValues.second;
             return true;
