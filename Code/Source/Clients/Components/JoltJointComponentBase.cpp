@@ -72,6 +72,7 @@ namespace JoltPhysics
             {
                 behaviorContext->Class<AZ::EntityComponentIdPair>("EntityComponentIdPair")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
                     ->Constructor<const AZ::EntityId&, AZ::ComponentId>()
                     ->Property("EntityId", &AZ::EntityComponentIdPair::GetEntityId, nullptr)
                     ->Property("ComponentId", &AZ::EntityComponentIdPair::GetComponentId, nullptr)
@@ -87,6 +88,7 @@ namespace JoltPhysics
                     // Common, not the default Launcher-only scope: the default hides the
                     // bus from editor python, so automation cannot reach it at all.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Event("GetPosition", &JoltJointRequests::GetPosition)
                     ->Event("GetVelocity", &JoltJointRequests::GetVelocity)
                     ->Event("GetTransform", &JoltJointRequests::GetTransform)
@@ -103,6 +105,7 @@ namespace JoltPhysics
                     // Common, not the default Launcher-only scope: the default hides the
                     // bus from editor python, so automation cannot reach it at all.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Handler<JoltJointNotificationBusHandler>()
                     ;
             });

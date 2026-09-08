@@ -71,6 +71,8 @@ namespace JoltPhysics
             {
                 behaviorContext->Class<JoltSoftBodyParticleContact>("JoltSoftBodyParticleContact")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Property("vertexIndex", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_vertexIndex))
                     ->Property("position", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_position))
                     ->Property("normal", BehaviorValueProperty(&JoltSoftBodyParticleContact::m_normal))
@@ -81,6 +83,7 @@ namespace JoltPhysics
                     // Common, not the default Launcher-only scope: the default hides the
                     // bus from editor python, so automation cannot reach it at all.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Handler<JoltSoftBodyNotificationBusHandler>()
                     ;
 
@@ -90,6 +93,7 @@ namespace JoltPhysics
                     // from editor python, and both automation (the sail demo test) and
                     // anyone scripting the demo in the editor need to reach cloth.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Event("SetPressure", &JoltSoftBodyRequests::SetPressure)
                     ->Event("GetPressure", &JoltSoftBodyRequests::GetPressure)
                     ->Event("SetLinearDamping", &JoltSoftBodyRequests::SetLinearDamping)

@@ -29,6 +29,7 @@ namespace JoltPhysics
                     // Common, not the default Launcher-only scope: the default hides the
                     // bus from editor python, so automation cannot reach it at all.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Event("IsOnGround", &JoltCharacterGameplayRequests::IsOnGround)
                     ->Event("GetGroundNormal", &JoltCharacterGameplayRequests::GetGroundNormal)
                     ->Event("GetGravityMultiplier", &JoltCharacterGameplayRequests::GetGravityMultiplier)

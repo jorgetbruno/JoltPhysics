@@ -596,46 +596,69 @@ feature, trust the topic sections below the milestones.**
   not - without it a script cannot construct a bus address, and every joint event fails to
   bind. The registration is guarded so another gem doing the same is harmless.
 
-## Script bindings: what the buses are called from editor Python
+## Script bindings: what the gem is called from editor Python
 
-Two attributes decide whether a script can reach a bus, and they fail identically -
-`TypeError: 'NoneType' object is not callable`, naming nothing - so a bus in the wrong
+Two attributes decide whether a script can reach the gem, and they fail identically -
+`TypeError: 'NoneType' object is not callable`, naming nothing - so a name in the wrong
 namespace is indistinguishable from one that was never reflected. Both are pinned by
-`JoltScriptReflectionTests`.
+`JoltScriptReflectionTests`, against the single `Internal::ScriptModule` constant the
+reflections use.
 
-- **`Scope` decides whether the bus exists for editor Python at all.** The default is
+- **`Scope` decides whether it exists for editor Python at all.** The default is
   `ScopeFlags::Launcher`, which hides a bus from the editor - and therefore from every
-  headless test driven through `Editor.exe --runpython`. Every gameplay bus in this gem
-  is `ScopeFlags::Common`.
-- **`Module` decides what it is called.** An unhomed *bus* lands in `azlmbr.bus`; an
-  unhomed *class* lands in `azlmbr.default`. They do not go to the same place, which is
-  its own trap.
+  headless test driven through `Editor.exe --runpython`. Every gameplay bus here is
+  `ScopeFlags::Common`.
+- **`Module` decides what it is called.** The defaults are not even consistent with each
+  other: an unhomed *bus* lands in `azlmbr.bus`, an unhomed *class* in `azlmbr.default`.
+  Neither is guessable.
 
-| bus | editor Python name |
-| --- | --- |
-| `Physics::RigidBodyRequestBus` | `azlmbr.physics.RigidBodyRequestBus` |
-| `JoltVehicleRequestBus` | `azlmbr.bus.JoltVehicleRequestBus` |
-| `JoltCharacterGameplayRequestBus` | `azlmbr.bus.JoltCharacterGameplayRequestBus` |
-| `JoltJointRequestBus` | `azlmbr.bus.JoltJointRequestBus` |
-| `JoltJointNotificationBus` | `azlmbr.bus.JoltJointNotificationBus` |
-| `JoltSoftBodyRequestBus` | `azlmbr.bus.JoltSoftBodyRequestBus` |
-| `JoltSoftBodyNotificationBus` | `azlmbr.bus.JoltSoftBodyNotificationBus` |
-
-`RigidBodyRequestBus` is the exception because it is not this gem's bus: AzFramework
-declares it and leaves the binding to whichever backend is running, so it is homed in
-`physics` beside AzFramework's own `SimulatedBodyComponentRequestBus` - and that is where
-a script written against PhysX already looks for it.
+**Everything this gem owns lives in `azlmbr.joltphysics`** - the gem name lowercased,
+which is O3DE's convention and the name a scripter tries first.
 
     import azlmbr.bus as bus
+    import azlmbr.joltphysics
     import azlmbr.physics
 
+    speed = azlmbr.joltphysics.JoltVehicleRequestBus(bus.Event, 'GetSpeed', car)
+    grounded = azlmbr.joltphysics.JoltCharacterGameplayRequestBus(bus.Event, 'IsOnGround', player)
     com = azlmbr.physics.RigidBodyRequestBus(bus.Event, 'GetCenterOfMassLocal', car)
-    speed = bus.JoltVehicleRequestBus(bus.Event, 'GetSpeed', car)
 
-The gem's own buses are left unhomed rather than gathered under `azlmbr.jolt`: moving
-them renames them for every script already written against them, and the automation in
-the sibling test projects addresses them as `azlmbr.bus.*` today. It is a decision worth
-taking once and on purpose rather than as a side effect.
+`azlmbr.bus` is still needed for the addressing constants (`bus.Event`, `bus.Broadcast`);
+only the gem's own names moved out of it.
+
+### The two exceptions
+
+Neither of these is the gem's to name, so neither carries `joltphysics`:
+
+| name | home | why |
+| --- | --- | --- |
+| `Physics::RigidBodyRequestBus` | `azlmbr.physics` | AzFramework's bus. It declares it and leaves the binding to whichever backend runs, so it belongs beside AzFramework's own `SimulatedBodyComponentRequestBus` - and that is where a script written against PhysX already looks. |
+| `AZ::EntityComponentIdPair` | `azlmbr.entity` | AzCore's type. The gem reflects it, guarded, for the case where nothing else does - but in the editor the engine's own registration wins that race and puts it in `entity`. Homing it here would have made its name depend on who won, which is why it carries no module. Measured: constructible via `azlmbr.entity` and nowhere else. |
+
+### History, so the reasoning is not re-derived
+
+This was fixed in three passes, each one looking like a complete fix from inside:
+
+1. The buses were `Launcher`-scoped, so editor Python could not see them at all.
+2. `RigidBodyRequestBus` was then visible but unhomed, so it answered to `azlmbr.bus`
+   rather than the `azlmbr.physics` a PhysX-trained scripter reaches for.
+3. The gem's own buses and classes were still unhomed, which left the same trap one level
+   down: `azlmbr.bus.JoltVehicleRequestBus` is a name nobody guesses before trying
+   `azlmbr.joltphysics.JoltVehicleRequestBus`.
+
+Each pass produced the same symptom as the one before, which is why it took three. The
+tests pin scope and module together for exactly that reason.
+
+### Why the failure never names anything
+
+Measured, not inferred: many `azlmbr` modules return **`None` for an unknown attribute**
+rather than raising `AttributeError`. `hasattr(azlmbr.physics, 'Anything')` is therefore
+`True`, and `azlmbr.physics.Anything(...)` fails only when called - as
+`'NoneType' object is not callable`, with the name already gone. `azlmbr.bus` does raise,
+which is why a wrong guess there at least names itself. This is the binding layer's
+behaviour and nothing in this gem can change it; the only lever the gem holds is choosing
+a name a scripter will actually try. When probing from Python, test with `callable()`
+or by constructing the object - `hasattr` is not evidence on these modules.
 
 ## Gear and rack-and-pinion joints
 

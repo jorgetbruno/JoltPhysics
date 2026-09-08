@@ -7,6 +7,8 @@
 #include <AzCore/Script/ScriptContextAttributes.h>
 #include <AzCore/std/string/string.h>
 
+#include <Utils/ReflectionUtils.h>
+
 namespace JoltPhysics
 {
     // The gem's own gameplay buses are only reachable from Lua and ScriptCanvas if the
@@ -82,57 +84,99 @@ namespace JoltPhysics
             return module;
         }
 
+        //! The scope a reflected class was given; the default hides it from editor python
+        //! exactly as it does a bus, which makes its module irrelevant.
+        AZ::Script::Attributes::ScopeFlags ClassScopeOf(const char* className) const
+        {
+            const AZ::BehaviorClass* behaviorClass = FindClass(className);
+            EXPECT_NE(behaviorClass, nullptr) << className << " is not reflected to script";
+            AZ::Script::Attributes::ScopeFlags scope = AZ::Script::Attributes::ScopeFlags::Launcher;
+            if (behaviorClass != nullptr)
+            {
+                if (AZ::Attribute* attribute =
+                        AZ::FindAttribute(AZ::Script::Attributes::Scope, behaviorClass->m_attributes))
+                {
+                    AZ::AttributeReader(nullptr, attribute).Read<AZ::Script::Attributes::ScopeFlags>(scope);
+                }
+            }
+            return scope;
+        }
+
+        //! The module a reflected class was put in, empty when it was given none.
+        AZStd::string ClassModuleOf(const char* className) const
+        {
+            const AZ::BehaviorClass* behaviorClass = FindClass(className);
+            EXPECT_NE(behaviorClass, nullptr) << className << " is not reflected to script";
+            AZStd::string module;
+            if (behaviorClass != nullptr)
+            {
+                if (AZ::Attribute* attribute =
+                        AZ::FindAttribute(AZ::Script::Attributes::Module, behaviorClass->m_attributes))
+                {
+                    AZ::AttributeReader(nullptr, attribute).Read<AZStd::string>(module);
+                }
+            }
+            return module;
+        }
+
         AZ::BehaviorContext* m_behaviorContext = nullptr;
     };
 
-    TEST_F(JoltScriptReflectionTests, EveryGameplayBusIsWhereTheDocumentationSaysItIs)
+    TEST_F(JoltScriptReflectionTests, EveryScriptNameIsWhereTheDocumentationSaysItIs)
     {
-        // Scope decides whether editor python can see a bus at all; Module decides what
-        // it is CALLED once it can. Getting the second wrong fails identically to getting
-        // the first wrong - "'NoneType' object is not callable", naming nothing - so
+        // Scope decides whether editor python can see a bus at all; Module decides what it
+        // is CALLED once it can. Getting the second wrong fails identically to getting the
+        // first wrong - "'NoneType' object is not callable", naming nothing - which is why
         // fixing only the scope left the same symptom and a second round of diagnosis.
-        // Both halves are pinned, and the names below are the ones DIVERGENCES publishes.
         //
-        // RigidBodyRequestBus is AzFramework's, not this gem's; it belongs beside the
-        // other AzPhysics buses in azlmbr.physics, which is also where a script written
-        // against PhysX looks for it.
-        EXPECT_EQ(ModuleOf("RigidBodyRequestBus"), "physics")
-            << "the rigid body bus is not at azlmbr.physics.RigidBodyRequestBus";
-
-        // The gem's own buses are deliberately unhomed, which puts them in azlmbr.bus
-        // (only unhomed CLASSES land in azlmbr.default). Moving them would rename them
-        // for every script already written against them, so it is a decision to take
-        // once and on purpose - this pins the current answer so it cannot drift silently.
+        // The fallbacks are not even consistent with each other: an unhomed BUS lands in
+        // azlmbr.bus and an unhomed CLASS in azlmbr.default. Neither is guessable, so
+        // everything the gem owns is homed in azlmbr.joltphysics - the gem name lowercased,
+        // which is the name a scripter tries first.
         for (const char* busName :
              { "JoltVehicleRequestBus", "JoltCharacterGameplayRequestBus", "JoltJointRequestBus",
                "JoltJointNotificationBus", "JoltSoftBodyRequestBus", "JoltSoftBodyNotificationBus" })
         {
-            EXPECT_EQ(ModuleOf(busName), "")
-                << busName << " grew a module; editor python now calls it something else, "
-                   "so DIVERGENCES and any automation using it need updating too";
+            EXPECT_EQ(ModuleOf(busName), Internal::ScriptModule)
+                << busName << " is not at azlmbr." << Internal::ScriptModule << "."  << busName;
         }
-    }
-
-    TEST_F(JoltScriptReflectionTests, EveryGameplayBusIsReachableFromTheEditorAndAutomation)
-    {
-        // The default scope is Launcher only, and a Launcher-only bus is not merely
-        // hidden from the editor's Python - it is absent, so the call fails as
-        // "'NoneType' object is not callable" rather than as anything naming the bus.
-        //
-        // That is how it presented in a project: a car stood on its nose, the suspect was
-        // the centre of mass, and RigidBodyRequestBus - the only bus that reports it -
-        // could not be called from the test that would have measured it. The value had to
-        // be established indirectly instead, by authoring an offset and watching the peak
-        // pitch fall. Every bus below can be the one somebody needs to read next, so they
-        // are pinned together rather than one at a time.
-        for (const char* busName :
-             { "RigidBodyRequestBus", "JoltVehicleRequestBus", "JoltCharacterGameplayRequestBus",
-               "JoltJointRequestBus", "JoltJointNotificationBus",
-               "JoltSoftBodyRequestBus", "JoltSoftBodyNotificationBus" })
+        for (const char* className :
+             { "JoltVehicleConfiguration", "JoltWheelConfiguration", "JoltVehicleAntiRollBar",
+               "JoltVehicleDifferential", "JoltSoftBodyParticleContact" })
         {
-            EXPECT_EQ(ScopeOf(busName), AZ::Script::Attributes::ScopeFlags::Common)
-                << busName << " is not ScopeFlags::Common, so editor python cannot see it";
+            EXPECT_EQ(ClassModuleOf(className), Internal::ScriptModule)
+                << className << " is not at azlmbr." << Internal::ScriptModule << "." << className;
+            // Module without Scope names something editor python cannot see: the class
+            // defaults to Launcher exactly as a bus does, and the whole name is absent.
+            // Homing these without this line looked correct in the behavior context and
+            // was still unreachable from a script.
+            EXPECT_EQ(ClassScopeOf(className), AZ::Script::Attributes::ScopeFlags::Common)
+                << className << " is Launcher-only, so its module makes no difference";
         }
+
+        // Two exceptions, and both are deliberate: neither type is this gem's to name.
+        //
+        // RigidBodyRequestBus is AzFramework's - it declares the bus and leaves the binding
+        // to whichever backend is running - so it goes beside its siblings in azlmbr.physics,
+        // which is also where a script written against PhysX looks for it.
+        EXPECT_EQ(ModuleOf("RigidBodyRequestBus"), "physics")
+            << "the rigid body bus is not at azlmbr.physics.RigidBodyRequestBus";
+
+        // EntityComponentIdPair is AzCore's, and the gem reflects it only for the case
+        // where nothing else does - guarded, so another registration wins harmlessly. In
+        // the editor the engine's own wins, and the name a script uses is
+        // azlmbr.entity.EntityComponentIdPair (measured: constructible there and nowhere
+        // else). Homing THIS copy would make the name depend on who won that race, so it
+        // carries no module; this pins the gem's own registration, which is what the
+        // test application sees.
+        EXPECT_EQ(ClassModuleOf("EntityComponentIdPair"), "")
+            << "EntityComponentIdPair was homed; its name would then depend on which gem "
+               "reflected it first, since that registration is guarded";
+        // It still has to be VISIBLE, though: it exists so a script can construct a joint
+        // bus address, and without it JoltJointRequestBus is unusable from automation no
+        // matter how well the bus itself is reflected.
+        EXPECT_EQ(ClassScopeOf("EntityComponentIdPair"), AZ::Script::Attributes::ScopeFlags::Common)
+            << "EntityComponentIdPair is Launcher-only, so no script can address a joint";
     }
 
     TEST_F(JoltScriptReflectionTests, VehicleConfigClassesExposeTheirHandlingCurves)

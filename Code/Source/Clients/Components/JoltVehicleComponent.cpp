@@ -36,6 +36,7 @@ namespace JoltPhysics
                     // Common, not the default Launcher-only scope: the default hides the
                     // bus from editor python, so automation cannot reach it at all.
                     ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Event("SetDriverInput", &JoltVehicleRequests::SetDriverInput)
                     ->Event("SetForwardInput", &JoltVehicleRequests::SetForwardInput)
                     ->Event("SetSteeringInput", &JoltVehicleRequests::SetSteeringInput)
@@ -78,6 +79,8 @@ namespace JoltPhysics
                 // always register together, exactly once.
                 behaviorContext->Class<JoltWheelConfiguration>("JoltWheelConfiguration")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Property("Position", BehaviorValueProperty(&JoltWheelConfiguration::m_position))
                     ->Property("Radius", BehaviorValueProperty(&JoltWheelConfiguration::m_radius))
                     ->Property("Width", BehaviorValueProperty(&JoltWheelConfiguration::m_width))
@@ -107,6 +110,8 @@ namespace JoltPhysics
 
                 behaviorContext->Class<JoltVehicleAntiRollBar>("JoltVehicleAntiRollBar")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Property("LeftWheel", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_leftWheel))
                     ->Property("RightWheel", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_rightWheel))
                     ->Property("Stiffness", BehaviorValueProperty(&JoltVehicleAntiRollBar::m_stiffness))
@@ -114,6 +119,8 @@ namespace JoltPhysics
 
                 behaviorContext->Class<JoltVehicleDifferential>("JoltVehicleDifferential")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     ->Property("LeftWheel", BehaviorValueProperty(&JoltVehicleDifferential::m_leftWheel))
                     ->Property("RightWheel", BehaviorValueProperty(&JoltVehicleDifferential::m_rightWheel))
                     ->Property("DifferentialRatio", BehaviorValueProperty(&JoltVehicleDifferential::m_differentialRatio))
@@ -124,6 +131,8 @@ namespace JoltPhysics
 
                 behaviorContext->Class<JoltVehicleConfiguration>("JoltVehicleConfiguration")
                     ->Attribute(AZ::Script::Attributes::Category, "Jolt Physics")
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Module, Internal::ScriptModule)
                     // The enums cross into script as plain numbers (0 = Wheeled/Automatic...),
                     // matching how the serialized data stores them.
                     ->Property("VehicleType",
