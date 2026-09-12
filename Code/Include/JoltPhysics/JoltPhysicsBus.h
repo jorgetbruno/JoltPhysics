@@ -192,6 +192,22 @@ namespace JoltPhysics
         virtual JoltVehicleConfiguration GetVehicleConfiguration() const = 0;
         virtual void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) = 0;
 
+        //! Switches the vehicle constraint off without touching the chassis body. While
+        //! off the entity is an ordinary rigid body: it still collides and can be pushed,
+        //! but nothing drives it and it has no wheels in the simulation - a wreck, a car
+        //! parked as scenery, one in a cutscene, or one too far away to be worth four
+        //! wheel casts a step. Back on, the vehicle is rebuilt from the current
+        //! configuration on the next tick, with the per-wheel callbacks intact and no
+        //! driver input: an explicit stop is not a configuration edit, so unlike
+        //! RecreateVehicle it does not carry the throttle across.
+        //!
+        //! RecreateVehicle while off leaves it off. Taking the chassis out of the
+        //! simulation with DisablePhysics tears the vehicle down the same way and
+        //! EnablePhysics brings it back, but neither changes this flag - it records what
+        //! the caller asked for, not whether a constraint happens to exist right now.
+        virtual void SetVehicleEnabled(bool enabled) = 0;
+        virtual bool IsVehicleEnabled() const = 0;
+
         //! THREADING, for both callbacks below. They run on one of Jolt's simulation job
         //! threads, inside the step, with bodies locked. The wheel index and the floats
         //! are the only things safe to key off; an EBus dispatch from in here

@@ -395,6 +395,23 @@ feature, trust the topic sections below the milestones.**
   same factor once `sqrt(long^2 + lat^2)` exceeds the budget - is the usual replacement;
   the gem does not impose one, because which curve a project wants is a handling
   decision, not a correctness one. Tracked vehicles have no tyre model and ignore it.
+- **A vehicle can be switched off, leaving a plain rigid body** (`SetVehicleEnabled` /
+  `IsVehicleEnabled` on the bus). Off, the chassis stays in the scene - it still collides
+  and can be pushed - but there is no constraint, no wheels and nothing driving it: a
+  wreck, a car parked as scenery, one in a cutscene, or one far enough away that four
+  wheel casts a step are waste. On again, it is rebuilt from the current configuration
+  with the per-wheel callbacks intact and no driver input. None of the existing routes
+  could express this: an empty wheel list is replaced by the type's default set, a
+  creation that fails is retried on the next tick (which is what `RecreateVehicle` relies
+  on), and `DisablePhysics` takes the collider with it.
+
+  Two related rules. `RecreateVehicle` on a switched-off vehicle leaves it off. And
+  `DisablePhysics` on the chassis now tears the vehicle down and `EnablePhysics` rebuilds
+  it: the constraint used to stay registered against a body that had left the world -
+  Jolt does not crash over that, the constraint just goes dormant - but every wheel
+  readout kept describing the pose the car was last stepped at. Neither touches the
+  enabled flag, which records what the caller asked for, not whether a constraint
+  happens to exist this tick.
 - **The full Jolt tuning surface is exposed** where PhysXVehicle had its own model:
   per-wheel tire friction curves (`LinearCurve` points; empty keeps Jolt's default),
   wheel inertia/damping, suspension preload, force point and spring mode; engine

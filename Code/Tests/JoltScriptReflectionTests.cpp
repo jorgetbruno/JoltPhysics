@@ -217,7 +217,9 @@ namespace JoltPhysics
     {
         ExpectBusHasEvents("JoltVehicleRequestBus",
             { "SetDriverInput", "GetSpeed", "GetEngineRpm", "GetCurrentGear", "GetLeanAngle",
-              "GetWheelCount", "GetWheelTransform", "GetSuspensionLength", "IsWheelOnGround" });
+              "GetWheelCount", "GetWheelTransform", "GetSuspensionLength", "IsWheelOnGround",
+              // Switching a wreck off is a script's job as much as anyone's.
+              "SetVehicleEnabled", "IsVehicleEnabled" });
     }
 
     TEST_F(JoltScriptReflectionTests, SoftBodyBusIsReflectedWithItsSettingsAndVertexEvents)

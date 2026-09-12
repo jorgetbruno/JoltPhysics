@@ -36,6 +36,7 @@
 #include <AzCore/Component/Entity.h>
 #include <AzFramework/Components/TransformComponent.h>
 #include <AzFramework/Physics/SystemBus.h>
+#include <AzFramework/Physics/RigidBodyBus.h>
 
 #include <Clients/Components/JoltBoxColliderComponent.h>
 #include <Clients/Components/JoltRigidBodyComponent.h>
@@ -1452,6 +1453,235 @@ namespace JoltPhysics
         EXPECT_GT(frictionCalls.load(), 0) << "RecreateVehicle dropped the friction callback";
 
         entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, TakingTheChassisOutOfTheSimulationTakesTheVehicleWithIt)
+    {
+        // DisablePhysics on the chassis removes the body from the world - not from memory
+        // - and nothing told the vehicle. Its constraint stayed registered against a body
+        // that was no longer simulated, and every wheel readout kept answering from the
+        // pose it was last stepped at. Reported from reading the source, without a
+        // reproduction; this is the measurement, and then the regression test.
+        VehicleTestDefaultWorld defaultWorld(m_sceneHandle);
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -1.1f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("VehicleDisableEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        auto* vehicleComponent = entity->CreateComponent<JoltVehicleComponent>();
+        vehicleComponent->GetConfiguration() = MakeCarConfiguration();
+        entity->Init();
+        entity->Activate();
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        AZ::u32 wheelCount = 0;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        ASSERT_EQ(wheelCount, 4u);
+
+        Physics::RigidBodyRequestBus::Event(entity->GetId(), &Physics::RigidBodyRequests::DisablePhysics);
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        for (int i = 0; i < 30; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetForwardInput, 1.0f);
+            m_system->Simulate(fixedDeltaTime);
+            AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, fixedDeltaTime, AZ::ScriptTimePoint());
+        }
+
+        // With the chassis out of the world there is no vehicle to speak of, and the
+        // readouts must say so rather than describe the moment it left.
+        wheelCount = 99;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        EXPECT_EQ(wheelCount, 0u) << "the vehicle survived its chassis leaving the simulation";
+
+        Physics::RigidBodyRequestBus::Event(entity->GetId(), &Physics::RigidBodyRequests::EnablePhysics);
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, fixedDeltaTime, AZ::ScriptTimePoint());
+
+        wheelCount = 0;
+        JoltVehicleRequestBus::EventResult(wheelCount, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        EXPECT_EQ(wheelCount, 4u) << "the vehicle did not come back with its chassis";
+
+        // And it drives - the rebuild is real, not a count.
+        for (int i = 0; i < 120; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetForwardInput, 1.0f);
+            m_system->Simulate(fixedDeltaTime);
+        }
+        float speed = 0.0f;
+        JoltVehicleRequestBus::EventResult(speed, entity->GetId(), &JoltVehicleRequests::GetSpeed);
+        EXPECT_GT(speed, 0.5f) << "the rebuilt vehicle does not drive";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, SwitchingAVehicleOffLeavesAPlainRigidBodyBehind)
+    {
+        // A burnt-out car keeps its chassis collider - it still blocks the road, still
+        // gets shoved by a blast, other cars still hit it - but stops being a vehicle: no
+        // wheels, no suspension holding it up, nothing driving it. The entity falls back
+        // to what it is underneath, a rigid body with a box collider. None of the routes
+        // the API used to offer could express that: an empty wheel list is replaced by
+        // the default set, a failed creation is retried next tick, and DisablePhysics
+        // takes the collider with it.
+        VehicleTestDefaultWorld defaultWorld(m_sceneHandle);
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -1.1f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("VehicleSwitchEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        auto* vehicleComponent = entity->CreateComponent<JoltVehicleComponent>();
+        vehicleComponent->GetConfiguration() = MakeCarConfiguration();
+        entity->Init();
+        entity->Activate();
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        const float fixedDeltaTime = 1.0f / 60.0f;
+        auto tickAndStep = [&](int steps)
+        {
+            for (int i = 0; i < steps; ++i)
+            {
+                m_system->Simulate(fixedDeltaTime);
+                AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, fixedDeltaTime, AZ::ScriptTimePoint());
+            }
+        };
+        auto wheelCount = [&]()
+        {
+            AZ::u32 count = 99;
+            JoltVehicleRequestBus::EventResult(count, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+            return count;
+        };
+
+        bool enabled = false;
+        JoltVehicleRequestBus::EventResult(enabled, entity->GetId(), &JoltVehicleRequests::IsVehicleEnabled);
+        EXPECT_TRUE(enabled);
+        ASSERT_EQ(wheelCount(), 4u);
+
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetVehicleEnabled, false);
+        JoltVehicleRequestBus::EventResult(enabled, entity->GetId(), &JoltVehicleRequests::IsVehicleEnabled);
+        EXPECT_FALSE(enabled);
+        EXPECT_EQ(wheelCount(), 0u) << "switched off, the wheels are still in the simulation";
+
+        // And it STAYS off. A destroyed vehicle used to be rebuilt on the very next tick,
+        // by design - that is what RecreateVehicle relies on.
+        for (int i = 0; i < 30; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetForwardInput, 1.0f);
+            tickAndStep(1);
+        }
+        EXPECT_EQ(wheelCount(), 0u) << "the tick rebuilt a vehicle that was switched off";
+
+        // What is left is an ordinary rigid body: still in the scene, still collidable,
+        // and pushable - but not driven, so full throttle above did nothing to it.
+        bool physicsEnabled = false;
+        Physics::RigidBodyRequestBus::EventResult(
+            physicsEnabled, entity->GetId(), &Physics::RigidBodyRequests::IsPhysicsEnabled);
+        EXPECT_TRUE(physicsEnabled) << "switching the vehicle off took the chassis out of the simulation";
+
+        AZ::Vector3 velocity = AZ::Vector3::CreateOne();
+        Physics::RigidBodyRequestBus::EventResult(
+            velocity, entity->GetId(), &Physics::RigidBodyRequests::GetLinearVelocity);
+        EXPECT_LT(velocity.GetX(), 0.05f) << "throttle moved a car with no vehicle on it";
+
+        AzPhysics::RayCastRequest ray;
+        ray.m_start = AZ::Vector3(0.0f, 0.0f, 5.0f);
+        ray.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        ray.m_distance = 10.0f;
+        const AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&ray);
+        ASSERT_FALSE(hits.m_hits.empty()) << "nothing under the ray - the wreck lost its collider";
+        EXPECT_EQ(hits.m_hits[0].m_entityId, entity->GetId()) << "the ray struck something other than the wreck";
+
+        Physics::RigidBodyRequestBus::Event(
+            entity->GetId(), &Physics::RigidBodyRequests::ApplyLinearImpulse, AZ::Vector3(2000.0f, 0.0f, 0.0f));
+        tickAndStep(5);
+        Physics::RigidBodyRequestBus::EventResult(
+            velocity, entity->GetId(), &Physics::RigidBodyRequests::GetLinearVelocity);
+        EXPECT_GT(velocity.GetX(), 0.2f) << "a blast could not shove the wreck";
+
+        // Back on: rebuilt from the configuration, and it drives again.
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetVehicleEnabled, true);
+        JoltVehicleRequestBus::EventResult(enabled, entity->GetId(), &JoltVehicleRequests::IsVehicleEnabled);
+        EXPECT_TRUE(enabled);
+        tickAndStep(1);
+        EXPECT_EQ(wheelCount(), 4u) << "switched back on, the vehicle was not rebuilt";
+
+        // The impulse above is still carrying it; settle on the handbrake first so the
+        // drive below is the vehicle's own doing.
+        for (int i = 0; i < 90; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetDriverInput, 0.0f, 0.0f, 1.0f, 1.0f);
+            m_system->Simulate(fixedDeltaTime);
+        }
+        for (int i = 0; i < 120; ++i)
+        {
+            JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetDriverInput, 1.0f, 0.0f, 0.0f, 0.0f);
+            m_system->Simulate(fixedDeltaTime);
+        }
+        float speed = 0.0f;
+        JoltVehicleRequestBus::EventResult(speed, entity->GetId(), &JoltVehicleRequests::GetSpeed);
+        EXPECT_GT(speed, 0.5f) << "the rebuilt vehicle does not drive";
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, RecreatingAVehicleThatIsSwitchedOffLeavesItOff)
+    {
+        // RecreateVehicle is "destroy, then let the tick rebuild". Off means off, so the
+        // tick must decline - otherwise a script tuning a parked car's configuration
+        // would quietly bring it back to life.
+        VehicleTestDefaultWorld defaultWorld(m_sceneHandle);
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -1.1f), AZ::Vector3(50.0f, 50.0f, 1.0f));
+
+        auto entity = AZStd::make_unique<AZ::Entity>("VehicleRecreateOffEntity");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltBoxColliderComponent>();
+        entity->CreateComponent<JoltRigidBodyComponent>();
+        auto* vehicleComponent = entity->CreateComponent<JoltVehicleComponent>();
+        vehicleComponent->GetConfiguration() = MakeCarConfiguration();
+        entity->Init();
+        entity->Activate();
+        AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::SetVehicleEnabled, false);
+        JoltVehicleRequestBus::Event(entity->GetId(), &JoltVehicleRequests::RecreateVehicle);
+        for (int i = 0; i < 5; ++i)
+        {
+            AZ::TickBus::Broadcast(&AZ::TickBus::Events::OnTick, 0.016f, AZ::ScriptTimePoint());
+        }
+
+        AZ::u32 count = 99;
+        JoltVehicleRequestBus::EventResult(count, entity->GetId(), &JoltVehicleRequests::GetWheelCount);
+        EXPECT_EQ(count, 0u) << "RecreateVehicle switched a vehicle back on";
+
+        bool enabled = true;
+        JoltVehicleRequestBus::EventResult(enabled, entity->GetId(), &JoltVehicleRequests::IsVehicleEnabled);
+        EXPECT_FALSE(enabled);
+
+        entity->Deactivate();
+    }
+
+    TEST_F(JoltVehicleTests, DriverInputOnAChassisOutOfTheWorldDoesNotWakeIt)
+    {
+        // The vehicle force-wakes its chassis on input, because Jolt's anti-sleep cannot
+        // wake a body that has already gone to sleep. ActivateBody on a body that is out
+        // of the world altogether asserts inside Jolt - BodyManager::ActivateBodies, then
+        // the broadphase, four asserts deep - which in a release build is undefined. The
+        // component tears its vehicle down before input can reach it; this is the guard
+        // for a JoltVehicle held directly, and it passes only if no assert fires.
+        CreateStaticBox(AZ::Vector3(0.0f, 0.0f, -0.5f), AZ::Vector3(200.0f, 200.0f, 1.0f));
+        CreateVehicle(AZ::Vector3(0.0f, 0.0f, 0.9f));
+        DriveSteps(0.0f, 0.0f, 0.0f, 30);
+
+        m_scene->DisableSimulationOfBody(m_chassisHandle);
+        // Both wake paths: input, and a commanded gear.
+        m_vehicle->SetDriverInput(1.0f, 0.5f, 0.0f, 0.0f);
+        m_vehicle->SetGear(2);
+        m_system->Simulate(1.0f / 60.0f);
+
+        m_scene->EnableSimulationOfBody(m_chassisHandle);
+        DriveSteps(1.0f, 0.0f, 0.0f, 120);
+        EXPECT_GT(m_vehicle->GetSpeed(), 0.5f) << "the vehicle did not drive once its chassis was back";
     }
 
     TEST_F(JoltVehicleTests, ADifferentialAimedBelowMinusOneIsRefusedRatherThanIndexingOffTheArray)

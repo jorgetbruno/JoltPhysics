@@ -6,6 +6,8 @@
 
 #include <AzFramework/Physics/Common/PhysicsTypes.h>
 
+#include <AzFramework/Physics/RigidBodyBus.h>
+
 #include <JoltPhysics/JoltPhysicsBus.h>
 #include <Vehicle/JoltVehicleConfiguration.h>
 
@@ -20,6 +22,7 @@ namespace JoltPhysics
         : public AZ::Component
         , private AZ::TickBus::Handler
         , private JoltVehicleRequestBus::Handler
+        , private Physics::RigidBodyNotificationBus::Handler
     {
     public:
         AZ_COMPONENT(JoltVehicleComponent, "{C9D0E1F2-A3B4-4567-C8D9-E0F1A2B3C4D5}");
@@ -87,6 +90,15 @@ namespace JoltPhysics
         void SetVehicleConfiguration(const JoltVehicleConfiguration& configuration) override;
         void SetCombineFriction(CombineFrictionFunction combineFriction) override;
         void SetTireMaxImpulse(TireMaxImpulseFunction tireMaxImpulse) override;
+        void SetVehicleEnabled(bool enabled) override;
+        bool IsVehicleEnabled() const override;
+
+        // Physics::RigidBodyNotificationBus - the chassis leaving and rejoining the
+        // simulation. The vehicle constraint cannot outlive its body's membership of the
+        // world, and Jolt would not crash over it - the constraint goes dormant - but the
+        // wheel readouts would keep describing the moment the body left.
+        void OnPhysicsEnabled(const AZ::EntityId& entityId) override;
+        void OnPhysicsDisabled(const AZ::EntityId& entityId) override;
 
     private:
         void CreateVehicle();
@@ -110,5 +122,10 @@ namespace JoltPhysics
         CombineFrictionFunction m_combineFriction;
         TireMaxImpulseFunction m_tireMaxImpulse;
         AzPhysics::SceneHandle m_attachedSceneHandle = AzPhysics::InvalidSceneHandle;
+
+        //! What the caller asked for, as distinct from whether m_vehicle exists: the two
+        //! differ for the one tick between a request and the rebuild, and for as long as
+        //! the chassis is out of the simulation.
+        bool m_vehicleEnabled = true;
     };
 } // namespace JoltPhysics

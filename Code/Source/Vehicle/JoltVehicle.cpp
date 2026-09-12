@@ -716,7 +716,13 @@ namespace JoltPhysics
         // Wake the chassis when input is applied: a sleeping body makes the constraint
         // inactive, which silently stops the tire forces (Jolt's anti-sleep only resets
         // the sleep timer, it cannot wake an already-sleeping body).
-        if (m_chassisBody &&
+        //
+        // Only a body that is IN the world. ActivateBody on one that has been removed
+        // (DisablePhysics on the chassis) asserts inside Jolt - BodyManager::ActivateBodies
+        // first, then the broadphase three asserts deep - and in a release build that is
+        // undefined behaviour. Measured, not inferred: the chassis-out-of-world test hit
+        // all four before this line existed.
+        if (m_chassisBody && m_chassisBody->IsInBroadPhase() &&
             (m_forwardInput != 0.0f || m_steeringInput != 0.0f || m_brakeInput != 0.0f || m_handBrakeInput != 0.0f) &&
             !m_chassisBody->IsActive() && m_scene && m_scene->GetBodyInterface())
         {
@@ -743,8 +749,10 @@ namespace JoltPhysics
         const int forwardGearCount = static_cast<int>(transmission->mGearRatios.size());
         transmission->Set(AZStd::clamp(gear, -1, forwardGearCount), 1.0f);
 
-        // A commanded gear should take effect now even if the vehicle was resting.
-        if (m_chassisBody && !m_chassisBody->IsActive() && m_scene && m_scene->GetBodyInterface())
+        // A commanded gear should take effect now even if the vehicle was resting - but
+        // see ApplyDriverInput: never wake a body that is out of the world.
+        if (m_chassisBody && m_chassisBody->IsInBroadPhase() && !m_chassisBody->IsActive() &&
+            m_scene && m_scene->GetBodyInterface())
         {
             m_scene->GetBodyInterface()->ActivateBody(m_chassisBody->GetID());
         }

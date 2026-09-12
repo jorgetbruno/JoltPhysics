@@ -68,6 +68,10 @@ namespace JoltPhysics
                     ->Event("OverrideVehicleGravity", &JoltVehicleRequests::OverrideVehicleGravity)
                     ->Event("ResetVehicleGravityOverride", &JoltVehicleRequests::ResetVehicleGravityOverride)
                     ->Event("RecreateVehicle", &JoltVehicleRequests::RecreateVehicle)
+                    // Off leaves a plain rigid body behind: a wreck that still blocks the
+                    // road and still gets shoved, with nothing driving it.
+                    ->Event("SetVehicleEnabled", &JoltVehicleRequests::SetVehicleEnabled)
+                    ->Event("IsVehicleEnabled", &JoltVehicleRequests::IsVehicleEnabled)
                     // The configuration round-trips by value: read, edit fields, write
                     // back, then RecreateVehicle to apply.
                     ->Event("GetVehicleConfiguration", &JoltVehicleRequests::GetVehicleConfiguration)
@@ -232,12 +236,14 @@ namespace JoltPhysics
     void JoltVehicleComponent::Activate()
     {
         JoltVehicleRequestBus::Handler::BusConnect(GetEntityId());
+        Physics::RigidBodyNotificationBus::Handler::BusConnect(GetEntityId());
         AZ::TickBus::Handler::BusConnect();
     }
 
     void JoltVehicleComponent::Deactivate()
     {
         AZ::TickBus::Handler::BusDisconnect();
+        Physics::RigidBodyNotificationBus::Handler::BusDisconnect();
         JoltVehicleRequestBus::Handler::BusDisconnect();
 
         DestroyVehicle();
@@ -247,6 +253,15 @@ namespace JoltPhysics
 
     void JoltVehicleComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
+        // The tick exists to build the vehicle once its chassis body exists, and stays
+        // connected only until that happens. Switched off, there is nothing to build -
+        // and this is the guard that stops a destroyed vehicle being rebuilt one frame
+        // later, which is otherwise exactly what a destroyed vehicle gets.
+        if (!m_vehicleEnabled)
+        {
+            AZ::TickBus::Handler::BusDisconnect();
+            return;
+        }
         if (!m_vehicle)
         {
             CreateVehicle();
@@ -284,6 +299,16 @@ namespace JoltPhysics
         JPH::Body* chassisBody = joltScene->GetJoltBody(chassisHandle);
         if (!chassisBody)
         {
+            return;
+        }
+
+        // A body that exists but is out of the world (DisablePhysics) is not a chassis
+        // to build on: the constraint would register against it and go dormant. Stop
+        // ticking and wait for OnPhysicsEnabled to say the body is back, rather than
+        // asking again every frame.
+        if (!chassisBody->IsInBroadPhase())
+        {
+            AZ::TickBus::Handler::BusDisconnect();
             return;
         }
 
@@ -334,6 +359,61 @@ namespace JoltPhysics
         {
             m_vehicle->SetTireMaxImpulse(m_tireMaxImpulse);
         }
+    }
+
+    void JoltVehicleComponent::SetVehicleEnabled(bool enabled)
+    {
+        if (enabled == m_vehicleEnabled)
+        {
+            return;
+        }
+        m_vehicleEnabled = enabled;
+
+        if (!enabled)
+        {
+            // An explicit stop, so the driver input does not come back with the vehicle
+            // - unlike RecreateVehicle, whose rebuild is a side effect of editing the
+            // configuration and should not drop the throttle. A wreck re-enabled at full
+            // throttle would lurch for no reason anyone asked for.
+            m_hasPendingDriverInput = false;
+            DestroyVehicle();
+            AZ::TickBus::Handler::BusDisconnect();
+            return;
+        }
+
+        // Back on: build on the next tick exactly as first activation does, so the
+        // chassis body is guaranteed to exist by the time it is looked for.
+        if (!AZ::TickBus::Handler::BusIsConnected())
+        {
+            AZ::TickBus::Handler::BusConnect();
+        }
+    }
+
+    bool JoltVehicleComponent::IsVehicleEnabled() const
+    {
+        return m_vehicleEnabled;
+    }
+
+    void JoltVehicleComponent::OnPhysicsEnabled([[maybe_unused]] const AZ::EntityId& entityId)
+    {
+        // The chassis is back in the world. Rebuild if the caller still wants a vehicle;
+        // if they switched it off in the meantime, the tick will see that and stop.
+        if (m_vehicleEnabled && !m_vehicle && !AZ::TickBus::Handler::BusIsConnected())
+        {
+            AZ::TickBus::Handler::BusConnect();
+        }
+    }
+
+    void JoltVehicleComponent::OnPhysicsDisabled([[maybe_unused]] const AZ::EntityId& entityId)
+    {
+        // The chassis left the world. Jolt would not crash over a constraint on a body
+        // that is not in the broadphase - VehicleConstraint::OnStep returns early and the
+        // constraint goes inactive with its body - but every wheel readout would keep
+        // describing the pose it was last stepped at, so the vehicle comes down with it.
+        // m_vehicleEnabled is untouched: this is not what the caller asked for.
+        m_hasPendingDriverInput = false;
+        DestroyVehicle();
+        AZ::TickBus::Handler::BusDisconnect();
     }
 
     void JoltVehicleComponent::DestroyVehicle()
