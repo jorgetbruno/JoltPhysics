@@ -89,6 +89,64 @@ namespace JoltPhysics
             return nullptr;
         }
 
+        //! Keeps the nearest candidate per collider, discarding the rest.
+        //!
+        //! Jolt's collectors report one candidate per SUB-SHAPE, which for a triangle mesh
+        //! is one per triangle. The engine's contract is one hit per collider: HitFlags
+        //! documents MeshMultiple as "report all hits for meshes rather than just the
+        //! first", says a single closest hit is reported when it is absent, leaves it out
+        //! of HitFlags::Default, and calls it "not applicable to ShapeCast queries" at all.
+        //!
+        //! Measured before this existed: a 0.06 m sphere cast at a house wall returned two
+        //! hits on the same collider 0.01 m apart - two triangles of one flat face. So
+        //! m_maxResults was spent on duplicates, a caller counting distinct obstacles
+        //! over-counted, and the answer changed depending on whether a filter callback was
+        //! present, because a callback returning Block ends the loop and hides the rest.
+        //!
+        //! Keyed on the resolved collider rather than the body, so a compound body still
+        //! reports each of its colliders and only the sub-shapes WITHIN one collapse. A
+        //! body that owns no shape objects - a character, a ragdoll part - resolves to
+        //! null and collapses to a single hit, which is what it has.
+        class ColliderHitCoalescer
+        {
+        public:
+            //! True the first time this (body, collider) pair is offered; false after.
+            bool ShouldReport(const JPH::BodyID& bodyId, const Physics::Shape* shape)
+            {
+                const Entry entry{ bodyId.GetIndexAndSequenceNumber(), shape };
+                // Linear, deliberately: what this scans is the number of DISTINCT colliders
+                // the cast crossed, which stays tiny even when the candidate list is
+                // thousands of triangles of one terrain mesh.
+                for (const Entry& seen : m_seen)
+                {
+                    if (seen.m_bodyId == entry.m_bodyId && seen.m_shape == entry.m_shape)
+                    {
+                        return false;
+                    }
+                }
+                m_seen.push_back(entry);
+                return true;
+            }
+
+        private:
+            struct Entry
+            {
+                AZ::u32 m_bodyId;
+                const Physics::Shape* m_shape;
+            };
+            AZStd::vector<Entry> m_seen;
+        };
+
+        //! Whether a cast should collapse a mesh's triangles into one hit per collider.
+        //! MeshMultiple opts out, and it is not in HitFlags::Default. AnyHit needs no
+        //! handling here: it asks for *any* hit rather than the closest, and one hit per
+        //! collider satisfies that.
+        bool ShouldCoalescePerCollider(AzPhysics::SceneQuery::HitFlags hitFlags)
+        {
+            return (hitFlags & AzPhysics::SceneQuery::HitFlags::MeshMultiple) !=
+                AzPhysics::SceneQuery::HitFlags::MeshMultiple;
+        }
+
         void FillCommonHitData(
             AzPhysics::SceneQueryHit& queryHit,
             const JPH::BodyID& bodyId,
@@ -426,6 +484,11 @@ namespace JoltPhysics
             {
                 collector.Sort();
 
+                // A raycast is the one query MeshMultiple applies to; a caller that wants
+                // every triangle asks for it explicitly.
+                const bool coalescePerCollider = ShouldCoalescePerCollider(request.m_hitFlags);
+                ColliderHitCoalescer coalescer;
+
                 for (const auto& hit : collector.mHits)
                 {
                     AzPhysics::SceneQueryHit queryHit;
@@ -436,6 +499,15 @@ namespace JoltPhysics
                                             AzPhysics::SceneQuery::ResultFlags::Position |
                                             AzPhysics::SceneQuery::ResultFlags::Normal;
                     FillCommonHitData(queryHit, hit.mBodyID, hit.mSubShapeID2, scene);
+
+                    // Checked after FillCommonHitData, which is what resolves the collider,
+                    // and before the filter callback, so the callback is asked once per
+                    // collider rather than once per triangle.
+                    if (coalescePerCollider && !coalescer.ShouldReport(hit.mBodyID, queryHit.m_shape))
+                    {
+                        continue;
+                    }
+
                     const AzPhysics::SceneQuery::QueryHitType hitType =
                         AppendHitIfAccepted(result, request, queryHit, scene);
 
@@ -534,11 +606,21 @@ namespace JoltPhysics
             query.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector, broadPhaseLayerFilter, objectLayerFilter, JPH::BodyFilter(), shapeFilter);
             collector.Sort();
 
+            // Unconditional for a shape cast: HitFlags calls MeshMultiple "not applicable
+            // to ShapeCast queries", so there is no way to ask for the triangles.
+            ColliderHitCoalescer coalescer;
+
             for (const auto& hit : collector.mHits)
             {
                 AzPhysics::SceneQueryHit queryHit;
                 FillShapeCastHit(queryHit, hit, request, physicsSystem);
                 FillCommonHitData(queryHit, hit.mBodyID2, hit.mSubShapeID2, scene);
+
+                if (!coalescer.ShouldReport(hit.mBodyID2, queryHit.m_shape))
+                {
+                    continue;
+                }
+
                 const AzPhysics::SceneQuery::QueryHitType hitType =
                     AppendHitIfAccepted(result, request, queryHit, scene);
 

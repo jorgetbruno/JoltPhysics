@@ -770,4 +770,150 @@ namespace JoltPhysics
         EXPECT_NEAR(blocked.m_hits[1].m_distance, 9.5f, 0.05f) << "the blocking hit itself was not reported";
     }
 
+    //! Two upward-facing quads stacked a metre apart, as ONE cooked triangle mesh: four
+    //! triangles, one collider.
+    //!
+    //! Stacked rather than a single flat quad on purpose. A ray crosses a flat plane once
+    //! however many triangles it is cut into, so a flat quad cannot tell "collapsed to the
+    //! nearest" from "only ever found one" - it would make the MeshMultiple test below
+    //! pass without proving anything. Both layers face +Z so a ray from above hits both,
+    //! since Jolt ignores back faces by default.
+    static AZStd::shared_ptr<Physics::CookedMeshShapeConfiguration> MakeStackedQuadMesh(float halfExtent)
+    {
+        AZStd::vector<AZ::Vector3> vertices;
+        AZStd::vector<AZ::u32> indices;
+        for (const float z : { 0.0f, -1.0f })
+        {
+            const AZ::u32 base = static_cast<AZ::u32>(vertices.size());
+            vertices.emplace_back(-halfExtent, -halfExtent, z);
+            vertices.emplace_back(halfExtent, -halfExtent, z);
+            vertices.emplace_back(halfExtent, halfExtent, z);
+            vertices.emplace_back(-halfExtent, halfExtent, z);
+            indices.insert(indices.end(), { base, base + 1, base + 2, base, base + 2, base + 3 });
+        }
+
+        const AZStd::vector<AZ::u8> blob = JoltMeshUtils::PackTriangleMesh(
+            vertices.data(), static_cast<AZ::u32>(vertices.size()),
+            indices.data(), static_cast<AZ::u32>(indices.size()));
+
+        auto cookedConfig = AZStd::make_shared<Physics::CookedMeshShapeConfiguration>();
+        cookedConfig->SetCookedMeshData(
+            blob.data(), blob.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+        return cookedConfig;
+    }
+
+    TEST_F(JoltSceneQueryTests, AMultiHitCastReportsAMeshColliderOnceRatherThanOncePerTriangle)
+    {
+        // Jolt collects one candidate per sub-shape, so a cast that brushes a flat wall
+        // came back as several hits on ONE collider a millimetre apart. Measured in a
+        // project: a 0.06 m sphere cast at a house wall reported two hits on House_A
+        // 0.01 m apart, which spent m_maxResults on duplicates and made an obstacle
+        // sensor counting distinct bodies over-count. HitFlags states the contract - a
+        // single closest hit per mesh unless MeshMultiple is asked for, and MeshMultiple
+        // is "not applicable to ShapeCast queries" at all.
+        auto quad = MakeStackedQuadMesh(2.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+        staticConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), quad);
+        const AzPhysics::SimulatedBodyHandle bodyHandle = m_scene->AddSimulatedBody(&staticConfig);
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        // Straight down through both layers, so there is genuinely more than one candidate
+        // to collapse.
+        AzPhysics::ShapeCastRequest shapeCastRequest = AzPhysics::ShapeCastRequestHelpers::CreateSphereCastRequest(
+            0.5f, AZ::Transform::CreateTranslation(AZ::Vector3(0.0f, 0.0f, 3.0f)),
+            AZ::Vector3(0.0f, 0.0f, -1.0f), 6.0f);
+        shapeCastRequest.m_reportMultipleHits = true;
+
+        AzPhysics::SceneQueryHits shapeHits = m_scene->QueryScene(&shapeCastRequest);
+        EXPECT_EQ(shapeHits.m_hits.size(), 1u)
+            << "a shape cast reported " << shapeHits.m_hits.size() << " hits for one mesh collider";
+
+        // The same for a ray, which by default must also report the closest hit only.
+        AzPhysics::RayCastRequest rayRequest;
+        rayRequest.m_start = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        rayRequest.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        rayRequest.m_distance = 6.0f;
+        rayRequest.m_reportMultipleHits = true;
+
+        AzPhysics::SceneQueryHits rayHits = m_scene->QueryScene(&rayRequest);
+        EXPECT_EQ(rayHits.m_hits.size(), 1u)
+            << "a raycast reported " << rayHits.m_hits.size() << " hits for one mesh collider";
+
+        ReleaseCachedMesh(*quad);
+    }
+
+    TEST_F(JoltSceneQueryTests, MeshMultipleAsksARaycastForEveryTriangleItCrosses)
+    {
+        // The opt-out half of the contract: a caller that wants every triangle asks, and
+        // must get them.
+        auto quad = MakeStackedQuadMesh(2.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_colliderAndShapeData =
+            AzPhysics::ShapeColliderPair(AZStd::make_shared<Physics::ColliderConfiguration>(), quad);
+        const AzPhysics::SimulatedBodyHandle bodyHandle = m_scene->AddSimulatedBody(&staticConfig);
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        AzPhysics::RayCastRequest rayRequest;
+        rayRequest.m_start = AZ::Vector3(0.0f, 0.0f, 3.0f);
+        rayRequest.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        rayRequest.m_distance = 10.0f;
+        rayRequest.m_reportMultipleHits = true;
+        rayRequest.m_hitFlags = AzPhysics::SceneQuery::HitFlags::Default |
+            AzPhysics::SceneQuery::HitFlags::MeshMultiple;
+
+        AzPhysics::SceneQueryHits withFlag = m_scene->QueryScene(&rayRequest);
+
+        rayRequest.m_hitFlags = AzPhysics::SceneQuery::HitFlags::Default;
+        AzPhysics::SceneQueryHits withoutFlag = m_scene->QueryScene(&rayRequest);
+
+        EXPECT_EQ(withoutFlag.m_hits.size(), 1u)
+            << "the default reported " << withoutFlag.m_hits.size() << " hits, expected the closest only";
+        // Strictly greater, not >=: an assertion that both layers are actually reached
+        // rather than one, which is what makes the line above mean "collapsed" instead of
+        // "there was only ever one".
+        EXPECT_GT(withFlag.m_hits.size(), 1u)
+            << "MeshMultiple reported " << withFlag.m_hits.size()
+            << " hits through two stacked quads of one mesh; the flag is not being read";
+
+        ReleaseCachedMesh(*quad);
+    }
+
+    TEST_F(JoltSceneQueryTests, CoalescingKeepsTheCollidersOfACompoundApart)
+    {
+        // The over-correction this could have been: collapsing per BODY would hide a
+        // compound's separate colliders, which are genuinely different things a cast
+        // passes through. Only the sub-shapes within one collider may collapse.
+        auto firstShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        firstShape->m_dimensions = AZ::Vector3(1.0f, 1.0f, 1.0f);
+        auto firstCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        firstCollider->m_position = AZ::Vector3(0.0f, 0.0f, 0.0f);
+
+        auto secondShape = AZStd::make_shared<Physics::BoxShapeConfiguration>();
+        secondShape->m_dimensions = AZ::Vector3(1.0f, 1.0f, 1.0f);
+        auto secondCollider = AZStd::make_shared<Physics::ColliderConfiguration>();
+        secondCollider->m_position = AZ::Vector3(0.0f, 0.0f, -3.0f);
+
+        AzPhysics::StaticRigidBodyConfiguration staticConfig;
+        staticConfig.m_colliderAndShapeData = AzPhysics::ShapeColliderPairList{
+            AzPhysics::ShapeColliderPair(firstCollider, firstShape),
+            AzPhysics::ShapeColliderPair(secondCollider, secondShape),
+        };
+        const AzPhysics::SimulatedBodyHandle bodyHandle = m_scene->AddSimulatedBody(&staticConfig);
+        ASSERT_NE(bodyHandle, AzPhysics::InvalidSimulatedBodyHandle);
+
+        AzPhysics::RayCastRequest rayRequest;
+        rayRequest.m_start = AZ::Vector3(0.0f, 0.0f, 4.0f);
+        rayRequest.m_direction = AZ::Vector3(0.0f, 0.0f, -1.0f);
+        rayRequest.m_distance = 12.0f;
+        rayRequest.m_reportMultipleHits = true;
+
+        AzPhysics::SceneQueryHits hits = m_scene->QueryScene(&rayRequest);
+        EXPECT_EQ(hits.m_hits.size(), 2u)
+            << "expected one hit per collider on the compound, got " << hits.m_hits.size();
+    }
+
 } // namespace JoltPhysics

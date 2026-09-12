@@ -111,9 +111,36 @@ feature, trust the topic sections below the milestones.**
 - **An overlap reports one hit per body, not one per collider.** PhysX returns a hit per
   shape. A body whose colliders all overlap the query volume therefore appears once, and
   the hit's shape and material are whichever sub-shape Jolt happened to report first.
-- **Only `HitFlags::MTD` is read.** The rest of the request's hit flags, `MeshBothSides`
-  among them, are ignored: casts use Jolt's defaults, which ignore back faces. A ray fired
-  from inside a triangle mesh does not hit its far side.
+- **A multi-hit cast reports one hit per collider, not one per triangle.** Jolt's
+  collectors report a candidate per *sub-shape*, which for a triangle mesh is one per
+  triangle, so a cast that brushed a wall came back as several hits on one collider a
+  millimetre apart - measured: a 0.06 m sphere cast at a house wall returned two hits on
+  the same body 0.01 m apart, and a ray through two stacked quads of one mesh returned
+  four. That spent `m_maxResults` on duplicates, made callers counting distinct obstacles
+  over-count, and changed the answer depending on whether a filter callback was present,
+  since a callback returning `Block` ends the loop and hides the rest.
+
+  The collapse is keyed on the **collider**, so a compound body still reports each of its
+  colliders and only the sub-shapes within one collapse. A body that owns no shape objects
+  - a character, a ragdoll part - reports once, which is what it has.
+- **`HitFlags::MTD` and `HitFlags::MeshMultiple` are read; the rest are not.**
+  `MeshMultiple` opts a *raycast* out of the collapse above and returns every triangle;
+  it is deliberately ignored for shape casts, which is what the engine asks for - it
+  documents the flag as "not applicable to ShapeCast queries". `AnyHit` needs no handling:
+  it asks for *any* hit rather than the closest, and one hit per collider satisfies it.
+  The remainder, `MeshBothSides` among them, are ignored: casts use Jolt's defaults, which
+  ignore back faces. A ray fired from inside a triangle mesh does not hit its far side.
+- **A shape cast that starts already overlapping a body reports it with a NEGATIVE
+  distance.** The magnitude is the penetration depth and the normal points out of the
+  body, which is the direction that would separate them. This is deliberate - it is what
+  `HitFlags::MTD` asks for, and the flag is on by default in `ShapeCastRequest` precisely
+  so a start pose in contact is reported rather than skipped - but it catches callers out:
+  a sweep is naturally written as "the smallest positive distance is the nearest
+  obstacle", and a negative one sorts first and reads as *closer than everything*. A
+  project's traffic sensor swept a 0.75 m sphere from 0.45 m above the road, read -0.24 m
+  against the road itself, and braked the whole fleet. Either start the sweep clear of
+  everything, filter the body the sweep starts inside, or treat `m_distance < 0` as
+  "already touching" rather than as a distance.
 - **PhysX features with no equivalent here at all**: reduced-coordinate articulations
   (`ArticulationJointBus`, `ArticulationSensorBus`), `ColliderShapeRequests` - which some
   engine gems, vegetation among them, call for a collider's bounds - and
