@@ -75,10 +75,12 @@ deviations from PhysX behavior.
   viewport preview of the
   forces they apply.
 
-- **The shape collider does not wrap Quad**, and a **concave** Polygon Prism becomes its
-  convex hull rather than its true outline. Box, Sphere, Capsule, Cylinder and convex
-  prisms are handled; a concave prism needs the decomposition path the baked mesh collider
-  already uses, which is an editor-time bake rather than the live read this does.
+- **The shape collider does not wrap Quad.** Box, Sphere, Capsule, Cylinder and Polygon
+  Prism are handled. **[resolved 2026-09-13]** *A concave prism became its convex hull.* It
+  now collides as its outline: the footprint is ear-clipped and each triangle extruded to
+  a hull, which is exact and still a live read - the entry above was wrong that this
+  needed the mesh collider's decomposition bake, since a prism's concavity lives in a
+  plane. See DIVERGENCES "Shape collider".
 
 - **`jolt_Debug` still re-tessellates every shape each frame.** Primitives are now
   batched by colour into a handful of broadcasts per frame rather than one per triangle,

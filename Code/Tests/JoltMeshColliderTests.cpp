@@ -9,6 +9,7 @@
 #include <Scene/JoltScene.h>
 #include <JoltPhysics/JoltModuleGlobals.h>
 #include <Shape/JoltMeshUtils.h>
+#include <Shape/JoltPolygonTriangulation.h>
 #include <Shape/JoltShape.h>
 #include <Shape/JoltShapeUtils.h>
 #include <System/JoltSystem.h>
@@ -133,6 +134,87 @@ namespace JoltPhysics
         AzPhysics::SceneHandle m_sceneHandle;
         AzPhysics::Scene* m_scene = nullptr;
     };
+
+    // ---- ear clipping ---------------------------------------------------------------
+    //
+    // Total area is the discriminating check: a wrong triangulation of a simple polygon
+    // either drops area (a triangle left out) or double-counts it (an ear that crosses
+    // the outline), and the sum of unsigned triangle areas equals the polygon's only
+    // when every triangle lies inside and they tile it.
+
+    static float TriangulatedArea(const AZStd::vector<AZ::Vector2>& outline, const AZStd::vector<AZ::u32>& triangles)
+    {
+        float area = 0.0f;
+        for (size_t i = 0; i + 2 < triangles.size(); i += 3)
+        {
+            const AZ::Vector2& a = outline[triangles[i]];
+            const AZ::Vector2& b = outline[triangles[i + 1]];
+            const AZ::Vector2& c = outline[triangles[i + 2]];
+            area += 0.5f * AZStd::abs(
+                (b.GetX() - a.GetX()) * (c.GetY() - a.GetY()) - (b.GetY() - a.GetY()) * (c.GetX() - a.GetX()));
+        }
+        return area;
+    }
+
+    TEST_F(JoltMeshColliderTests, EarClippingTilesAConcaveOutlineExactly)
+    {
+        // The U from the collider test: area 16 - 6 = 10.
+        const AZStd::vector<AZ::Vector2> u = {
+            AZ::Vector2(-2.0f, -2.0f), AZ::Vector2(2.0f, -2.0f), AZ::Vector2(2.0f, 2.0f),
+            AZ::Vector2(1.0f, 2.0f), AZ::Vector2(1.0f, -1.0f), AZ::Vector2(-1.0f, -1.0f),
+            AZ::Vector2(-1.0f, 2.0f), AZ::Vector2(-2.0f, 2.0f),
+        };
+        const AZStd::vector<AZ::u32> triangles = JoltPolygonTriangulation::EarClip(u);
+        EXPECT_EQ(triangles.size(), (u.size() - 2) * 3) << "a simple n-gon has exactly n-2 triangles";
+        EXPECT_NEAR(TriangulatedArea(u, triangles), 10.0f, 1e-4f);
+        EXPECT_FALSE(JoltPolygonTriangulation::IsConvex(u));
+    }
+
+    TEST_F(JoltMeshColliderTests, EarClippingAcceptsEitherWinding)
+    {
+        const AZStd::vector<AZ::Vector2> counterClockwise = {
+            AZ::Vector2(0.0f, 0.0f), AZ::Vector2(3.0f, 0.0f), AZ::Vector2(3.0f, 1.0f),
+            AZ::Vector2(1.0f, 1.0f), AZ::Vector2(1.0f, 3.0f), AZ::Vector2(0.0f, 3.0f),
+        };
+        AZStd::vector<AZ::Vector2> clockwise(counterClockwise.rbegin(), counterClockwise.rend());
+
+        const float expectedArea = 3.0f + 2.0f; // an L: 3x1 bar plus a 1x2 upright
+        EXPECT_GT(JoltPolygonTriangulation::SignedAreaTwice(counterClockwise), 0.0f);
+        EXPECT_LT(JoltPolygonTriangulation::SignedAreaTwice(clockwise), 0.0f);
+        EXPECT_NEAR(TriangulatedArea(counterClockwise, JoltPolygonTriangulation::EarClip(counterClockwise)), expectedArea, 1e-4f);
+        EXPECT_NEAR(TriangulatedArea(clockwise, JoltPolygonTriangulation::EarClip(clockwise)), expectedArea, 1e-4f);
+    }
+
+    TEST_F(JoltMeshColliderTests, EarClippingToleratesTheJunkAuthoredOutlinesCarry)
+    {
+        // A duplicated vertex and an explicit closing vertex, both of which the editor's
+        // outline tool can leave behind, and a collinear vertex mid-edge. None of them
+        // is a corner, and none may break the fan.
+        const AZStd::vector<AZ::Vector2> square = {
+            AZ::Vector2(0.0f, 0.0f), AZ::Vector2(1.0f, 0.0f), AZ::Vector2(2.0f, 0.0f), // collinear middle
+            AZ::Vector2(2.0f, 0.0f),                                                  // duplicate
+            AZ::Vector2(2.0f, 2.0f), AZ::Vector2(0.0f, 2.0f),
+            AZ::Vector2(0.0f, 0.0f),                                                  // explicit close
+        };
+        const AZStd::vector<AZ::u32> triangles = JoltPolygonTriangulation::EarClip(square);
+        EXPECT_FALSE(triangles.empty());
+        EXPECT_NEAR(TriangulatedArea(square, triangles), 4.0f, 1e-4f);
+        EXPECT_TRUE(JoltPolygonTriangulation::IsConvex(square)) << "a collinear vertex is not a reflex one";
+    }
+
+    TEST_F(JoltMeshColliderTests, EarClippingRefusesWhatIsNotAPolygon)
+    {
+        const AZStd::vector<AZ::Vector2> bowTie = {
+            AZ::Vector2(-1.0f, -1.0f), AZ::Vector2(1.0f, 1.0f), AZ::Vector2(1.0f, -1.0f), AZ::Vector2(-1.0f, 1.0f),
+        };
+        EXPECT_TRUE(JoltPolygonTriangulation::EarClip(bowTie).empty()) << "a self-intersecting outline was triangulated";
+
+        const AZStd::vector<AZ::Vector2> line = { AZ::Vector2(0.0f, 0.0f), AZ::Vector2(1.0f, 0.0f), AZ::Vector2(2.0f, 0.0f) };
+        EXPECT_TRUE(JoltPolygonTriangulation::EarClip(line).empty()) << "a zero-area outline was triangulated";
+
+        const AZStd::vector<AZ::Vector2> twoPoints = { AZ::Vector2(0.0f, 0.0f), AZ::Vector2(1.0f, 0.0f) };
+        EXPECT_TRUE(JoltPolygonTriangulation::EarClip(twoPoints).empty());
+    }
 
     TEST_F(JoltMeshColliderTests, CookTransformsWorldGeometryIntoEntityLocalSpace)
     {

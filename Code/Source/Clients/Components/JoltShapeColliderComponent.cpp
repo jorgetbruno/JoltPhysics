@@ -2,6 +2,7 @@
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Math/PolygonPrism.h>
+#include <Shape/JoltPolygonTriangulation.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -163,20 +164,59 @@ namespace JoltPhysics
             return nullptr;
         }
 
-        // The prism is an outline extruded along local +Z, so its solid is the hull of the
-        // outline at both heights. Jolt builds the hull from the point cloud itself, so no
-        // triangulation is needed here.
-        AZStd::vector<AZ::Vector3> points;
-        points.reserve(footprint.size() * 2);
         const float height = prism->GetHeight();
-        for (const AZ::Vector2& vertex : footprint)
+
+        // The prism is an outline extruded along local +Z. A CONVEX outline's solid is
+        // the hull of the outline at both heights, and Jolt builds that from the point
+        // cloud itself. A concave one used to get the same treatment - and so collided
+        // as the hull of its outline, a U-shaped blocker as a solid block, with nothing
+        // in the viewport saying so. The concavity of a prism is confined to a plane,
+        // which is what makes the exact answer cheap: triangulate the footprint, extrude
+        // each triangle, and every piece is convex while the union is exactly the solid.
+        // No 3D decomposition, no editor-time bake, still a live read.
+        AZStd::vector<AZ::u8> cooked;
+        if (JoltPolygonTriangulation::IsConvex(footprint))
         {
-            points.emplace_back(vertex.GetX(), vertex.GetY(), 0.0f);
-            points.emplace_back(vertex.GetX(), vertex.GetY(), height);
+            AZStd::vector<AZ::Vector3> points;
+            points.reserve(footprint.size() * 2);
+            for (const AZ::Vector2& vertex : footprint)
+            {
+                points.emplace_back(vertex.GetX(), vertex.GetY(), 0.0f);
+                points.emplace_back(vertex.GetX(), vertex.GetY(), height);
+            }
+            cooked = JoltMeshUtils::PackConvexMesh(points.data(), static_cast<AZ::u32>(points.size()));
+        }
+        else
+        {
+            const AZStd::vector<AZ::u32> triangles = JoltPolygonTriangulation::EarClip(footprint);
+            if (triangles.empty())
+            {
+                AZ_Warning("JoltPhysics", false,
+                    "Jolt Shape Collider on entity %s: the polygon prism outline could not be triangulated. "
+                    "It crosses itself or has no area; the collider will have no geometry until it is fixed.",
+                    entityId.ToString().c_str());
+                return nullptr;
+            }
+
+            // One six-point hull per triangle: the triangle at the base and at the top.
+            // These become children of one compound under ONE collider - a hull group -
+            // which the sub-shape mapping and the material path already understand.
+            AZStd::vector<AZStd::vector<AZ::Vector3>> hulls;
+            hulls.reserve(triangles.size() / 3);
+            for (size_t i = 0; i + 2 < triangles.size(); i += 3)
+            {
+                AZStd::vector<AZ::Vector3>& hull = hulls.emplace_back();
+                hull.reserve(6);
+                for (size_t corner = 0; corner < 3; ++corner)
+                {
+                    const AZ::Vector2& vertex = footprint[triangles[i + corner]];
+                    hull.emplace_back(vertex.GetX(), vertex.GetY(), 0.0f);
+                    hull.emplace_back(vertex.GetX(), vertex.GetY(), height);
+                }
+            }
+            cooked = JoltMeshUtils::PackConvexHulls(hulls);
         }
 
-        const AZStd::vector<AZ::u8> cooked =
-            JoltMeshUtils::PackConvexMesh(points.data(), static_cast<AZ::u32>(points.size()));
         if (cooked.empty())
         {
             return nullptr;

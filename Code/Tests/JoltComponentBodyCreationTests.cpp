@@ -32,6 +32,8 @@
 #include <Configuration/JoltSettingsRegistryManager.h>
 
 #include "JoltTestWarningCatcher.h"
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Component/TransformBus.h>
@@ -2653,6 +2655,104 @@ namespace JoltPhysics
             AZ::PolygonPrismPtr m_prism;
         };
     };
+
+    TEST_F(JoltShapeColliderTests, AConcavePolygonPrismCollidesAsItsOutlineNotItsHull)
+    {
+        // A U-shaped footprint: 4 m wide, 4 m deep, with a 2 m wide notch cut 3 m into
+        // the top. As a convex hull this is a solid 4x4 block. As itself, the notch is
+        // open, and a probe dropped into it must fall through to the floor.
+        auto entity = AZStd::make_unique<AZ::Entity>("ConcavePrismCollider");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltShapeColliderComponent>();
+        entity->Init();
+
+        const AZStd::vector<AZ::Vector2> footprint = {
+            AZ::Vector2(-2.0f, -2.0f), AZ::Vector2(2.0f, -2.0f), AZ::Vector2(2.0f, 2.0f),
+            AZ::Vector2(1.0f, 2.0f), AZ::Vector2(1.0f, -1.0f), AZ::Vector2(-1.0f, -1.0f),
+            AZ::Vector2(-1.0f, 2.0f), AZ::Vector2(-2.0f, 2.0f),
+        };
+        MockPolygonPrismShape shape(entity->GetId(), footprint, 2.0f);
+
+        auto* collider = entity->FindComponent<JoltShapeColliderComponent>();
+        ASSERT_NE(collider, nullptr);
+        const AzPhysics::ShapeColliderPair pair = collider->GetShapeColliderPair();
+        ASSERT_NE(pair.second, nullptr) << "the concave prism produced no shape configuration";
+
+        const JPH::RefConst<JPH::Shape> nativeShape = JoltShapeUtils::CreateJoltShapeFromConfig(*pair.second);
+        ASSERT_NE(nativeShape, nullptr);
+
+        // The bounds are the same either way - which is exactly why bounds could not
+        // catch this - so the assertion is a point-in-solid test.
+        const JPH::AABox bounds = nativeShape->GetLocalBounds();
+        EXPECT_NEAR(bounds.GetSize().GetX(), 4.0f, 0.05f);
+        EXPECT_NEAR(bounds.GetSize().GetY(), 4.0f, 0.05f);
+        EXPECT_NEAR(bounds.GetSize().GetZ(), 2.0f, 0.05f);
+
+        // A vertical ray dropped into the notch. Against the hull it stops at the top
+        // face at z=2; against the true outline there is nothing there and it misses.
+        // A second ray through one arm must still hit, or the prism simply vanished.
+        //
+        // Shape::CastRay takes the ray relative to the shape's CENTRE OF MASS, not its
+        // origin (Shape.h says so, and the gem's shape-cast path corrects for it with
+        // sFromWorldTransform). This compound's centre of mass sits a metre up and a
+        // little toward the base of the U, so the origins are shifted by it - without
+        // that the arm's top face read as z=1, a metre short, while the notch ray only
+        // missed by luck.
+        const JPH::Vec3 centreOfMass = nativeShape->GetCenterOfMass();
+        auto castDown = [&](float x, float y, JPH::RayCastResult& hit)
+        {
+            const JPH::Vec3 origin = JPH::Vec3(x, y, 5.0f) - centreOfMass;
+            return nativeShape->CastRay(
+                JPH::RayCast(origin, JPH::Vec3(0.0f, 0.0f, -10.0f)), JPH::SubShapeIDCreator(), hit);
+        };
+
+        JPH::RayCastResult notchHit;
+        const bool struckNotch = castDown(0.0f, 0.5f, notchHit);
+        EXPECT_FALSE(struckNotch)
+            << "a ray dropped into the notch struck the prism at fraction " << notchHit.mFraction
+            << ": the concave outline is colliding as its convex hull";
+
+        JPH::RayCastResult armHit;
+        const bool struckArm = castDown(1.5f, 0.5f, armHit);
+        EXPECT_TRUE(struckArm) << "a ray through one arm of the U missed the prism altogether";
+        if (struckArm)
+        {
+            // Fraction along a 10 m ray from z=5: the arm's top face is at the prism height.
+            EXPECT_NEAR(5.0f - armHit.mFraction * 10.0f, 2.0f, 0.05f);
+        }
+
+        if (auto* cooked = azdynamic_cast<Physics::CookedMeshShapeConfiguration*>(pair.second.get()))
+        {
+            if (auto* cachedMesh = static_cast<JPH::Shape*>(cooked->GetCachedNativeMesh()))
+            {
+                cachedMesh->Release();
+                cooked->SetCachedNativeMesh(nullptr);
+            }
+        }
+    }
+
+    TEST_F(JoltShapeColliderTests, ASelfIntersectingPrismProducesNoGeometryAndSaysWhy)
+    {
+        // A bow-tie: the outline crosses itself, so there is no solid to build. Better
+        // no collider and a warning than a hull of a shape that does not exist.
+        auto entity = AZStd::make_unique<AZ::Entity>("BowTiePrismCollider");
+        entity->CreateComponent<AzFramework::TransformComponent>();
+        entity->CreateComponent<JoltShapeColliderComponent>();
+        entity->Init();
+
+        const AZStd::vector<AZ::Vector2> footprint = {
+            AZ::Vector2(-1.0f, -1.0f), AZ::Vector2(1.0f, 1.0f), AZ::Vector2(1.0f, -1.0f), AZ::Vector2(-1.0f, 1.0f),
+        };
+        MockPolygonPrismShape shape(entity->GetId(), footprint, 1.0f);
+
+        JoltWarningCatcher warnings;
+        auto* collider = entity->FindComponent<JoltShapeColliderComponent>();
+        ASSERT_NE(collider, nullptr);
+        const AzPhysics::ShapeColliderPair pair = collider->GetShapeColliderPair();
+        EXPECT_EQ(pair.second, nullptr) << "a self-intersecting outline produced collision geometry";
+        EXPECT_TRUE(warnings.ContainsWarningWith("could not be triangulated"))
+            << "nothing told the author why their prism has no collider";
+    }
 
     TEST_F(JoltShapeColliderTests, APolygonPrismBecomesCollisionGeometry)
     {

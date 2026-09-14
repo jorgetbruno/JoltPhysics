@@ -101,6 +101,8 @@ set(FILES
     Source/Shape/JoltHeightfieldUtils.h
     Source/Shape/JoltMeshUtils.cpp
     Source/Shape/JoltMeshUtils.h
+    Source/Shape/JoltPolygonTriangulation.cpp
+    Source/Shape/JoltPolygonTriangulation.h
     Source/Shape/JoltShape.cpp
     Source/Shape/JoltShape.h
     Source/Shape/JoltShapeUtils.cpp

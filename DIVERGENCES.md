@@ -1132,11 +1132,17 @@ have no single pose to blend.
   workflow for extruded blockers, kill volumes and trigger regions - draw a Polygon Prism,
   add a collider - and without it those entities had no representation in this backend at
   all: the primitives can be re-authored by hand, a prism cannot.
-- **A polygon prism becomes the convex hull of its extruded outline.** The outline at both
-  heights is handed to Jolt as a point cloud, which is exact for a convex prism and the
-  hull of a concave one. PhysX decomposes concave prisms; doing that here means an
-  editor-time bake rather than the live read this component does, so it is recorded in
-  KNOWN_ISSUES instead of half-done.
+- **A polygon prism collides as its true outline, concave or not.** A convex outline is
+  handed to Jolt as a point cloud at both heights and becomes one hull. A concave one is
+  ear-clipped in 2D (`JoltPolygonTriangulation`) and each triangle extruded to a six-point
+  hull; those become a hull group - one compound under one collider, which the sub-shape
+  mapping and the material path already understand. The union is *exactly* the solid, not
+  an approximation, and it is still a live read: the concavity of a prism is confined to a
+  plane, which is what makes this cheap where an arbitrary concave mesh needs V-HACD and
+  an editor-time bake. It used to be the hull of the outline in both cases, so a U-shaped
+  blocker collided as a solid block, and since the bounds are identical nothing in the
+  viewport said so. An outline that crosses itself or has no area produces no collider and
+  a warning naming the entity, rather than the hull of a shape that does not exist.
 - **Quad is not wrapped**, having no volume for Jolt to collide with.
 - **No manipulators of its own.** The shape component already owns the handles that resize
   it, and a second set would give an author two ways to change one thing.
