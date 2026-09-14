@@ -211,10 +211,34 @@ deviations from PhysX behavior.
   configuration is also scriptable (behavior-context reflected, carried by the bus),
   per-vehicle gravity override and solver/collision-test knobs are exposed, and the
   editor component previews the suspension rest pose without entering game mode.
-- **The default tracked drive out-torques its own wheelbase.** At full throttle from
-  standstill on flat ground, a tracked vehicle on the default 500 Nm engine and the
-  default eight-wheel layout pops a wheelie and lands on its back. This was masked
-  until 2026-08-26 by the pitch/roll limit defaulting to 60 degrees; now that the limit
-  matches Jolt and is off by default, it is visible. The engine torque default is shared
-  by every vehicle type and sizing it per type (as the motorcycle already is) is the
-  real fix; until then, set `Max pitch/roll angle` to 60 on a tracked vehicle.
+- **The default tracked vehicle flips itself onto its back at full throttle** - and the
+  cause is the chassis's centre of mass, not the engine. At full throttle from standstill
+  on flat ground, the default eight-wheel layout under a 3.0 x 1.6 x 0.6 m box chassis pops
+  a wheelie and lands on its back. This was masked until 2026-08-26 by the pitch/roll limit
+  defaulting to 60 degrees.
+
+  This entry used to say sizing the engine torque per vehicle type was the real fix. It is
+  not, measured on 2026-09-13 (three seconds of full throttle, limit off):
+
+  | setup | peak pitch | result |
+  | --- | --- | --- |
+  | default: 1200 kg, 500 Nm | 89.9 deg | flips |
+  | 1200 kg, 250 Nm | 90.0 deg | flips |
+  | 1200 kg, 150 Nm | 13.9 deg | upright |
+  | 4000 kg, 500 Nm | 18.6 deg | upright |
+  | 1200 kg, 500 Nm, centre of mass 0.3 m lower | 9.8 deg | upright, and fastest (19.9 m/s) |
+
+  Halving the torque still flips it; stopping it by torque alone takes a 70% cut, and a
+  taller hull would need more. Lowering the centre of mass to the hull floor keeps the
+  stock engine and the tank stays flat - and goes more than twice as fast, since the drive
+  stops going into a wheelie. That is what Jolt's own tank sample does
+  (`OffsetCenterOfMassShapeSettings` to the bottom of the hull), and it is the same cause as
+  a wheeled car standing on its nose under braking.
+
+  **Fix it on the chassis rigid body**: turn off `Compute COM` and set the
+  `Centre of mass offset` down toward the hull floor. The pitch/roll limit still works as a
+  backstop. The gem cannot pick this default itself - the chassis collider, and so its
+  centroid, is the author's - and a static warning is not reliable either: the textbook
+  front-lift threshold for this geometry is 13.1 m/s^2, yet it flips at a computed 6.3 and
+  holds at 3.8. Suspension and drive-shock dynamics add a factor of two to three, so a
+  warning built on the static rule would stay silent in exactly the cases that flip.
