@@ -1029,6 +1029,21 @@ have no single pose to blend.
 - **A wind region's velocity is its world-space force's vector.** Other force types have
   no direction that means "wind" on their own and are ignored by the wind interface
   rather than guessed at.
+- **`EditorJoltForceRegionComponent` is the edit-time half**, PhysX-style: it holds the
+  forces and the wind tag, spawns the runtime component through `BuildGameEntity`, and
+  draws the forces in the viewport - one cyan arrow per directional force from the
+  region's origin, a fixed metre long because newtons have no honest mapping to metres. A
+  local-space force turns with the entity as the force it draws does; a point force draws
+  six radial arrows, outward for a repulsor and inward for a well, since the sign is the
+  whole difference and a single arrow cannot show it. Drag and damping draw nothing: they
+  oppose a body's own velocity and have no direction until there is a body.
+
+  The runtime component composed on editor entities before this and sat inert there - the
+  default scene it looks for does not exist in edit mode - so the split changes nothing
+  about behaviour. What it adds is the preview: a fan, a current or a wind zone was a
+  wireframe box with nothing saying which way it pushed, and the only way to find out was
+  to enter game mode and drop something in. The region's reflection is shared and now
+  idempotent, since both components reflect it in whichever order their descriptors come.
 
 ## Transform sync
 

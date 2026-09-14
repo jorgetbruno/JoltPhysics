@@ -180,6 +180,16 @@ namespace JoltPhysics
 
     void JoltForceRegion::Reflect(AZ::ReflectContext* context)
     {
+        // Both JoltForceRegionComponent and EditorJoltForceRegionComponent reflect this,
+        // in whichever order their descriptors come, and a second Class<JoltForceRegion>()
+        // on the same context asserts. The region and its forces are registered as a
+        // unit, so the region's own class data is the witness for all of them.
+        if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+            serializeContext != nullptr && serializeContext->FindClassData(azrtti_typeid<JoltForceRegion>()) != nullptr)
+        {
+            return;
+        }
+
         JoltForceRegionBaseForce::Reflect(context);
 
         if (auto* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))

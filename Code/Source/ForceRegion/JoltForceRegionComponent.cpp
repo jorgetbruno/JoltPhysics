@@ -36,8 +36,12 @@ namespace JoltPhysics
                 editContext->Class<JoltForceRegionComponent>("Jolt Force Region",
                     "Applies forces to bodies inside a trigger collider")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                        // No AppearsInAddComponentMenu: EditorJoltForceRegionComponent owns
+                        // the menu entry (PhysX-style editor/runtime split) and draws the
+                        // forces in the viewport, which this one cannot. The runtime
+                        // component stays registered for prefabs that carry it directly
+                        // and for BuildGameEntity.
                         ->Attribute(AZ::Edit::Attributes::Category, "Jolt Physics")
-                        ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
                         ->Attribute(AZ::Edit::Attributes::RemoveableByUser, true)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &JoltForceRegionComponent::m_forceRegion,

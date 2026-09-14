@@ -68,12 +68,15 @@ deviations from PhysX behavior.
   from a `.joltmesh` or a procedural shape has no render mesh to write into, so drawing one
   still means reading its vertices and drawing them yourself.
 
-- **Force region gaps**: the spline-follow force PhysX offers is not wrapped (it needs a
-  spline component to follow), there is no editor force-region component (the runtime one
-  composes on editor entities because the editor colliders provide `JoltColliderService`,
-  which is how the sail demo level authors its wind), and force regions have no editor
-  viewport preview of the
-  forces they apply.
+- **The spline-follow force PhysX offers is not wrapped** - it needs a spline component
+  to follow and an authoring story of its own. **[resolved 2026-09-13]** *There was no
+  editor force-region component and no viewport preview of the forces.*
+  `EditorJoltForceRegionComponent` now owns the Add Component entry and draws each force
+  as an arrow from the region's origin - world-space along its axis, local-space turned
+  with the entity, a point force as six radial arrows outward or inward by sign. Drag and
+  damping draw nothing, since they have no direction until there is a body. The runtime
+  component still loads from prefabs that carry it directly, so the sail demo level kept
+  working before its generator was moved over.
 
 - **The shape collider does not wrap Quad.** Box, Sphere, Capsule, Cylinder and Polygon
   Prism are handled. **[resolved 2026-09-13]** *A concave prism became its convex hull.* It

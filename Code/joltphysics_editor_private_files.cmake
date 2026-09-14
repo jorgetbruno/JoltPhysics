@@ -61,6 +61,9 @@ set(FILES
     Source/Editor/Components/EditorJoltRigidBodyComponent.h
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.cpp
     Source/Editor/Components/EditorJoltStaticRigidBodyComponent.h
+    Source/Editor/Components/EditorJoltForceRegionComponent.cpp
+    Source/Editor/Components/EditorJoltForceRegionComponent.h
+    Source/Editor/Components/EditorJoltForceRegionDraw.h
     Source/Editor/Components/EditorJoltHeightfieldColliderComponent.cpp
     Source/Editor/Components/EditorJoltHeightfieldColliderComponent.h
     Source/Editor/Components/EditorJoltStaticCompoundColliderComponent.cpp

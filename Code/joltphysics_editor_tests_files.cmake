@@ -4,6 +4,8 @@ set(FILES
     Tests/JoltPhysicsEditorSystemComponentTests.cpp
     Tests/JoltEditorWorldColliderTests.cpp
     Tests/JoltEditorDebugDrawTests.cpp
+    Tests/JoltEditorRecordingDebugDisplay.h
+    Tests/JoltEditorForceRegionTests.cpp
     Tests/JoltCharacterControllerComponentModeTests.cpp
     Tests/JoltEditorColliderSerializationTests.cpp
     Tests/JoltEditorColliderGeometryTests.cpp

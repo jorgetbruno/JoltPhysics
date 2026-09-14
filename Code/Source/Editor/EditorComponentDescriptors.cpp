@@ -11,6 +11,7 @@
 #include <Editor/Pipeline/JoltMeshExporter.h>
 #include <Editor/Components/EditorJoltRigidBodyComponent.h>
 #include <Editor/Components/EditorJoltStaticRigidBodyComponent.h>
+#include <Editor/Components/EditorJoltForceRegionComponent.h>
 #include <Editor/Components/EditorJoltHeightfieldColliderComponent.h>
 #include <Editor/Components/EditorJoltStaticCompoundColliderComponent.h>
 #include <Editor/Components/EditorJoltMutableCompoundColliderComponent.h>
@@ -47,6 +48,7 @@ namespace JoltPhysics
         descriptors.push_back(EditorJoltShapeColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltRigidBodyComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltStaticRigidBodyComponent::CreateDescriptor());
+        descriptors.push_back(EditorJoltForceRegionComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltHeightfieldColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltStaticCompoundColliderComponent::CreateDescriptor());
         descriptors.push_back(EditorJoltMutableCompoundColliderComponent::CreateDescriptor());
