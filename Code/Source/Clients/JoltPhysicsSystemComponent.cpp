@@ -2,6 +2,7 @@
 
 #include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Console/IConsole.h>
+#include <AzCore/std/chrono/chrono.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Serialization/EditContextConstants.inl>
@@ -39,6 +40,11 @@ namespace JoltPhysics
     {
         AZ_CVAR(int, jolt_Debug, 0, nullptr, AZ::ConsoleFunctorFlags::Null,
             "Draw Jolt physics collider shapes each frame (0 = off, 1 = wireframe).");
+
+        AZ_CVAR(int, jolt_DebugDrawProfile, 0, nullptr, AZ::ConsoleFunctorFlags::Null,
+            "While jolt_Debug is on, average what it costs over this many frames and print it, "
+            "split into the walk (Jolt unpacking shapes into the gem's buffers) and the flush "
+            "(handing those buffers to the renderer). 0 = off.");
 
         //! Adds an asset type and its file extension to the AssetCatalog and keeps the handler
         //! alive for the rest of the component's lifetime. Mirrors PhysX's RegisterAsset helper.
@@ -169,6 +175,11 @@ namespace JoltPhysics
         m_jointHelpers.reset();
         m_windProvider.reset();
 
+        // Shapes may still hold batches this renderer built; those are refcounted and free
+        // themselves, so the renderer itself can go now. It must go before another component
+        // instance could build its own, since Jolt allows only one.
+        m_debugRenderer.reset();
+
         AZ::TickBus::Handler::BusDisconnect();
         JoltPhysicsSystemRequestBus::Handler::BusDisconnect();
         Physics::SystemDebugRequestBus::Handler::BusDisconnect();
@@ -206,71 +217,24 @@ namespace JoltPhysics
         // Draw everything regardless of camera distance (debug toggle is meant to show all).
         settings.m_drawDistance = 100000.0f;
 
-        // Jolt hands this renderer one primitive at a time, and each used to become two
-        // heap allocations and a bus broadcast of its own - so a mesh or heightfield level
-        // spent hundreds of thousands of allocations and broadcasts per frame, which made
-        // the toggle unusable on exactly the scenes it exists to inspect.
-        //
-        // Primitives are accumulated by colour instead and flushed once. Jolt uses a
-        // handful of colours (sleeping versus awake, per motion type), so a frame costs a
-        // handful of broadcasts rather than one per triangle. The buffers are static so
-        // they keep their capacity between frames rather than reallocating from nothing.
-        struct BatchedGeometry
-        {
-            AZStd::unordered_map<AZ::u32, AZStd::vector<AZ::Vector3>> m_linesByColor;
-            AZStd::unordered_map<AZ::u32, AZStd::vector<AZ::Vector3>> m_trianglesByColor;
-        };
-        static BatchedGeometry batched;
+        // Straight into per-colour buffers rather than through the settings' callbacks: the
+        // callbacks cost a colour conversion, two vertex constructions and a hash lookup per
+        // LINE, and a city level draws over a million lines. The sink is static so it keeps
+        // its capacity between frames and a warm frame allocates nothing.
+        static JoltDebugDrawSink sink;
+        sink.Clear();
 
-        for (auto& [color, points] : batched.m_linesByColor)
-        {
-            points.clear();
-        }
-        for (auto& [color, points] : batched.m_trianglesByColor)
-        {
-            points.clear();
-        }
+        // The walk and the flush are timed apart because they are different problems: the
+        // walk is this gem's, the flush is the renderer's and scales with the line count.
+        const bool profiling = jolt_DebugDrawProfile > 0;
+        const auto walkStart = AZStd::chrono::steady_clock::now();
 
-        settings.m_drawLineCB = [](const Physics::DebugDrawVertex& from, const Physics::DebugDrawVertex& to,
-                                   [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
-                                   [[maybe_unused]] float thickness, void* udata)
-        {
-            auto* geometry = static_cast<BatchedGeometry*>(udata);
-            AZStd::vector<AZ::Vector3>& points = geometry->m_linesByColor[from.m_color.ToU32()];
-            points.push_back(from.m_position);
-            points.push_back(to.m_position);
-        };
+        DrawScenes(settings, &sink);
 
-        settings.m_drawTriBatchCB = [](const Physics::DebugDrawVertex* verts, AZ::u32 numVerts, const AZ::u32* indices,
-                                       AZ::u32 numIndices,
-                                       [[maybe_unused]] const AZStd::shared_ptr<AzPhysics::SimulatedBody>& body,
-                                       void* udata)
-        {
-            if (numVerts == 0 || numIndices == 0)
-            {
-                return;
-            }
-
-            // Flattened rather than kept indexed: batches from different shapes cannot
-            // share an index base, and re-basing every batch to merge them would cost more
-            // than the vertices it saves at these sizes.
-            auto* geometry = static_cast<BatchedGeometry*>(udata);
-            AZStd::vector<AZ::Vector3>& points = geometry->m_trianglesByColor[verts[0].m_color.ToU32()];
-            for (AZ::u32 i = 0; i < numIndices; ++i)
-            {
-                if (indices[i] < numVerts)
-                {
-                    points.push_back(verts[indices[i]].m_position);
-                }
-            }
-        };
-
-        settings.m_udata = &batched;
-
-        DebugDrawPhysics(settings);
+        const auto flushStart = AZStd::chrono::steady_clock::now();
 
         // One broadcast per colour, for the whole scene.
-        for (const auto& [packedColor, points] : batched.m_linesByColor)
+        for (const auto& [packedColor, points] : sink.m_linesByColor)
         {
             if (!points.empty())
             {
@@ -280,7 +244,7 @@ namespace JoltPhysics
                     &AzFramework::DebugDisplayRequests::DrawLines, points, color);
             }
         }
-        for (const auto& [packedColor, points] : batched.m_trianglesByColor)
+        for (const auto& [packedColor, points] : sink.m_trianglesByColor)
         {
             if (!points.empty())
             {
@@ -288,6 +252,53 @@ namespace JoltPhysics
                 color.FromU32(packedColor);
                 AzFramework::DebugDisplayRequestBus::Broadcast(
                     &AzFramework::DebugDisplayRequests::DrawTriangles, points, color);
+            }
+        }
+
+        if (profiling && m_debugRenderer)
+        {
+            const auto flushEnd = AZStd::chrono::steady_clock::now();
+            struct Accumulated
+            {
+                int m_frames = 0;
+                double m_walkMs = 0.0;
+                double m_flushMs = 0.0;
+                AZ::u64 m_linePoints = 0;
+                AZ::u64 m_trianglePoints = 0;
+                AZ::u64 m_colours = 0;
+                AZ::u64 m_shapes = 0;
+                AZ::u64 m_triangles = 0;
+            };
+            static Accumulated accumulated;
+
+            accumulated.m_walkMs += AZStd::chrono::duration<double, AZStd::milli>(flushStart - walkStart).count();
+            accumulated.m_flushMs += AZStd::chrono::duration<double, AZStd::milli>(flushEnd - flushStart).count();
+            for (const auto& [color, points] : sink.m_linesByColor)
+            {
+                accumulated.m_linePoints += points.size();
+                accumulated.m_colours += points.empty() ? 0 : 1;
+            }
+            for (const auto& [color, points] : sink.m_trianglesByColor)
+            {
+                accumulated.m_trianglePoints += points.size();
+                accumulated.m_colours += points.empty() ? 0 : 1;
+            }
+            accumulated.m_shapes += m_debugRenderer->GetGeometryDrawCount();
+            accumulated.m_triangles += m_debugRenderer->GetGeometryTriangleCount();
+
+            if (++accumulated.m_frames >= jolt_DebugDrawProfile)
+            {
+                const double frames = accumulated.m_frames;
+                const double lines = accumulated.m_linePoints / 2.0 / frames;
+                const double walkMs = accumulated.m_walkMs / frames;
+                AZ_Printf("JoltDebugDrawProfile",
+                    "over %d frames: walk %.3f ms, flush %.3f ms | shapes %.0f, triangles %.0f, "
+                    "lines %.0f, triangle points %.0f, colours %.1f | walk per line %.1f ns",
+                    accumulated.m_frames, walkMs, accumulated.m_flushMs / frames,
+                    accumulated.m_shapes / frames, accumulated.m_triangles / frames, lines,
+                    accumulated.m_trianglePoints / frames, accumulated.m_colours / frames,
+                    lines > 0.0 ? walkMs * 1.0e6 / lines : 0.0);
+                accumulated = Accumulated{};
             }
         }
     }
@@ -637,9 +648,20 @@ namespace JoltPhysics
 
     void JoltPhysicsSystemComponent::DebugDrawPhysics(const Physics::DebugDrawSettings& settings)
     {
+        // The bus contract: primitives go to the caller's callbacks, one at a time.
+        DrawScenes(settings, nullptr);
+    }
+
+    void JoltPhysicsSystemComponent::DrawScenes(const Physics::DebugDrawSettings& settings, JoltDebugDrawSink* sink)
+    {
         if (!m_physicsSystem)
         {
             return;
+        }
+
+        if (!m_debugRenderer)
+        {
+            m_debugRenderer = AZStd::make_unique<JoltDebugRenderer>();
         }
 
         JPH::BodyManager::DrawSettings drawSettings;
@@ -648,8 +670,9 @@ namespace JoltPhysics
         drawSettings.mDrawShapeColor = JPH::BodyManager::EShapeColor::SleepColor;
         drawSettings.mDrawCenterOfMassTransform = settings.m_drawBodyTransforms;
 
-        JoltDebugRenderer debugRenderer(&settings);
-        debugRenderer.SetCameraPos(Conversions::ToJoltR(settings.m_cameraPos));
+        m_debugRenderer->SetTarget(&settings, sink);
+        m_debugRenderer->SetCameraPosition(settings.m_cameraPos);
+        m_debugRenderer->ResetCounters();
         DistanceBodyDrawFilter bodyDrawFilter(settings.m_cameraPos, settings.m_drawDistance);
 
         for (const auto& scene : m_physicsSystem->GetAllScenes())
@@ -658,14 +681,22 @@ namespace JoltPhysics
             {
                 if (auto* physicsSystem = joltScene->GetJoltPhysicsSystem())
                 {
-                    physicsSystem->DrawBodies(drawSettings, &debugRenderer, &bodyDrawFilter);
+                    physicsSystem->DrawBodies(drawSettings, m_debugRenderer.get(), &bodyDrawFilter);
                     // Constraints carry their own debug view - for vehicles that is the
                     // suspension, wheel poses and an RPM meter, matching what the editor's
                     // wheel preview shows but live in game.
-                    physicsSystem->DrawConstraints(&debugRenderer);
+                    physicsSystem->DrawConstraints(m_debugRenderer.get());
                 }
             }
         }
+
+        // Jolt keeps the swing-cone, pie and tapered-cylinder geometry the constraints
+        // generate, and releases what went unused since the previous call here. A renderer
+        // built per draw never needed this; a long-lived one grows without it.
+        m_debugRenderer->NextFrame();
+
+        // The settings are the caller's and die with this call; never leave them pointed at.
+        m_debugRenderer->SetTarget(nullptr, nullptr);
     }
 
 } // namespace JoltPhysics

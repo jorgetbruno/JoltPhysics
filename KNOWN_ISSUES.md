@@ -85,10 +85,20 @@ deviations from PhysX behavior.
   needed the mesh collider's decomposition bake, since a prism's concavity lives in a
   plane. See DIVERGENCES "Shape collider".
 
-- **`jolt_Debug` still re-tessellates every shape each frame.** Primitives are now
-  batched by colour into a handful of broadcasts per frame rather than one per triangle,
-  which was the dominant cost; the remaining work is Jolt's full `DebugRenderer`
-  interface, which caches a shape's geometry once and redraws it by handle.
+- **[resolved 2026-09-13]** *`jolt_Debug` unpacked every shape each frame.* Measured on a
+  city level of 648 shapes and 411,000 triangles, the toggle cost 50 ms a frame - 130 fps
+  down to 17 - which made it unusable on exactly the scenes it exists to inspect. The
+  entry used to call this polish. `JoltDebugRenderer` now implements Jolt's full
+  `DebugRenderer`: each shape's unique edges are built once when Jolt creates the batch and
+  only transformed per frame, the renderer lives with the system component instead of being
+  rebuilt (and re-tessellating the unit primitives) on every draw, and the lines go straight
+  into per-colour buffers rather than through a callback and a hash lookup each. Same level,
+  after: 12 ms a frame, 51 fps. Lines fell from 1,232,002 to 640,986, since every interior
+  edge had been drawn twice, and the walk from 27 ns a line to 9.7.
+
+  What is left is mostly the flush, 7 ms of handing 1.3 million points to the renderer,
+  which scales with the line count and is not this gem's code. `jolt_DebugDrawProfile <frames>`
+  prints the split, so the next change can be measured the same way.
 
 ## Build / Tooling
 

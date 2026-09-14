@@ -20,6 +20,7 @@
 
 #include <ForceRegion/JoltWindProvider.h>
 #include <Joint/JoltJointHelpers.h>
+#include <Debug/JoltDebugRenderer.h>
 
 namespace JoltPhysics
 {
@@ -133,8 +134,17 @@ namespace JoltPhysics
         //! Draws all collider shapes via AzFramework's debug display (jolt_Debug cvar).
         void DrawColliderShapes();
 
+        //! Every scene's bodies and constraints into the renderer, which sends them to the
+        //! sink when one is given and to the settings' callbacks otherwise.
+        void DrawScenes(const Physics::DebugDrawSettings& settings, JoltDebugDrawSink* sink);
+
         bool m_enabled = false;
         JoltSystem* m_physicsSystem = nullptr;
+
+        //! Built on first use and kept: Jolt allows one renderer at a time, its constructor
+        //! tessellates the unit primitives, and shapes cache batches built by it. Destroyed
+        //! in Deactivate. See JoltDebugRenderer for why nothing else may draw shapes.
+        AZStd::unique_ptr<JoltDebugRenderer> m_debugRenderer;
         JoltDefaultWorldComponent m_defaultWorldComponent;
 
         //! Asset handlers owned by this component (currently just the .joltmesh handler).
